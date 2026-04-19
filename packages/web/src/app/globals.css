@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ── Surfaces ─────────────────────────────────── */
+    --background:      222 47% 11%;     /* #0f172a — page bg      */
+    --foreground:      214 32% 91%;     /* #f1f5f9 — light text   */
+    --card:            215 33% 17%;     /* #1e293b — surface      */
+    --card-foreground: 214 32% 91%;
+
+    /* ── Primary (#0369a1) ───────────────────────── */
+    --primary:            201 96% 32%;
+    --primary-foreground: 0 0% 100%;
+
+    /* ── Secondary / Muted ───────────────────────── */
+    --secondary:            215 30% 21%;  /* #253347 — elevated   */
+    --secondary-foreground: 214 32% 91%;
+    --muted:                215 30% 21%;
+    --muted-foreground:     215 25% 65%;  /* #94a3b8               */
+
+    /* ── Accent (hover backgrounds) ─────────────── */
+    --accent:            215 30% 21%;
+    --accent-foreground: 214 32% 91%;
+
+    /* ── Destructive ─────────────────────────────── */
+    --destructive:            0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* ── Chrome ──────────────────────────────────── */
+    --border: 215 31% 25%;     /* #2d3f55 */
+    --input:  215 31% 25%;
+    --ring:   201 96% 32%;
+
+    /* ── Sidebar ─────────────────────────────────── */
+    --sidebar:                  215 33% 17%;   /* #1e293b               */
+    --sidebar-foreground:       214 32% 91%;
+    --sidebar-border:           215 31% 25%;   /* #2d3f55               */
+    --sidebar-active:           201 96% 32%;   /* #0369a1 primary       */
+    --sidebar-active-foreground: 0 0% 100%;    /* white                 */
+    --sidebar-muted:            215 25% 65%;   /* #94a3b8               */
+
+    /* ── Radius ──────────────────────────────────── */
+    --radius: 0.5rem;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  *,
+  *::before,
+  *::after {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar        { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track  { background: transparent; }
+  ::-webkit-scrollbar-thumb  { background: hsl(var(--border)); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+}

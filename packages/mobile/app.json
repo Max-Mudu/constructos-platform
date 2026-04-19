@@ -1,0 +1,71 @@
+{
+  "expo": {
+    "name": "ConstructOS",
+    "slug": "constructos",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f172a"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.constructos.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "ConstructOS uses the camera to photograph delivery receipts and site materials.",
+        "NSPhotoLibraryUsageDescription": "ConstructOS saves delivery photos and downloaded reports to your photo library.",
+        "NSPhotoLibraryAddUsageDescription": "ConstructOS saves delivery photos to your photo library.",
+        "NSLocationWhenInUseUsageDescription": "ConstructOS may use your location to verify on-site attendance check-ins."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f172a"
+      },
+      "package": "com.constructos.app",
+      "versionCode": 1,
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "NOTIFICATIONS",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED",
+        "ACCESS_NETWORK_STATE",
+        "INTERNET"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#3b82f6"
+        }
+      ]
+    ],
+    "scheme": "constructos",
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "36ad1557-da2f-4119-8dd2-3f8b282e5ce5"
+      },
+      "router": {
+        "origin": false
+      }
+    },
+    "owner": "dalmarmudu"
+  }
+}

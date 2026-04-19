@@ -1,0 +1,1275 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  super_admin
+  company_admin
+  finance_officer
+  project_manager
+  site_supervisor
+  contractor
+  consultant
+  worker
+  viewer
+}
+
+enum ConsultantType {
+  engineer
+  architect
+  quantity_surveyor
+  other
+}
+
+enum ProjectStatus {
+  planning
+  active
+  on_hold
+  completed
+  archived
+}
+
+enum AttendanceStatus {
+  present
+  absent
+  late
+  half_day
+  excused
+}
+
+enum ContractorScheduleStatus {
+  pending
+  active
+  suspended
+  completed
+  cancelled
+}
+
+enum ScheduleTaskStatus {
+  not_started
+  in_progress
+  delayed
+  blocked
+  completed
+}
+
+enum MilestoneStatus {
+  pending
+  in_progress
+  completed
+  cancelled
+}
+
+enum InstructionStatus {
+  open
+  acknowledged
+  in_progress
+  resolved
+  rejected
+}
+
+enum InstructionPriority {
+  low
+  medium
+  high
+  critical
+}
+
+enum InstructionType {
+  instruction
+  recommendation
+}
+
+enum DrawingStatus {
+  draft
+  issued_for_review
+  issued_for_construction
+  superseded
+  archived
+}
+
+enum BudgetCategory {
+  labour
+  materials
+  equipment
+  subcontractors
+  consultants
+  marketing
+  overheads
+  permits_statutory
+  variations
+  contingency
+}
+
+enum BudgetStatus {
+  draft
+  approved
+  locked
+}
+
+enum InvoiceStatus {
+  draft
+  submitted
+  approved
+  partially_paid
+  paid
+  overdue
+  disputed
+  cancelled
+}
+
+enum InvoiceVendorType {
+  contractor
+  consultant
+  supplier
+  marketing
+  internal
+  other
+}
+
+enum FinanceSourceType {
+  sales_revenue
+  investor_funds
+  loan
+  grant
+  other
+}
+
+enum AuditAction {
+  create
+  update
+  delete
+  login
+  logout
+  export
+  view_finance
+  permission_denied
+}
+
+enum VariationStatus {
+  pending
+  approved
+  rejected
+}
+
+enum DeliveryCondition {
+  good
+  damaged
+  partial
+  incorrect
+}
+
+enum InspectionStatus {
+  pending
+  passed
+  failed
+  waived
+}
+
+enum AcceptanceStatus {
+  accepted
+  partially_accepted
+  rejected
+}
+
+enum WorkerEmploymentStatus {
+  active
+  inactive
+  suspended
+}
+
+// ─── Companies & Users ───────────────────────────────────────────────────────
+
+model Company {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  country     String?
+  currency    String   @default("USD")
+  timezone    String   @default("UTC")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users               User[]
+  projects            Project[]
+  workers             Worker[]
+  workerAssignments   WorkerAssignment[]
+  contractors         Contractor[]
+  suppliers           Supplier[]
+  budgets             Budget[]
+  invoices            Invoice[]
+  financeInflows      FinanceInflow[]
+  notifications               Notification[]
+  notificationPreferences     NotificationPreference[]
+  auditLogs           AuditLog[]
+  deliveryRecords     DeliveryRecord[]
+  pushTokens          PushToken[]
+
+  @@map("companies")
+}
+
+model User {
+  id               String    @id @default(uuid())
+  companyId        String
+  email            String    @unique
+  passwordHash     String
+  firstName        String
+  lastName         String
+  phone            String?
+  role             UserRole
+  consultantType   ConsultantType?
+  canViewFinance   Boolean   @default(false)
+  isActive         Boolean   @default(true)
+  lastLoginAt      DateTime?
+  failedLoginCount Int       @default(0)
+  lockedAt         DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  company          Company   @relation(fields: [companyId], references: [id])
+  refreshTokens    RefreshToken[]
+  projectMembers   ProjectMember[]
+  auditLogs        AuditLog[]
+  notifications               Notification[]
+  notificationPreferences     NotificationPreference[]
+  labourEntries       LabourEntry[]      @relation("RegisteredBy")
+  attendanceRecords   AttendanceRecord[] @relation("RecordedBy")
+  dailyTargets        DailyTarget[]      @relation("SetBy")
+  approvedTargets     DailyTarget[]      @relation("ApprovedBy")
+  uploadedDrawings      DrawingRevision[]       @relation("UploadedBy")
+  drawingsCreated       Drawing[]               @relation("DrawingsCreatedBy")
+  drawingRevApprovals   DrawingRevision[]       @relation("DrawingRevisionApprovedBy")
+  drawingComments       DrawingComment[]        @relation("DrawingCommentUser")
+  instructionsIssued    ConsultantInstruction[] @relation("InstructionsIssuedBy")
+  consultantAssignments ConsultantAssignment[]
+  financeInflows   FinanceInflow[]  @relation("RecordedBy")
+  receivedDeliveries DeliveryRecord[] @relation("ReceivedDeliveries")
+  workerAssignments WorkerAssignment[] @relation("WorkerAssignedBy")
+  workPackagesCreated  WorkPackage[]  @relation("WorkPackageCreatedBy")
+  scheduleTasksCreated ScheduleTask[] @relation("ScheduleTaskCreatedBy")
+  weeklyPlansCreated   WeeklyPlan[]   @relation("WeeklyPlanCreatedBy")
+  budgetsCreated           Budget[]         @relation("BudgetsCreatedBy")
+  budgetsApproved          Budget[]         @relation("BudgetsApprovedBy")
+  invoicesCreated          Invoice[]        @relation("InvoicesCreatedBy")
+  invoicesApproved         Invoice[]        @relation("InvoicesApprovedBy")
+  invoiceConsultant        Invoice[]        @relation("InvoiceConsultant")
+  invoicePaymentsRecorded  InvoicePayment[] @relation("InvoicePaymentsRecordedBy")
+  worker                   Worker?
+  pushTokens               PushToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  userId      String
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+// ─── Projects & Sites ─────────────────────────────────────────────────────────
+
+model Project {
+  id          String        @id @default(uuid())
+  companyId   String
+  name        String
+  code        String?
+  description String?
+  status      ProjectStatus @default(planning)
+  startDate   DateTime?
+  endDate     DateTime?
+  location    String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  company           Company            @relation(fields: [companyId], references: [id])
+  jobSites          JobSite[]
+  projectMembers    ProjectMember[]
+  workerAssignments WorkerAssignment[]
+  labourEntries     LabourEntry[]
+  attendanceRecords AttendanceRecord[]
+  dailyTargets      DailyTarget[]
+  contractorSchedules ContractorSchedule[]
+  consultantAssignments ConsultantAssignment[]
+  drawings          Drawing[]
+  budgets           Budget[]
+  invoices          Invoice[]
+  financeInflows    FinanceInflow[]
+  deliveryRecords   DeliveryRecord[]
+  workPackages           WorkPackage[]
+  scheduleTasks          ScheduleTask[]
+  weeklyPlans            WeeklyPlan[]
+  consultantInstructions ConsultantInstruction[]
+
+  @@map("projects")
+}
+
+model JobSite {
+  id          String   @id @default(uuid())
+  companyId   String
+  projectId   String
+  name        String
+  address     String?
+  latitude    Decimal? @db.Decimal(10, 7)
+  longitude   Decimal? @db.Decimal(10, 7)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  project           Project            @relation(fields: [projectId], references: [id])
+  projectMembers    ProjectMember[]
+  workerAssignments WorkerAssignment[]
+  labourEntries     LabourEntry[]
+  attendanceRecords AttendanceRecord[]
+  dailyTargets      DailyTarget[]
+  deliveryRecords        DeliveryRecord[]
+  workPackages           WorkPackage[]
+  scheduleTasks          ScheduleTask[]
+  weeklyPlans            WeeklyPlan[]
+  drawings               Drawing[]
+  consultantInstructions ConsultantInstruction[]
+  invoices               Invoice[]
+
+  @@map("job_sites")
+}
+
+model ProjectMember {
+  id         String    @id @default(uuid())
+  companyId  String
+  projectId  String
+  userId     String
+  siteId     String?
+  assignedAt DateTime  @default(now())
+  removedAt  DateTime?
+
+  project    Project   @relation(fields: [projectId], references: [id])
+  user       User      @relation(fields: [userId], references: [id])
+  site       JobSite?  @relation(fields: [siteId], references: [id])
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+// ─── Labour & Attendance ──────────────────────────────────────────────────────
+
+model Worker {
+  id                    String                 @id @default(uuid())
+  companyId             String
+  firstName             String
+  lastName              String
+  email                 String?
+  phone                 String?
+  idNumber              String?
+  trade                 String?
+  dailyWage             Decimal?               @db.Decimal(12, 2)
+  currency              String                 @default("USD")
+  employmentStatus      WorkerEmploymentStatus @default(active)
+  isActive              Boolean                @default(true)
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  notes                 String?
+  photoUrl              String?
+  userId                String?                @unique  // linked platform user (worker role)
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  company           Company              @relation(fields: [companyId], references: [id])
+  user              User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  assignments       WorkerAssignment[]
+  labourEntries     LabourEntry[]
+  attendanceRecords AttendanceRecord[]
+  dailyTargets      DailyTarget[]
+
+  @@map("workers")
+}
+
+model WorkerAssignment {
+  id           String    @id @default(uuid())
+  companyId    String
+  projectId    String
+  siteId       String
+  workerId     String
+  assignedById String
+  assignedAt   DateTime  @default(now())
+  removedAt    DateTime?
+
+  company     Company  @relation(fields: [companyId], references: [id])
+  project     Project  @relation(fields: [projectId], references: [id])
+  site        JobSite  @relation(fields: [siteId], references: [id])
+  worker      Worker   @relation(fields: [workerId], references: [id])
+  assignedBy  User     @relation("WorkerAssignedBy", fields: [assignedById], references: [id])
+
+  @@unique([siteId, workerId])
+  @@map("worker_assignments")
+}
+
+model LabourEntry {
+  id             String   @id @default(uuid())
+  companyId      String
+  projectId      String
+  siteId         String
+  workerId       String
+  registeredById String
+  date           DateTime @db.Date
+  hoursWorked    Decimal  @db.Decimal(5, 2)
+  dailyRate      Decimal  @db.Decimal(12, 2)
+  currency       String   @default("USD")
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  project        Project   @relation(fields: [projectId], references: [id])
+  site           JobSite   @relation(fields: [siteId], references: [id])
+  worker         Worker    @relation(fields: [workerId], references: [id])
+  registeredBy   User      @relation("RegisteredBy", fields: [registeredById], references: [id])
+  invoices       Invoice[]
+
+  @@unique([siteId, workerId, date])
+  @@map("labour_entries")
+}
+
+model AttendanceRecord {
+  id           String           @id @default(uuid())
+  companyId    String
+  projectId    String
+  siteId       String
+  workerId     String
+  date         DateTime         @db.Date
+  status       AttendanceStatus
+  checkInTime  String?
+  checkOutTime String?
+  notes        String?
+  recordedById String
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  project      Project   @relation(fields: [projectId], references: [id])
+  site         JobSite   @relation(fields: [siteId], references: [id])
+  worker       Worker    @relation(fields: [workerId], references: [id])
+  recordedBy   User      @relation("RecordedBy", fields: [recordedById], references: [id])
+
+  @@unique([siteId, workerId, date])
+  @@map("attendance_records")
+}
+
+model DailyTarget {
+  id               String    @id @default(uuid())
+  companyId        String
+  projectId        String
+  siteId           String
+  workerId         String?
+  date             DateTime  @db.Date
+  description      String
+  targetValue      Decimal   @db.Decimal(10, 2)
+  targetUnit       String
+  actualValue      Decimal?  @db.Decimal(10, 2)
+  notes            String?
+  setById          String
+  approvedById     String?
+  approvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  project          Project   @relation(fields: [projectId], references: [id])
+  site             JobSite   @relation(fields: [siteId], references: [id])
+  worker           Worker?   @relation(fields: [workerId], references: [id])
+  setBy            User      @relation("SetBy", fields: [setById], references: [id])
+  approvedBy       User?     @relation("ApprovedBy", fields: [approvedById], references: [id])
+
+  @@map("daily_targets")
+}
+
+// ─── Contractors ──────────────────────────────────────────────────────────────
+
+model Contractor {
+  id                 String   @id @default(uuid())
+  companyId          String
+  userId             String?
+  name               String
+  contactPerson      String?
+  email              String?
+  phone              String?
+  registrationNumber String?
+  tradeSpecialization String?
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  company      Company              @relation(fields: [companyId], references: [id])
+  schedules    ContractorSchedule[]
+  invoices     Invoice[]
+  workPackages           WorkPackage[]
+  scheduleTasks          ScheduleTask[]
+  weeklyPlans            WeeklyPlan[]
+  consultantInstructions ConsultantInstruction[]
+
+  @@map("contractors")
+}
+
+model ContractorSchedule {
+  id            String                   @id @default(uuid())
+  companyId     String
+  projectId     String
+  contractorId  String
+  scopeOfWork   String
+  startDate     DateTime                 @db.Date
+  endDate       DateTime                 @db.Date
+  contractValue Decimal?                 @db.Decimal(15, 2)
+  currency      String                   @default("USD")
+  status        ContractorScheduleStatus @default(pending)
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+
+  project     Project                    @relation(fields: [projectId], references: [id])
+  contractor  Contractor                 @relation(fields: [contractorId], references: [id])
+  milestones  ContractorMilestone[]
+
+  @@map("contractor_schedules")
+}
+
+model ContractorMilestone {
+  id           String    @id @default(uuid())
+  scheduleId   String
+  name         String
+  description  String?
+  dueDate      DateTime  @db.Date
+  completedAt  DateTime?
+  isComplete   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  schedule     ContractorSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@map("contractor_milestones")
+}
+
+// ─── Consultants ──────────────────────────────────────────────────────────────
+
+model ConsultantAssignment {
+  id             String         @id @default(uuid())
+  companyId      String
+  projectId      String
+  userId         String
+  consultantType ConsultantType
+  scope          String?
+  startDate      DateTime?      @db.Date
+  endDate        DateTime?      @db.Date
+  feeAgreed      Decimal?       @db.Decimal(15, 2)
+  feePaid        Decimal        @default(0) @db.Decimal(15, 2)
+  currency       String         @default("USD")
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  project        Project        @relation(fields: [projectId], references: [id])
+  user           User           @relation(fields: [userId], references: [id])
+
+  @@map("consultant_assignments")
+}
+
+// ─── Drawings ─────────────────────────────────────────────────────────────────
+
+model Drawing {
+  id                String        @id @default(uuid())
+  companyId         String
+  projectId         String
+  siteId            String?
+  drawingNumber     String
+  title             String
+  discipline        String?
+  currentRevisionId String?
+  createdById       String
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  project           Project            @relation(fields: [projectId], references: [id])
+  site              JobSite?           @relation(fields: [siteId], references: [id])
+  createdBy         User               @relation("DrawingsCreatedBy", fields: [createdById], references: [id])
+  revisions         DrawingRevision[]
+  comments          DrawingComment[]
+  consultantInstructions ConsultantInstruction[]
+
+  @@unique([projectId, drawingNumber])
+  @@map("drawings")
+}
+
+model DrawingRevision {
+  id             String        @id @default(uuid())
+  drawingId      String
+  companyId      String
+  revisionNumber String
+  fileUrl        String
+  fileKey        String
+  fileName       String
+  fileSizeBytes  Int
+  fileType       String
+  status         DrawingStatus @default(draft)
+  issueDate      DateTime?     @db.Date
+  uploadedById   String
+  approvedById   String?
+  approvedAt     DateTime?
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  drawing        Drawing           @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  uploadedBy     User              @relation("UploadedBy", fields: [uploadedById], references: [id])
+  approvedBy     User?             @relation("DrawingRevisionApprovedBy", fields: [approvedById], references: [id])
+  comments       DrawingComment[]
+  consultantInstructions ConsultantInstruction[]
+
+  @@map("drawing_revisions")
+}
+
+model DrawingComment {
+  id         String   @id @default(uuid())
+  companyId  String
+  drawingId  String
+  revisionId String
+  userId     String
+  text       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  drawing    Drawing         @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  revision   DrawingRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  user       User            @relation("DrawingCommentUser", fields: [userId], references: [id])
+
+  @@map("drawing_comments")
+}
+
+// ─── Consultant Instructions ──────────────────────────────────────────────────
+
+model ConsultantInstruction {
+  id                 String              @id @default(uuid())
+  companyId          String
+  projectId          String
+  siteId             String?
+  contractorId       String?
+  issuedById         String
+  type               InstructionType
+  title              String
+  category           String?
+  priority           InstructionPriority @default(medium)
+  status             InstructionStatus   @default(open)
+  description        String?
+  issuedDate         DateTime            @db.Date
+  targetActionDate   DateTime?           @db.Date
+  drawingId          String?
+  revisionId         String?
+  milestoneId        String?
+  workPackageId      String?
+  contractorResponse String?
+  resolutionNotes    String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  project     Project            @relation(fields: [projectId], references: [id])
+  site        JobSite?           @relation(fields: [siteId], references: [id])
+  contractor  Contractor?        @relation(fields: [contractorId], references: [id])
+  issuedBy    User               @relation("InstructionsIssuedBy", fields: [issuedById], references: [id])
+  drawing     Drawing?           @relation(fields: [drawingId], references: [id])
+  revision    DrawingRevision?   @relation(fields: [revisionId], references: [id])
+  milestone   ScheduleMilestone? @relation(fields: [milestoneId], references: [id])
+  workPackage WorkPackage?       @relation(fields: [workPackageId], references: [id])
+  attachments InstructionAttachment[]
+
+  @@map("consultant_instructions")
+}
+
+model InstructionAttachment {
+  id            String                @id @default(uuid())
+  instructionId String
+  companyId     String
+  fileUrl       String
+  fileKey       String
+  fileName      String
+  fileSizeBytes Int
+  fileType      String
+  uploadedById  String
+  createdAt     DateTime              @default(now())
+
+  instruction   ConsultantInstruction @relation(fields: [instructionId], references: [id], onDelete: Cascade)
+
+  @@map("instruction_attachments")
+}
+
+// ─── Budgeting ────────────────────────────────────────────────────────────────
+
+model Budget {
+  id           String       @id @default(uuid())
+  companyId    String
+  projectId    String       @unique
+  name         String
+  currency     String       @default("USD")
+  notes        String?
+  status       BudgetStatus @default(draft)
+  createdById  String?
+  approvedById String?
+  approvedAt   DateTime?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  company         Company           @relation(fields: [companyId], references: [id])
+  project         Project           @relation(fields: [projectId], references: [id])
+  createdBy       User?             @relation("BudgetsCreatedBy", fields: [createdById], references: [id])
+  approvedBy      User?             @relation("BudgetsApprovedBy", fields: [approvedById], references: [id])
+  lineItems       BudgetLineItem[]
+  variationOrders VariationOrder[]
+
+  @@map("budgets")
+}
+
+model BudgetLineItem {
+  id              String         @id @default(uuid())
+  budgetId        String
+  companyId       String
+  projectId       String
+  category        BudgetCategory
+  description     String
+  quantity        Decimal?       @db.Decimal(12, 3)
+  unit            String?
+  unitRate        Decimal?       @db.Decimal(15, 2)
+  budgetedAmount  Decimal        @db.Decimal(15, 2)
+  committedAmount Decimal        @default(0) @db.Decimal(15, 2)
+  actualSpend     Decimal        @default(0) @db.Decimal(15, 2)
+  currency        String         @default("USD")
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  budget                Budget                @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  consultantCostEntry   ConsultantCostEntry?
+  marketingBudgetEntry  MarketingBudgetEntry?
+  invoices              Invoice[]
+  deliveryRecords       DeliveryRecord[]
+
+  @@map("budget_line_items")
+}
+
+model ConsultantCostEntry {
+  id               String         @id @default(uuid())
+  budgetLineItemId String         @unique
+  companyId        String
+  projectId        String
+  consultantType   ConsultantType
+  consultantName   String
+  firmName         String?
+  feeAgreed        Decimal        @db.Decimal(15, 2)
+  feePaid          Decimal        @default(0) @db.Decimal(15, 2)
+  feeOutstanding   Decimal        @default(0) @db.Decimal(15, 2)
+  currency         String         @default("USD")
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  budgetLineItem   BudgetLineItem @relation(fields: [budgetLineItemId], references: [id], onDelete: Cascade)
+  invoices         Invoice[]
+
+  @@map("consultant_cost_entries")
+}
+
+model MarketingBudgetEntry {
+  id               String   @id @default(uuid())
+  budgetLineItemId String   @unique
+  companyId        String
+  projectId        String
+  campaignName     String
+  channel          String
+  vendorAgency     String?
+  budgetedAmount   Decimal  @db.Decimal(15, 2)
+  actualSpend      Decimal  @default(0) @db.Decimal(15, 2)
+  paidAmount       Decimal  @default(0) @db.Decimal(15, 2)
+  expectedRoi      String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  budgetLineItem   BudgetLineItem @relation(fields: [budgetLineItemId], references: [id], onDelete: Cascade)
+  invoices         Invoice[]
+
+  @@map("marketing_budget_entries")
+}
+
+model VariationOrder {
+  id              String          @id @default(uuid())
+  budgetId        String
+  companyId       String
+  projectId       String
+  referenceNumber String
+  description     String
+  amount          Decimal         @db.Decimal(15, 2)
+  direction       String          @default("addition")
+  status          VariationStatus @default(pending)
+  requestedById   String
+  approvedById    String?
+  approvedAt      DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  budget          Budget          @relation(fields: [budgetId], references: [id])
+  invoices        Invoice[]
+
+  @@map("variation_orders")
+}
+
+// ─── Invoicing ────────────────────────────────────────────────────────────────
+
+model Invoice {
+  id                     String            @id @default(uuid())
+  companyId              String
+  projectId              String
+  siteId                 String?
+  invoiceNumber          String
+  vendorType             InvoiceVendorType
+  contractorId           String?
+  supplierId             String?
+  consultantUserId       String?
+  vendorName             String
+  budgetLineItemId       String?
+  variationOrderId       String?
+  deliveryRecordId       String?
+  labourEntryId          String?
+  marketingBudgetEntryId String?
+  consultantCostEntryId  String?
+  subtotal               Decimal           @db.Decimal(15, 2)
+  taxAmount              Decimal           @default(0) @db.Decimal(15, 2)
+  totalAmount            Decimal           @db.Decimal(15, 2)
+  paidAmount             Decimal           @default(0) @db.Decimal(15, 2)
+  currency               String            @default("USD")
+  issueDate              DateTime          @db.Date
+  dueDate                DateTime          @db.Date
+  status                 InvoiceStatus     @default(draft)
+  approvedById           String?
+  approvedAt             DateTime?
+  paidAt                 DateTime?
+  notes                  String?
+  createdById            String?
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
+
+  company              Company               @relation(fields: [companyId], references: [id])
+  project              Project               @relation(fields: [projectId], references: [id])
+  site                 JobSite?              @relation(fields: [siteId], references: [id])
+  contractor           Contractor?           @relation(fields: [contractorId], references: [id])
+  supplier             Supplier?             @relation(fields: [supplierId], references: [id])
+  consultantUser       User?                 @relation("InvoiceConsultant", fields: [consultantUserId], references: [id])
+  createdBy            User?                 @relation("InvoicesCreatedBy", fields: [createdById], references: [id])
+  approvedBy           User?                 @relation("InvoicesApprovedBy", fields: [approvedById], references: [id])
+  budgetLineItem       BudgetLineItem?       @relation(fields: [budgetLineItemId], references: [id])
+  variationOrder       VariationOrder?       @relation(fields: [variationOrderId], references: [id])
+  deliveryRecord       DeliveryRecord?       @relation("InvoiceDelivery", fields: [deliveryRecordId], references: [id])
+  labourEntry          LabourEntry?          @relation(fields: [labourEntryId], references: [id])
+  marketingBudgetEntry MarketingBudgetEntry? @relation(fields: [marketingBudgetEntryId], references: [id])
+  consultantCostEntry  ConsultantCostEntry?  @relation(fields: [consultantCostEntryId], references: [id])
+  lineItems            InvoiceLineItem[]
+  payments             InvoicePayment[]
+  deliveryRecords      DeliveryRecord[]      @relation("DeliveryInvoice")
+
+  @@unique([companyId, invoiceNumber])
+  @@map("invoices")
+}
+
+model InvoiceLineItem {
+  id          String   @id @default(uuid())
+  invoiceId   String
+  companyId   String
+  description String
+  quantity    Decimal  @db.Decimal(12, 3)
+  unitRate    Decimal  @db.Decimal(15, 2)
+  amount      Decimal  @db.Decimal(15, 2)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_line_items")
+}
+
+model InvoicePayment {
+  id           String   @id @default(uuid())
+  invoiceId    String
+  companyId    String
+  amount       Decimal  @db.Decimal(15, 2)
+  currency     String   @default("USD")
+  paymentDate  DateTime @db.Date
+  method       String
+  reference    String?
+  notes        String?
+  recordedById String
+  createdAt    DateTime @default(now())
+
+  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  recordedBy   User     @relation("InvoicePaymentsRecordedBy", fields: [recordedById], references: [id])
+
+  @@map("invoice_payments")
+}
+
+// ─── Private Finance (isolated) ───────────────────────────────────────────────
+
+model FinanceInflow {
+  id              String            @id @default(uuid())
+  companyId       String
+  projectId       String?
+  sourceType      FinanceSourceType
+  sourceName      String
+  amount          Decimal           @db.Decimal(15, 2)
+  currency        String            @default("USD")
+  transactionDate DateTime          @db.Date
+  referenceNumber String?
+  notes           String?
+  recordedById    String
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  company         Company           @relation(fields: [companyId], references: [id])
+  project         Project?          @relation(fields: [projectId], references: [id])
+  recordedBy      User              @relation("RecordedBy", fields: [recordedById], references: [id])
+
+  @@map("finance_inflows")
+}
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+
+model Notification {
+  id         String    @id @default(uuid())
+  companyId  String
+  userId     String
+  type       String
+  title      String
+  body       String
+  entityType String?
+  entityId   String?
+  isRead     Boolean   @default(false)
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  company    Company  @relation(fields: [companyId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id        String   @id @default(uuid())
+  companyId String
+  userId    String
+  type      String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company  @relation(fields: [companyId], references: [id])
+
+  @@unique([userId, type])
+  @@map("notification_preferences")
+}
+
+// ─── Audit Logs (insert-only) ─────────────────────────────────────────────────
+
+model AuditLog {
+  id            String      @id @default(uuid())
+  companyId     String?
+  userId        String?
+  userEmail     String?
+  userRole      String?
+  action        AuditAction
+  entityType    String?
+  entityId      String?
+  changesBefore Json?
+  changesAfter  Json?
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime    @default(now())
+
+  company       Company?    @relation(fields: [companyId], references: [id])
+  user          User?       @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+// ─── Schedule / Progress Tracking ────────────────────────────────────────────
+
+model WorkPackage {
+  id           String             @id @default(uuid())
+  companyId    String
+  projectId    String
+  siteId       String
+  contractorId String
+  name         String
+  description  String?
+  area         String?
+  startDate    DateTime?          @db.Date
+  endDate      DateTime?          @db.Date
+  status       ScheduleTaskStatus @default(not_started)
+  createdById  String
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  project     Project    @relation(fields: [projectId], references: [id])
+  site        JobSite    @relation(fields: [siteId], references: [id])
+  contractor  Contractor @relation(fields: [contractorId], references: [id])
+  createdBy   User       @relation("WorkPackageCreatedBy", fields: [createdById], references: [id])
+  tasks       ScheduleTask[]
+  consultantInstructions ConsultantInstruction[]
+
+  @@map("work_packages")
+}
+
+model ScheduleTask {
+  id                String             @id @default(uuid())
+  companyId         String
+  projectId         String
+  siteId            String
+  contractorId      String
+  workPackageId     String?
+  title             String
+  description       String?
+  area              String?
+  materialsRequired String?
+  equipmentRequired String?
+  plannedStartDate  DateTime?          @db.Date
+  plannedEndDate    DateTime?          @db.Date
+  actualStartDate   DateTime?          @db.Date
+  actualEndDate     DateTime?          @db.Date
+  plannedProgress   Decimal?           @db.Decimal(5, 2)
+  actualProgress    Decimal?           @db.Decimal(5, 2)
+  status            ScheduleTaskStatus @default(not_started)
+  delayReason       String?
+  comments          String?
+  createdById       String
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  project      Project      @relation(fields: [projectId], references: [id])
+  site         JobSite      @relation(fields: [siteId], references: [id])
+  contractor   Contractor   @relation(fields: [contractorId], references: [id])
+  workPackage  WorkPackage? @relation(fields: [workPackageId], references: [id])
+  createdBy    User         @relation("ScheduleTaskCreatedBy", fields: [createdById], references: [id])
+  milestones   ScheduleMilestone[]
+  outgoingDeps ScheduleDependency[] @relation("DependentTask")
+  incomingDeps ScheduleDependency[] @relation("DependsOnTask")
+  weeklyItems  WeeklyPlanItem[]
+
+  @@map("schedule_tasks")
+}
+
+model ScheduleMilestone {
+  id          String          @id @default(uuid())
+  companyId   String
+  projectId   String
+  siteId      String
+  taskId      String
+  name        String
+  description String?
+  plannedDate DateTime        @db.Date
+  actualDate  DateTime?       @db.Date
+  status      MilestoneStatus @default(pending)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  task        ScheduleTask    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  consultantInstructions ConsultantInstruction[]
+
+  @@map("schedule_milestones")
+}
+
+model ScheduleDependency {
+  id              String @id @default(uuid())
+  companyId       String
+  taskId          String
+  dependsOnTaskId String
+  createdAt       DateTime @default(now())
+
+  task          ScheduleTask @relation("DependentTask",   fields: [taskId],          references: [id], onDelete: Cascade)
+  dependsOnTask ScheduleTask @relation("DependsOnTask",   fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@map("schedule_dependencies")
+}
+
+model WeeklyPlan {
+  id            String   @id @default(uuid())
+  companyId     String
+  projectId     String
+  siteId        String
+  contractorId  String
+  weekStartDate DateTime @db.Date
+  notes         String?
+  createdById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  project    Project    @relation(fields: [projectId], references: [id])
+  site       JobSite    @relation(fields: [siteId], references: [id])
+  contractor Contractor @relation(fields: [contractorId], references: [id])
+  createdBy  User       @relation("WeeklyPlanCreatedBy", fields: [createdById], references: [id])
+  items      WeeklyPlanItem[]
+
+  @@unique([siteId, contractorId, weekStartDate])
+  @@map("weekly_plans")
+}
+
+model WeeklyPlanItem {
+  id           String   @id @default(uuid())
+  weeklyPlanId String
+  taskId       String
+  plannedHours Decimal? @db.Decimal(6, 2)
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  weeklyPlan WeeklyPlan   @relation(fields: [weeklyPlanId], references: [id], onDelete: Cascade)
+  task       ScheduleTask @relation(fields: [taskId],       references: [id], onDelete: Cascade)
+
+  @@unique([weeklyPlanId, taskId])
+  @@map("weekly_plan_items")
+}
+
+// ─── Suppliers ────────────────────────────────────────────────────────────────
+
+model Supplier {
+  id            String   @id @default(uuid())
+  companyId     String
+  name          String
+  contactPerson String?
+  email         String?
+  phone         String?
+  address       String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company       Company   @relation(fields: [companyId], references: [id])
+  invoices      Invoice[]
+
+  @@map("suppliers")
+}
+
+// ─── Deliveries ───────────────────────────────────────────────────────────────
+
+model DeliveryRecord {
+  id                  String            @id @default(uuid())
+  companyId           String
+  projectId           String
+  siteId              String
+
+  // Supplier / vendor
+  supplierName        String
+  supplierContact     String?
+
+  // Delivery logistics
+  deliveryDate        DateTime          @db.Date
+  deliveryTime        String?           // "HH:MM" 24-hour
+  driverName          String?
+  vehicleRegistration String?
+
+  // Reference numbers
+  purchaseOrderNumber String?
+  deliveryNoteNumber  String?
+  invoiceNumber       String?           // free-text reference; use supplierInvoiceId for FK link
+
+  // Item / material
+  itemDescription     String
+  unitOfMeasure       String
+  quantityOrdered     Decimal           @db.Decimal(12, 3)
+  quantityDelivered   Decimal           @db.Decimal(12, 3)
+
+  // Condition & acceptance
+  conditionOnArrival  DeliveryCondition @default(good)
+  inspectionStatus    InspectionStatus  @default(pending)
+  acceptanceStatus    AcceptanceStatus  @default(accepted)
+  rejectionReason     String?
+  discrepancyNotes    String?
+
+  // Personnel
+  receivedById        String
+
+  // Optional links
+  budgetLineItemId    String?
+  supplierInvoiceId   String?
+
+  // Notes
+  comments            String?
+
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  // Relations
+  company             Company           @relation(fields: [companyId], references: [id])
+  project             Project           @relation(fields: [projectId], references: [id])
+  site                JobSite           @relation(fields: [siteId], references: [id])
+  receivedBy          User              @relation("ReceivedDeliveries", fields: [receivedById], references: [id])
+  budgetLineItem      BudgetLineItem?   @relation(fields: [budgetLineItemId], references: [id])
+  supplierInvoice     Invoice?          @relation("DeliveryInvoice", fields: [supplierInvoiceId], references: [id])
+  linkedInvoices      Invoice[]         @relation("InvoiceDelivery")
+  photos              DeliveryPhoto[]
+  documents           DeliveryDocument[]
+
+  @@map("delivery_records")
+}
+
+model DeliveryPhoto {
+  id               String         @id @default(uuid())
+  deliveryRecordId String
+  companyId        String
+  fileUrl          String
+  fileKey          String
+  fileName         String
+  fileSizeBytes    Int
+  uploadedById     String
+  createdAt        DateTime       @default(now())
+
+  deliveryRecord   DeliveryRecord @relation(fields: [deliveryRecordId], references: [id], onDelete: Cascade)
+
+  @@map("delivery_photos")
+}
+
+model DeliveryDocument {
+  id               String         @id @default(uuid())
+  deliveryRecordId String
+  companyId        String
+  fileUrl          String
+  fileKey          String
+  fileName         String
+  fileSizeBytes    Int
+  fileType         String
+  uploadedById     String
+  createdAt        DateTime       @default(now())
+
+  deliveryRecord   DeliveryRecord @relation(fields: [deliveryRecordId], references: [id], onDelete: Cascade)
+
+  @@map("delivery_documents")
+}
+
+// ─── Push Tokens ──────────────────────────────────────────────────────────────
+
+model PushToken {
+  id        String   @id @default(uuid())
+  userId    String
+  companyId String
+  token     String   @unique
+  platform  String   // 'ios' | 'android' | 'expo'
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company   Company  @relation(fields: [companyId], references: [id])
+
+  @@map("push_tokens")
+}

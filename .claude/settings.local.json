@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(npx jest:*)",
+      "Bash(npx prisma:*)",
+      "mcp__obsidian__view",
+      "Bash(grep -l \"PushToken\\\\|pushToken\" \"/c/Users/ADMIN/Desktop/Constructon Platform/node_modules/.prisma/client/\"*.d.ts)",
+      "mcp__obsidian__get_workspace_files"
+    ]
+  }
+}

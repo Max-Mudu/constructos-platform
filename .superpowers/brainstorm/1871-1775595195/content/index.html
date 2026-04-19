@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UI Design Direction – Construction Platform</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      padding: 40px 24px;
+    }
+    .container { max-width: 1200px; margin: 0 auto; }
+    h1 { font-size: 28px; font-weight: 700; color: #f8fafc; margin-bottom: 8px; }
+    .subtitle { font-size: 15px; color: #94a3b8; margin-bottom: 32px; }
+    .confirmed-row { display: flex; gap: 10px; margin-bottom: 40px; flex-wrap: wrap; }
+    .confirmed {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: #0c4a6e; border: 1px solid #0369a1; border-radius: 8px;
+      padding: 6px 14px; font-size: 12px; color: #7dd3fc;
+    }
+    .question { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 28px 32px; margin-bottom: 32px; }
+    .question h2 { font-size: 17px; font-weight: 600; color: #f1f5f9; margin-bottom: 24px; }
+    .options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    .option { border: 2px solid #334155; border-radius: 10px; overflow: hidden; cursor: pointer; transition: border-color 0.2s, transform 0.15s; }
+    .option:hover { border-color: #38bdf8; transform: translateY(-2px); }
+    .option-preview { background: #0f172a; position: relative; overflow: hidden; }
+    .option-label { padding: 12px 16px; font-size: 13px; font-weight: 600; color: #cbd5e1; border-top: 1px solid #334155; display: flex; align-items: center; gap: 8px; background: #1e293b; }
+    .badge { font-size: 10px; padding: 2px 8px; border-radius: 99px; font-weight: 600; }
+    .badge-rec { background: #0369a1; color: #e0f2fe; }
+    .badge-alt { background: #374151; color: #9ca3af; }
+
+    /* ===== SHARED SIDEBAR ===== */
+    .mock-app { display: flex; height: 280px; }
+    .mock-sidebar {
+      width: 110px; background: #1e293b; border-right: 1px solid #2d3f55;
+      display: flex; flex-direction: column; padding: 10px 8px; gap: 2px; flex-shrink: 0;
+    }
+    .mock-logo-row { display: flex; align-items: center; gap: 6px; padding: 0 4px; margin-bottom: 10px; }
+    .mock-logo { width: 20px; height: 20px; background: #0369a1; border-radius: 5px; flex-shrink: 0; }
+    .mock-logo-text { font-size: 7px; font-weight: 700; color: #f1f5f9; }
+    .mock-nav { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 6px; }
+    .mock-nav.active { background: #0369a1; }
+    .mock-nav-icon { width: 8px; height: 8px; border-radius: 2px; background: #334155; flex-shrink: 0; }
+    .mock-nav.active .mock-nav-icon { background: #fff; }
+    .mock-nav-label { font-size: 7px; color: #475569; }
+    .mock-nav.active .mock-nav-label { color: #f1f5f9; font-weight: 600; }
+    .mock-content { flex: 1; padding: 12px; display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+    .mock-page-header { display: flex; justify-content: space-between; align-items: center; }
+    .mock-page-title { height: 12px; width: 90px; background: #e2e8f0; border-radius: 3px; opacity: 0.9; }
+    .mock-btn { height: 22px; width: 56px; border-radius: 5px; background: #0369a1; }
+
+    /* ===== OPTION A: Compact/Dense ===== */
+    .opt-a .stat-row { display: flex; gap: 6px; }
+    .opt-a .stat-card {
+      flex: 1; background: #1e293b; border: 1px solid #2d3f55; border-radius: 6px;
+      padding: 7px 9px;
+    }
+    .opt-a .stat-val { font-size: 14px; font-weight: 700; color: #38bdf8; line-height: 1; }
+    .opt-a .stat-lbl { font-size: 6px; color: #64748b; margin-top: 2px; text-transform: uppercase; }
+    .opt-a .table { background: #1e293b; border: 1px solid #2d3f55; border-radius: 6px; overflow: hidden; flex: 1; }
+    .opt-a .table-header {
+      display: flex; background: #253347; padding: 5px 10px; gap: 12px; border-bottom: 1px solid #2d3f55;
+    }
+    .opt-a .th { height: 7px; border-radius: 2px; background: #334155; }
+    .opt-a .th.w1 { width: 50px; }
+    .opt-a .th.w2 { width: 35px; }
+    .opt-a .th.w3 { width: 28px; }
+    .opt-a .table-row {
+      display: flex; padding: 5px 10px; gap: 12px; border-bottom: 1px solid #1e3a52;
+      align-items: center;
+    }
+    .opt-a .table-row:last-child { border-bottom: none; }
+    .opt-a .td { height: 6px; border-radius: 2px; background: #334155; }
+    .opt-a .td.w1 { width: 50px; }
+    .opt-a .td.w2 { width: 35px; }
+    .opt-a .td.w3 { width: 28px; }
+    .opt-a .td-badge { height: 12px; width: 36px; border-radius: 10px; background: #065f46; }
+
+    /* ===== OPTION B: Comfortable/Balanced ===== */
+    .opt-b .stat-row { display: flex; gap: 8px; }
+    .opt-b .stat-card {
+      flex: 1; background: #1e293b; border: 1px solid #2d3f55; border-radius: 8px;
+      padding: 10px 12px;
+    }
+    .opt-b .stat-icon { width: 18px; height: 18px; border-radius: 5px; background: #0c4a6e; margin-bottom: 6px; }
+    .opt-b .stat-val { font-size: 16px; font-weight: 700; color: #38bdf8; line-height: 1; }
+    .opt-b .stat-lbl { font-size: 6px; color: #64748b; margin-top: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .opt-b .table { background: #1e293b; border: 1px solid #2d3f55; border-radius: 8px; overflow: hidden; flex: 1; }
+    .opt-b .table-header {
+      display: flex; background: #1a3045; padding: 7px 12px; gap: 14px; border-bottom: 1px solid #2d3f55;
+    }
+    .opt-b .th { height: 7px; border-radius: 2px; background: #334155; }
+    .opt-b .th.w1 { width: 55px; }
+    .opt-b .th.w2 { width: 38px; }
+    .opt-b .th.w3 { width: 30px; }
+    .opt-b .table-row {
+      display: flex; padding: 8px 12px; gap: 14px; border-bottom: 1px solid #253347;
+      align-items: center;
+    }
+    .opt-b .table-row:last-child { border-bottom: none; }
+    .opt-b .td { height: 7px; border-radius: 2px; background: #334155; }
+    .opt-b .td.w1 { width: 55px; }
+    .opt-b .td.w2 { width: 38px; }
+    .opt-b .td.w3 { width: 30px; }
+    .opt-b .td-badge { height: 14px; width: 40px; border-radius: 10px; background: #065f46; }
+
+    /* ===== OPTION C: Spacious/Airy ===== */
+    .opt-c .stat-row { display: flex; gap: 10px; }
+    .opt-c .stat-card {
+      flex: 1; background: #1e293b; border: 1px solid #2d3f55; border-radius: 10px;
+      padding: 12px 14px;
+      border-top: 2px solid #0369a1;
+    }
+    .opt-c .stat-val { font-size: 18px; font-weight: 700; color: #f8fafc; line-height: 1; }
+    .opt-c .stat-lbl { font-size: 7px; color: #64748b; margin-top: 4px; }
+    .opt-c .stat-delta { font-size: 6px; color: #4ade80; margin-top: 5px; }
+    .opt-c .table { background: #1e293b; border: 1px solid #2d3f55; border-radius: 10px; overflow: hidden; flex: 1; }
+    .opt-c .table-header {
+      display: flex; background: #0f172a; padding: 9px 14px; gap: 16px; border-bottom: 1px solid #2d3f55;
+    }
+    .opt-c .th { height: 7px; border-radius: 2px; background: #334155; }
+    .opt-c .th.w1 { width: 55px; }
+    .opt-c .th.w2 { width: 38px; }
+    .opt-c .th.w3 { width: 30px; }
+    .opt-c .table-row {
+      display: flex; padding: 10px 14px; gap: 16px; border-bottom: 1px solid #1e2d3d;
+      align-items: center;
+    }
+    .opt-c .table-row:last-child { border-bottom: none; }
+    .opt-c .td { height: 7px; border-radius: 2px; background: #334155; }
+    .opt-c .td.w1 { width: 55px; }
+    .opt-c .td.w2 { width: 38px; }
+    .opt-c .td.w3 { width: 30px; }
+    .opt-c .td-badge { height: 15px; width: 42px; border-radius: 10px; background: #065f46; }
+
+    .note {
+      background: #1e293b; border: 1px solid #334155;
+      border-left: 3px solid #0369a1; border-radius: 8px;
+      padding: 16px 20px; font-size: 13px; color: #94a3b8; line-height: 1.6;
+    }
+    .note strong { color: #e2e8f0; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>UI Design Direction</h1>
+  <p class="subtitle">Construction Platform — Visual Direction Question 3 of 3</p>
+
+  <div class="confirmed-row">
+    <div class="confirmed">✓ Dark Navy color scheme</div>
+    <div class="confirmed">✓ Always-expanded sidebar</div>
+  </div>
+
+  <div class="question">
+    <h2>How dense should the content feel? (Stats cards + data tables)</h2>
+    <div class="options">
+
+      <!-- Option A: Compact -->
+      <div class="option opt-a">
+        <div class="option-preview">
+          <div class="mock-app">
+            <div class="mock-sidebar">
+              <div class="mock-logo-row">
+                <div class="mock-logo"></div>
+                <div class="mock-logo-text">BuildPro</div>
+              </div>
+              <div class="mock-nav active"><div class="mock-nav-icon"></div><div class="mock-nav-label">Dashboard</div></div>
+              <div class="mock-nav"><div class="mock-nav-icon"></div><div class="mock-nav-label">Projects</div></div>
+              <div class="mock-nav"><div class="mock-nav-icon"></div><div class="mock-nav-label">Workers</div></div>
+              <div class="mock-nav"><div class="mock-nav-icon"></div><div class="mock-nav-label">Finance</div></div>
+            </div>
+            <div class="mock-content">
+              <div class="mock-page-header">
+                <div class="mock-page-title"></div>
+                <div class="mock-btn"></div>
+              </div>
+              <div class="stat-row">
+                <div class="stat-card"><div class="stat-val">24</div><div class="stat-lbl">SITES</div></div>
+                <div class="stat-card"><div class="stat-val">89%</div><div class="stat-lbl">ON TRACK</div></div>
+                <div class="stat-card"><div class="stat-val">$2.4M</div><div class="stat-lbl">BUDGET</div></div>
+                <div class="stat-card"><div class="stat-val">142</div><div class="stat-lbl">WORKERS</div></div>
+              </div>
+              <div class="table">
+                <div class="table-header">
+                  <div class="th w1"></div><div class="th w2"></div><div class="th w3"></div><div class="th w2"></div>
+                </div>
+                <div class="table-row"><div class="td w1"></div><div class="td w2"></div><div class="td-badge"></div></div>
+                <div class="table-row"><div class="td w1"></div><div class="td w2"></div><div class="td-badge"></div></div>
+                <div class="table-row"><div class="td w1"></div><div class="td w2"></div><div class="td-badge"></div></div>
+                <div class="table-row"><div class="td w1"></div><div class="td w2"></div><div class="td-badge"></div></div>
+                <div class="table-row"><div class="td w1"></div><div class="td w2"></div><div class="td-badge"></div></div>
+                <div class="table-row"><div class="td w1"></div><div class="td w2"></div><div class="td-badge"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="option-label">A — Compact (more rows visible)<span class="badge badge-alt">DATA-DENSE</span></div>
+      </div>
+
+      <!-- Option B: Balanced -->
+      <div class="option opt-b">
+        <div class="option-preview">
+          <div class="mock-app">
+            <div class="mock-sidebar">
+              <div class="mock-logo-row">
+                <div class="mock-logo"></div>
+                <div class="mock-logo-text">BuildPro</div>
+              </div>
+              <div class="mock-nav active"><div class="mock-nav-icon"></div><div class="mock-nav-label">Dashboard</div></div>
+              <div class="mock-nav"><div class="mock-nav-icon"></div><div class="mock-nav-label">Projects</div></div>
+              <div class="mock-nav"><div class="mock-nav-icon"></div><div class="mock-nav-label">Workers</div></div>
+              <div class="mock-nav"><div class="mock-nav-icon"></div><div class="mock-nav-label">Finance</div></div>
+            </div>
+            <div class="mock-content">
+              <div class="mock-page-header">
+                <div class="mock-page-title"></div>
+                <div class="mock-btn"></div>
+              </div>
+              <div class="stat-row">
+                <div class="stat-card"><div class="stat-icon"></div><div class="stat-val">24</div><div class="stat-lbl">ACTIVE SITES</div></div>
+                <div class="stat-card"><div class="stat-icon"></div><div class="stat-val">89%</div><div class="stat-lbl">ON TRACK</div></div>
+                <div class="stat-card"><div class="stat-icon"></div><div class="stat-val">$2.4M</div><div class="stat-lbl">BUDGET</div></div>
+              </div>
+              <div class="table">
+                <div class="table-header">
+                  <div class="th w1"></div><div class="th w2"></div><div class="th w3"></div>
+                </div>
+                <div class="table-row"><div class="td w1"></div><div class="td w2"></div><div class="td-badge"></div></div>
+                <div class="table-row"><div class="td w1"></div><div class="td w2"></div><div class="td-badge"></div></div>
+                <div class="table-row"><div class="td w1"></div><div class="td w2"></div><div class="td-badge"></div></div>
+                <div class="table-row"><div class="td w1"></div><div class="td w2"></div><div class="td-badge"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="option-label">B — Comfortable (balanced)<span class="badge badge-rec">RECOMMENDED</span></div>
+      </div>
+
+      <!-- Option C: Spacious -->
+      <div class="option opt-c">
+        <div class="option-preview">
+          <div class="mock-app">
+            <div class="mock-sidebar">
+              <div class="mock-logo-row">
+                <div class="mock-logo"></div>
+                <div class="mock-logo-text">BuildPro</div>
+              </div>
+              <div class="mock-nav active"><div class="mock-nav-icon"></div><div class="mock-nav-label">Dashboard</div></div>
+              <div class="mock-nav"><div class="mock-nav-icon"></div><div class="mock-nav-label">Projects</div></div>
+              <div class="mock-nav"><div class="mock-nav-icon"></div><div class="mock-nav-label">Workers</div></div>
+              <div class="mock-nav"><div class="mock-nav-icon"></div><div class="mock-nav-label">Finance</div></div>
+            </div>
+            <div class="mock-content">
+              <div class="mock-page-header">
+                <div class="mock-page-title"></div>
+                <div class="mock-btn"></div>
+              </div>
+              <div class="stat-row">
+                <div class="stat-card">
+                  <div class="stat-val">24</div>
+                  <div class="stat-lbl">Active Sites</div>
+                  <div class="stat-delta">↑ +2 this week</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-val">89%</div>
+                  <div class="stat-lbl">On Track</div>
+                  <div class="stat-delta">↑ +4%</div>
+                </div>
+                <div class="stat-card">
+                  <div class="stat-val">$2.4M</div>
+                  <div class="stat-lbl">Total Budget</div>
+                  <div class="stat-delta">72% utilized</div>
+                </div>
+              </div>
+              <div class="table">
+                <div class="table-header">
+                  <div class="th w1"></div><div class="th w2"></div><div class="th w3"></div>
+                </div>
+                <div class="table-row"><div class="td w1"></div><div class="td w2"></div><div class="td-badge"></div></div>
+                <div class="table-row"><div class="td w1"></div><div class="td w2"></div><div class="td-badge"></div></div>
+                <div class="table-row"><div class="td w1"></div><div class="td w2"></div><div class="td-badge"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="option-label">C — Spacious (premium feel)<span class="badge badge-alt">AIRY</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>My recommendation: Option B (Comfortable)</strong> — Balanced padding gives enough breathing room to feel premium, while still fitting enough rows to be useful without scrolling immediately. Option A packs in more data (good for power users reviewing long tables) but can feel cramped on stat cards. Option C looks polished but you lose significant row visibility on tables — your attendance and delivery pages have many rows.<br><br>
+    Reply with <strong>A</strong>, <strong>B</strong>, or <strong>C</strong>.
+  </div>
+</div>
+</body>
+</html>
