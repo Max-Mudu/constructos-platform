@@ -11,6 +11,7 @@ import {
 import { useAuthStore } from '../../src/store/auth.store';
 import { attendanceApi } from '../../src/api/attendance';
 import { projectsApi } from '../../src/api/projects';
+import { workersApi } from '../../src/api/workers';
 import { Screen } from '../../src/components/Screen';
 import { Card } from '../../src/components/Card';
 import { Button } from '../../src/components/Button';
@@ -20,7 +21,7 @@ import { EmptyState } from '../../src/components/EmptyState';
 import { Input } from '../../src/components/Input';
 import { enqueue, isNetworkError } from '../../src/utils/offlineQueue';
 import { useOfflineQueue } from '../../src/hooks/useOfflineQueue';
-import { AttendanceRecord, AttendanceStatus, Project, JobSite } from '../../src/types';
+import { AttendanceRecord, AttendanceStatus, Project, JobSite, Worker } from '../../src/types';
 
 // ─── Status helpers ───────────────────────────────────────────────────────────
 
@@ -213,25 +214,40 @@ function MarkAttendanceModal({
   siteId:    string;
   onSaved:   () => void;
 }) {
-  const [workerId,    setWorkerId]    = useState('');
-  const [status,      setStatus]      = useState<AttendanceStatus>('present');
-  const [checkInTime, setCheckInTime] = useState('');
-  const [notes,       setNotes]       = useState('');
-  const [saving,      setSaving]      = useState(false);
+  const [workers,      setWorkers]      = useState<Worker[]>([]);
+  const [workerId,     setWorkerId]     = useState('');
+  const [status,       setStatus]       = useState<AttendanceStatus>('present');
+  const [checkInTime,  setCheckInTime]  = useState('');
+  const [notes,        setNotes]        = useState('');
+  const [saving,       setSaving]       = useState(false);
+  const [loadingWorkers, setLoadingWorkers] = useState(false);
 
   const STATUSES: AttendanceStatus[] = ['present', 'absent', 'late', 'half_day', 'excused'];
 
+  useEffect(() => {
+    if (!visible) return;
+    setWorkerId('');
+    setStatus('present');
+    setCheckInTime('');
+    setNotes('');
+    setLoadingWorkers(true);
+    workersApi.listBySite(projectId, siteId)
+      .then(setWorkers)
+      .catch(() => {})
+      .finally(() => setLoadingWorkers(false));
+  }, [visible, projectId, siteId]);
+
   async function save() {
-    if (!workerId.trim()) {
-      Alert.alert('Validation', 'Worker ID is required');
+    if (!workerId) {
+      Alert.alert('Validation', 'Please select a worker');
       return;
     }
     setSaving(true);
     try {
       const today = new Date().toISOString().split('T')[0]!;
       await attendanceApi.create(projectId, siteId, {
-        workerId: workerId.trim(),
-        date:     today,
+        workerId,
+        date:        today,
         status,
         checkInTime:  checkInTime || undefined,
         notes:        notes       || undefined,
@@ -257,15 +273,36 @@ function MarkAttendanceModal({
             <Text style={styles.modalClose}>✕</Text>
           </TouchableOpacity>
         </View>
-        <ScrollView contentContainerStyle={{ padding: 20 }}>
-          <Input
-            label="Worker ID"
-            value={workerId}
-            onChangeText={setWorkerId}
-            placeholder="Worker UUID"
-            autoCapitalize="none"
-          />
-          <Text style={styles.fieldLabel}>Status</Text>
+        <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
+
+          {/* Worker picker */}
+          <Text style={styles.fieldLabel}>Worker *</Text>
+          {loadingWorkers ? (
+            <Text style={styles.emptyText}>Loading workers...</Text>
+          ) : workers.length === 0 ? (
+            <Text style={styles.emptyText}>No workers assigned to this site yet.</Text>
+          ) : (
+            workers.map((w) => (
+              <TouchableOpacity
+                key={w.id}
+                style={[styles.selectItem, workerId === w.id && styles.selectItemActive]}
+                onPress={() => setWorkerId(w.id)}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.selectItemText}>
+                    {w.firstName} {w.lastName}
+                  </Text>
+                  {w.trade ? (
+                    <Text style={styles.selectItemSub}>{w.trade}</Text>
+                  ) : null}
+                </View>
+                {workerId === w.id && <Text style={styles.checkmark}>✓</Text>}
+              </TouchableOpacity>
+            ))
+          )}
+
+          {/* Status */}
+          <Text style={[styles.fieldLabel, { marginTop: 16 }]}>Status</Text>
           <View style={styles.statusRow}>
             {STATUSES.map((s) => (
               <TouchableOpacity
@@ -279,6 +316,7 @@ function MarkAttendanceModal({
               </TouchableOpacity>
             ))}
           </View>
+
           <Input
             label="Check-in Time (HH:MM, optional)"
             value={checkInTime}
@@ -433,6 +471,7 @@ const styles = StyleSheet.create({
   },
   selectItemActive:    { borderColor: '#3b82f6', backgroundColor: '#1e3a5f' },
   selectItemText:      { color: '#f1f5f9', fontSize: 14 },
+  selectItemSub:       { color: '#64748b', fontSize: 12, marginTop: 2 },
   checkmark:           { color: '#3b82f6', fontSize: 16 },
 
   listHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16 },

@@ -24,9 +24,11 @@ export function AuthBootstrap() {
   useEffect(() => {
     // Wire API client — idempotent, safe to call on every render.
     // The unauthorized callback only clears state; AuthGuard handles the redirect.
-    configureApiClient(getAccessToken, () => {
-      expireSession();
-    });
+    configureApiClient(
+      getAccessToken,
+      () => { expireSession(); },
+      (user, token) => { setAuth(user, token); },
+    );
 
     // If we already have a token in memory (same-session navigation), done.
     if (accessToken) {

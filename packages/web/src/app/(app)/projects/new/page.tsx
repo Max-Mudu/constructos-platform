@@ -26,14 +26,18 @@ export default function NewProjectPage() {
     endDate: '',
     status: 'active',
   });
-  const [submitting, setSubmitting]   = useState(false);
-  const [error, setError]             = useState('');
+
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
 
-  function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
+  function set(k: string, v: string) {
+    setForm((f) => ({ ...f, [k]: v }));
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
     setSubmitting(true);
     setError('');
     setFieldErrors({});
@@ -42,16 +46,25 @@ export default function NewProjectPage() {
       const payload: Parameters<typeof projectApi.create>[0] = {
         name: form.name,
       };
-      if (form.code)        payload.code        = form.code;
+
+      if (form.code) payload.code = form.code;
       if (form.description) payload.description = form.description;
-      if (form.location)    payload.location    = form.location;
+      if (form.location) payload.location = form.location;
+      if (form.startDate) payload.startDate = form.startDate;
+      if (form.endDate) payload.endDate = form.endDate;
+      if (form.status) {
+        payload.status = form.status as 'planning' | 'active' | 'on_hold' | 'completed' | 'archived';
+      }
 
       const { project } = await projectApi.create(payload);
       router.push(`/projects/${project.id}`);
     } catch (e) {
       if (e instanceof ApiError) {
-        if (e.details) setFieldErrors(e.details);
-        else setError(e.message);
+        if (e.details) {
+          setFieldErrors(e.details);
+        } else {
+          setError(e.message);
+        }
       } else {
         setError('Something went wrong');
       }
@@ -73,9 +86,11 @@ export default function NewProjectPage() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Basic info */}
         <Card>
-          <CardHeader><CardTitle className="text-base">Project Details</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-base">Project Details</CardTitle>
+          </CardHeader>
+
           <CardContent className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
               <Input
@@ -87,6 +102,7 @@ export default function NewProjectPage() {
                 error={fieldErrors.name?.[0]}
               />
             </div>
+
             <Input
               label="Project Code"
               value={form.code}
@@ -94,16 +110,19 @@ export default function NewProjectPage() {
               placeholder="e.g. PRJ-001"
               error={fieldErrors.code?.[0]}
             />
+
             <Select
               label="Status"
               value={form.status}
               onChange={(e) => set('status', e.target.value)}
             >
+              <option value="planning">Planning</option>
               <option value="active">Active</option>
               <option value="on_hold">On Hold</option>
               <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
+              <option value="archived">Archived</option>
             </Select>
+
             <div className="col-span-2">
               <Input
                 label="Location"
@@ -113,6 +132,7 @@ export default function NewProjectPage() {
                 error={fieldErrors.location?.[0]}
               />
             </div>
+
             <Input
               label="Start Date"
               type="date"
@@ -120,6 +140,7 @@ export default function NewProjectPage() {
               onChange={(e) => set('startDate', e.target.value)}
               error={fieldErrors.startDate?.[0]}
             />
+
             <Input
               label="End Date"
               type="date"
@@ -130,9 +151,11 @@ export default function NewProjectPage() {
           </CardContent>
         </Card>
 
-        {/* Description */}
         <Card>
-          <CardHeader><CardTitle className="text-base">Description</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="text-base">Description</CardTitle>
+          </CardHeader>
+
           <CardContent>
             <textarea
               value={form.description}
@@ -152,6 +175,7 @@ export default function NewProjectPage() {
           <Link href="/projects">
             <Button type="button" variant="outline">Cancel</Button>
           </Link>
+
           <Button type="submit" disabled={submitting}>
             {submitting ? 'Creating…' : 'Create Project'}
           </Button>

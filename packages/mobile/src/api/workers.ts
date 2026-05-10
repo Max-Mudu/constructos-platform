@@ -6,4 +6,11 @@ export const workersApi = {
     const res = await apiClient.get<{ workers: Worker[] }>('/workers');
     return res.data.workers;
   },
+
+  listBySite: async (projectId: string, siteId: string): Promise<Worker[]> => {
+    const res = await apiClient.get<{ workers: Worker[] }>(
+      `/projects/${projectId}/sites/${siteId}/workers`,
+    );
+    return res.data.workers;
+  },
 };

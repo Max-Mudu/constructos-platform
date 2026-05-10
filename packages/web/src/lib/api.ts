@@ -18,13 +18,16 @@ export class ApiError extends Error {
 // client never holds a stale reference. The auth store sets this on login.
 let _getAccessToken: (() => string | null) | null = null;
 let _onUnauthorized: (() => void) | null = null;
+let _onAuthRefreshed: ((user: AuthUser, token: string) => void) | null = null;
 
 export function configureApiClient(
   getToken: () => string | null,
   onUnauthorized: () => void,
+  onAuthRefreshed?: (user: AuthUser, token: string) => void,
 ) {
   _getAccessToken = getToken;
   _onUnauthorized = onUnauthorized;
+  if (onAuthRefreshed) _onAuthRefreshed = onAuthRefreshed;
 }
 
 async function request<T>(
@@ -34,7 +37,7 @@ async function request<T>(
 ): Promise<T> {
   const token = _getAccessToken?.();
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string>),
   };
 
@@ -60,6 +63,9 @@ async function request<T>(
   }
 
   if (!res.ok) {
+    if (res.status === 401) {
+      _onUnauthorized?.();
+    }
     let body: { error?: string; code?: string; details?: Record<string, string[]> } = {};
     try { body = await res.json(); } catch {}
     throw new ApiError(
@@ -83,9 +89,12 @@ async function tryRefresh(): Promise<boolean> {
     });
     if (!res.ok) return false;
     const data: { accessToken: string; user: AuthUser } = await res.json();
-    // Import dynamically to avoid circular dependency
-    const { useAuthStore } = await import('@/store/auth.store');
-    useAuthStore.getState().setAuth(data.user, data.accessToken);
+    if (_onAuthRefreshed) {
+      _onAuthRefreshed(data.user, data.accessToken);
+    } else {
+      const { useAuthStore } = await import('@/store/auth.store');
+      useAuthStore.getState().setAuth(data.user, data.accessToken);
+    }
     return true;
   } catch {
     return false;
@@ -147,7 +156,15 @@ export const projectApi = {
   get: (projectId: string) =>
     request<{ project: import('./types').Project }>(`/projects/${projectId}`),
 
-  create: (data: { name: string; code?: string; description?: string; location?: string }) =>
+  create: (data: {
+    name:        string;
+    code?:       string;
+    description?: string;
+    location?:   string;
+    startDate?:  string;
+    endDate?:    string;
+    status?:     'planning' | 'active' | 'on_hold' | 'completed' | 'archived';
+  }) =>
     request<{ project: import('./types').Project }>('/projects', {
       method: 'POST',
       body: JSON.stringify(data),

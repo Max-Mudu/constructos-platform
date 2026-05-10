@@ -25,6 +25,7 @@ const TAB_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> =
   labour:        'people-outline',
   deliveries:    'cube-outline',
   attendance:    'checkmark-circle-outline',
+  schedule:      'calendar-outline',
   invoices:      'receipt-outline',
   instructions:  'document-text-outline',
   reports:       'bar-chart-outline',
@@ -35,7 +36,7 @@ const TAB_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> =
 // All possible tab screen names
 const ALL_TABS = [
   'index', 'dashboard', 'projects', 'labour', 'deliveries',
-  'attendance', 'invoices', 'instructions', 'reports', 'notifications', 'profile',
+  'attendance', 'schedule', 'invoices', 'instructions', 'reports', 'notifications', 'profile',
 ] as const;
 
 type TabName = typeof ALL_TABS[number];
@@ -47,6 +48,7 @@ function getTabsForRole(role: UserRole, canViewFinance: boolean): TabConfig[] {
       return [
         { name: 'index',         title: 'My Day'     },
         { name: 'attendance',    title: 'Attendance' },
+        { name: 'schedule',      title: 'Schedule'   },
         { name: 'notifications', title: 'Alerts'     },
         { name: 'profile',       title: 'Profile'    },
       ];
@@ -57,6 +59,7 @@ function getTabsForRole(role: UserRole, canViewFinance: boolean): TabConfig[] {
         { name: 'labour',        title: 'Labour'     },
         { name: 'deliveries',    title: 'Deliveries' },
         { name: 'attendance',    title: 'Attendance' },
+        { name: 'schedule',      title: 'Schedule'   },
         { name: 'profile',       title: 'Profile'    },
       ];
 
@@ -65,6 +68,7 @@ function getTabsForRole(role: UserRole, canViewFinance: boolean): TabConfig[] {
         { name: 'dashboard',     title: 'Dashboard'  },
         { name: 'projects',      title: 'Projects'   },
         { name: 'labour',        title: 'Labour'     },
+        { name: 'schedule',      title: 'Schedule'   },
         { name: 'reports',       title: 'Reports'    },
         { name: 'notifications', title: 'Alerts'     },
         { name: 'profile',       title: 'Profile'    },
@@ -74,6 +78,7 @@ function getTabsForRole(role: UserRole, canViewFinance: boolean): TabConfig[] {
       return [
         { name: 'dashboard',     title: 'Dashboard'  },
         { name: 'projects',      title: 'Projects'   },
+        { name: 'schedule',      title: 'Schedule'   },
         { name: 'invoices',      title: 'Invoices'   },
         { name: 'reports',       title: 'Reports'    },
         { name: 'notifications', title: 'Alerts'     },
@@ -102,6 +107,7 @@ function getTabsForRole(role: UserRole, canViewFinance: boolean): TabConfig[] {
       return [
         { name: 'dashboard',     title: 'Dashboard'  },
         { name: 'projects',      title: 'Projects'   },
+        { name: 'schedule',      title: 'Schedule'   },
         { name: 'attendance',    title: 'Attendance' },
         { name: 'notifications', title: 'Alerts'     },
         { name: 'profile',       title: 'Profile'    },

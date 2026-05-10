@@ -230,6 +230,59 @@ export interface Instruction {
   issuedBy: { id: string; firstName: string; lastName: string };
 }
 
+// ─── Schedule ─────────────────────────────────────────────────────────────────
+
+export type ScheduleTaskStatus = 'not_started' | 'in_progress' | 'delayed' | 'blocked' | 'completed';
+
+export interface ScheduleMilestone {
+  id:          string;
+  taskId:      string;
+  name:        string;
+  description: string | null;
+  plannedDate: string;
+  actualDate:  string | null;
+  status:      'pending' | 'in_progress' | 'completed' | 'cancelled';
+}
+
+export interface ScheduleTask {
+  id:                string;
+  companyId:         string;
+  projectId:         string;
+  siteId:            string;
+  contractorId:      string;
+  workPackageId:     string | null;
+  title:             string;
+  description:       string | null;
+  area:              string | null;
+  materialsRequired: string | null;
+  equipmentRequired: string | null;
+  plannedStartDate:  string | null;
+  plannedEndDate:    string | null;
+  actualStartDate:   string | null;
+  actualEndDate:     string | null;
+  plannedProgress:   number | null;
+  actualProgress:    number | null;
+  status:            ScheduleTaskStatus;
+  delayReason:       string | null;
+  comments:          string | null;
+  contractor:        { id: string; name: string; tradeSpecialization: string | null } | null;
+  workPackage:       { id: string; name: string; area: string | null } | null;
+  milestones:        ScheduleMilestone[];
+}
+
+// ─── Contractors ──────────────────────────────────────────────────────────────
+
+export interface Contractor {
+  id:                  string;
+  companyId:           string;
+  name:                string;
+  contactPerson:       string | null;
+  email:               string | null;
+  phone:               string | null;
+  tradeSpecialization: string | null;
+  isActive:            boolean;
+}
+
 // ─── API Response shapes ──────────────────────────────────────────────────────
 
 export interface PaginatedResponse<T> {

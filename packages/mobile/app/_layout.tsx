@@ -52,7 +52,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoading) return;
 
-    const inAuthGroup = segments[0] === '(auth)' || segments[0] === 'login';
+    const firstSegment = segments[0] as string | undefined;
+    const inAuthGroup = firstSegment === '(auth)' || firstSegment === 'login';
     const inTabsGroup = segments[0] === '(tabs)';
 
     if (!user && inTabsGroup) {
