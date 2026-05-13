@@ -1,0 +1,156 @@
+import { Prisma } from '@prisma/client';
+import { prisma } from '../utils/prisma';
+import { NotFoundError } from '../utils/errors';
+import { RequestUser } from '../types';
+import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
+
+// ─── Select shapes ────────────────────────────────────────────────────────────
+
+const INVENTORY_ITEM_SELECT = {
+  id:                true,
+  companyId:         true,
+  siteId:            true,
+  materialName:      true,
+  unitOfMeasure:     true,
+  currentQuantity:   true,
+  lowStockThreshold: true,
+  createdAt:         true,
+  updatedAt:         true,
+  site: {
+    select: { id: true, name: true },
+  },
+} as const;
+
+const TRANSACTION_SELECT = {
+  id:            true,
+  type:          true,
+  quantity:      true,
+  unitOfMeasure: true,
+  note:          true,
+  createdAt:     true,
+  delivery: {
+    select: { id: true, supplierName: true, deliveryDate: true },
+  },
+  performedBy: {
+    select: { id: true, firstName: true, lastName: true },
+  },
+} as const;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+async function checkSiteAccess(
+  siteId:    string,
+  projectId: string,
+  actor:     RequestUser,
+): Promise<void> {
+  const accessibleSiteIds = await getAccessibleSiteIds(projectId, actor.id, actor.role);
+  if (accessibleSiteIds !== null && !accessibleSiteIds.includes(siteId)) {
+    throw new NotFoundError('Site');
+  }
+}
+
+// ─── Inventory credit ─────────────────────────────────────────────────────────
+
+export async function creditFromDelivery(
+  delivery: {
+    id:                string;
+    companyId:         string;
+    siteId:            string;
+    itemDescription:   string;
+    unitOfMeasure:     string;
+    quantityDelivered: Prisma.Decimal;
+  },
+  actorId?: string,
+): Promise<void> {
+  const qty = Number(delivery.quantityDelivered);
+  console.log('[creditFromDelivery] entry — deliveryId:', delivery.id, '| qty:', qty, '| materialName:', delivery.itemDescription, '| siteId:', delivery.siteId, '| companyId:', delivery.companyId);
+
+  if (!qty || qty <= 0) {
+    console.log('[creditFromDelivery] early return — qty is zero or negative:', qty);
+    return;
+  }
+
+  const materialName  = delivery.itemDescription.trim();
+  const unitOfMeasure = delivery.unitOfMeasure.trim() || 'unit';
+
+  await prisma.$transaction(async (tx) => {
+    const inventoryItem = await tx.siteInventory.upsert({
+      where: {
+        siteId_materialName_unitOfMeasure: {
+          siteId: delivery.siteId,
+          materialName,
+          unitOfMeasure,
+        },
+      },
+      create: {
+        companyId:       delivery.companyId,
+        siteId:          delivery.siteId,
+        materialName,
+        unitOfMeasure,
+        currentQuantity: delivery.quantityDelivered,
+      },
+      update: {
+        currentQuantity: { increment: delivery.quantityDelivered },
+      },
+      select: { id: true, currentQuantity: true },
+    });
+
+    console.log('[creditFromDelivery] upsert result — inventoryId:', inventoryItem.id, '| newQty:', String(inventoryItem.currentQuantity));
+
+    await tx.inventoryTransaction.create({
+      data: {
+        companyId:     delivery.companyId,
+        siteId:        delivery.siteId,
+        inventoryId:   inventoryItem.id,
+        deliveryId:    delivery.id,
+        type:          'delivery_in',
+        quantity:      delivery.quantityDelivered,
+        unitOfMeasure,
+        note:          null,
+        performedById: actorId ?? null,
+      },
+    });
+
+    console.log('[creditFromDelivery] transaction committed — inventory credited');
+  });
+}
+
+// ─── Service functions ────────────────────────────────────────────────────────
+
+export async function listInventory(
+  projectId: string,
+  siteId:    string,
+  actor:     RequestUser,
+) {
+  await checkSiteAccess(siteId, projectId, actor);
+
+  return prisma.siteInventory.findMany({
+    where:   { siteId, companyId: actor.companyId },
+    select:  INVENTORY_ITEM_SELECT,
+    orderBy: { materialName: 'asc' },
+  });
+}
+
+export async function getInventoryItem(
+  projectId:   string,
+  siteId:      string,
+  inventoryId: string,
+  actor:       RequestUser,
+) {
+  await checkSiteAccess(siteId, projectId, actor);
+
+  const item = await prisma.siteInventory.findFirst({
+    where:  { id: inventoryId, siteId, companyId: actor.companyId },
+    select: INVENTORY_ITEM_SELECT,
+  });
+  if (!item) throw new NotFoundError('Inventory item');
+
+  const transactions = await prisma.inventoryTransaction.findMany({
+    where:   { inventoryId, companyId: actor.companyId },
+    select:  TRANSACTION_SELECT,
+    orderBy: { createdAt: 'desc' },
+    take:    50,
+  });
+
+  return { ...item, transactions };
+}

@@ -24,6 +24,7 @@ const TAB_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> =
   projects:      'folder-outline',
   labour:        'people-outline',
   deliveries:    'cube-outline',
+  inventory:     'layers-outline',
   attendance:    'checkmark-circle-outline',
   schedule:      'calendar-outline',
   invoices:      'receipt-outline',
@@ -35,7 +36,7 @@ const TAB_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> =
 
 // All possible tab screen names
 const ALL_TABS = [
-  'index', 'dashboard', 'projects', 'labour', 'deliveries',
+  'index', 'dashboard', 'projects', 'labour', 'deliveries', 'inventory',
   'attendance', 'schedule', 'invoices', 'instructions', 'reports', 'notifications', 'profile',
 ] as const;
 
@@ -58,6 +59,7 @@ function getTabsForRole(role: UserRole, canViewFinance: boolean): TabConfig[] {
         { name: 'index',         title: 'Home'       },
         { name: 'labour',        title: 'Labour'     },
         { name: 'deliveries',    title: 'Deliveries' },
+        { name: 'inventory',     title: 'Inventory'  },
         { name: 'attendance',    title: 'Attendance' },
         { name: 'schedule',      title: 'Schedule'   },
         { name: 'profile',       title: 'Profile'    },
@@ -68,6 +70,8 @@ function getTabsForRole(role: UserRole, canViewFinance: boolean): TabConfig[] {
         { name: 'dashboard',     title: 'Dashboard'  },
         { name: 'projects',      title: 'Projects'   },
         { name: 'labour',        title: 'Labour'     },
+        { name: 'deliveries',    title: 'Deliveries' },
+        { name: 'inventory',     title: 'Inventory'  },
         { name: 'schedule',      title: 'Schedule'   },
         { name: 'reports',       title: 'Reports'    },
         { name: 'notifications', title: 'Alerts'     },
@@ -78,6 +82,7 @@ function getTabsForRole(role: UserRole, canViewFinance: boolean): TabConfig[] {
       return [
         { name: 'dashboard',     title: 'Dashboard'  },
         { name: 'projects',      title: 'Projects'   },
+        { name: 'inventory',     title: 'Inventory'  },
         { name: 'schedule',      title: 'Schedule'   },
         { name: 'invoices',      title: 'Invoices'   },
         { name: 'reports',       title: 'Reports'    },
@@ -88,6 +93,8 @@ function getTabsForRole(role: UserRole, canViewFinance: boolean): TabConfig[] {
     case 'finance_officer':
       return [
         { name: 'dashboard',     title: 'Dashboard'  },
+        { name: 'deliveries',    title: 'Deliveries' },
+        { name: 'inventory',     title: 'Inventory'  },
         { name: 'invoices',      title: 'Invoices'   },
         { name: 'reports',       title: 'Reports'    },
         { name: 'notifications', title: 'Alerts'     },

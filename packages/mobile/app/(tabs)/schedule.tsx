@@ -1,50 +1,53 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  RefreshControl,
-  TouchableOpacity,
-  Modal,
-  ScrollView,
-  Alert,
+  View, Text, StyleSheet, FlatList, RefreshControl, TouchableOpacity,
+  Modal, ScrollView, Alert, TextInput, ActivityIndicator,
 } from 'react-native';
 import { useAuthStore } from '../../src/store/auth.store';
 import { projectsApi } from '../../src/api/projects';
 import { schedulesApi } from '../../src/api/schedules';
 import { contractorsApi } from '../../src/api/contractors';
-import { Screen } from '../../src/components/Screen';
-import { Card } from '../../src/components/Card';
-import { Button } from '../../src/components/Button';
-import { Input } from '../../src/components/Input';
-import { LoadingSpinner } from '../../src/components/LoadingSpinner';
-import { EmptyState } from '../../src/components/EmptyState';
 import { Project, JobSite, ScheduleTask, ScheduleTaskStatus, Contractor } from '../../src/types';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type ScheduleFilter = 'today' | 'upcoming' | 'all';
 
 type ScheduleTaskWithContext = ScheduleTask & {
   projectName?: string;
-  siteName?: string;
+  siteName?:    string;
 };
+
+// ─── RBAC ─────────────────────────────────────────────────────────────────────
 
 const WRITE_ROLES    = new Set(['company_admin', 'project_manager', 'contractor']);
 const PROGRESS_ROLES = new Set(['company_admin', 'project_manager', 'site_supervisor', 'contractor']);
 
+// ─── Status config ────────────────────────────────────────────────────────────
+
+const STATUS_CONFIG: Record<ScheduleTaskStatus, { label: string; color: string; bg: string; border: string }> = {
+  not_started: { label: 'Not Started', color: '#64748b', bg: '#0a1628', border: '#142240' },
+  in_progress: { label: 'In Progress', color: '#3b82f6', bg: '#0e1e36', border: '#1e3a6e' },
+  delayed:     { label: 'Delayed',     color: '#f59e0b', bg: '#1a1200', border: '#422006' },
+  blocked:     { label: 'Blocked',     color: '#ef4444', bg: '#1a0606', border: '#450a0a' },
+  completed:   { label: 'Completed',   color: '#22c55e', bg: '#071a0e', border: '#14532d' },
+};
+
+const STATUS_OPTIONS: Array<{ value: ScheduleTaskStatus; label: string }> = [
+  { value: 'not_started', label: 'Not Started' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'delayed',     label: 'Delayed'     },
+  { value: 'blocked',     label: 'Blocked'     },
+  { value: 'completed',   label: 'Completed'   },
+];
+
 const FILTERS: Array<{ label: string; value: ScheduleFilter }> = [
   { label: 'Today',    value: 'today'    },
   { label: 'Upcoming', value: 'upcoming' },
-  { label: 'All',      value: 'all'      },
+  { label: 'All Tasks', value: 'all'     },
 ];
 
-const STATUS_OPTIONS: Array<{ value: ScheduleTaskStatus; label: string; color: string }> = [
-  { value: 'not_started', label: 'Not Started', color: '#64748b' },
-  { value: 'in_progress', label: 'In Progress', color: '#3b82f6' },
-  { value: 'delayed',     label: 'Delayed',     color: '#f59e0b' },
-  { value: 'blocked',     label: 'Blocked',     color: '#ef4444' },
-  { value: 'completed',   label: 'Completed',   color: '#22c55e' },
-];
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function normalizeDate(value: string | null | undefined) {
   if (!value) return null;
@@ -56,23 +59,7 @@ function todayString() {
 }
 
 function getStatusConfig(status: ScheduleTaskStatus) {
-  const config: Record<ScheduleTaskStatus, { label: string; color: string }> = {
-    not_started: { label: 'Not Started', color: '#64748b' },
-    in_progress: { label: 'In Progress', color: '#3b82f6' },
-    delayed:     { label: 'Delayed',     color: '#f59e0b' },
-    blocked:     { label: 'Blocked',     color: '#ef4444' },
-    completed:   { label: 'Completed',   color: '#22c55e' },
-  };
-  return config[status] ?? config.not_started;
-}
-
-function StatusBadge({ status }: { status: ScheduleTaskStatus }) {
-  const s = getStatusConfig(status);
-  return (
-    <View style={[styles.statusBadge, { backgroundColor: s.color }]}>
-      <Text style={styles.statusBadgeText}>{s.label}</Text>
-    </View>
-  );
+  return STATUS_CONFIG[status] ?? STATUS_CONFIG.not_started;
 }
 
 function isTodayTask(task: ScheduleTaskWithContext) {
@@ -92,13 +79,60 @@ function isUpcomingTask(task: ScheduleTaskWithContext) {
   return start > today;
 }
 
+function isOnDay(task: ScheduleTaskWithContext, day: string) {
+  const start = normalizeDate(task.plannedStartDate);
+  const end   = normalizeDate(task.plannedEndDate);
+  if (start === day) return true;
+  if (end   === day) return true;
+  if (start && end) return start <= day && end >= day;
+  return false;
+}
+
+function getWeekDays(): { date: string; day: string; dayNum: number }[] {
+  const today     = new Date();
+  const dayOfWeek = today.getDay();
+  const monday    = new Date(today);
+  monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+  const labels = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return {
+      date:   d.toISOString().split('T')[0]!,
+      day:    labels[d.getDay()] ?? 'Mo',
+      dayNum: d.getDate(),
+    };
+  });
+}
+
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+// ─── Status badge ─────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: ScheduleTaskStatus }) {
+  const cfg = getStatusConfig(status);
+  return (
+    <View style={[SB.badge, { backgroundColor: cfg.bg, borderColor: cfg.border }]}>
+      <View style={[SB.dot, { backgroundColor: cfg.color }]} />
+      <Text style={[SB.text, { color: cfg.color }]}>{cfg.label}</Text>
+    </View>
+  );
+}
+
+const SB = StyleSheet.create({
+  badge: { flexDirection: 'row', alignItems: 'center', gap: 5, borderRadius: 8, borderWidth: 1, paddingHorizontal: 9, paddingVertical: 4 },
+  dot:   { width: 6, height: 6, borderRadius: 3 },
+  text:  { fontSize: 11, fontWeight: '700', letterSpacing: 0.2 },
+});
+
 // ─── Update Task Modal ────────────────────────────────────────────────────────
 
 function UpdateTaskModal({
-  visible,
-  task,
-  onClose,
-  onUpdated,
+  visible, task, onClose, onUpdated,
 }: {
   visible:   boolean;
   task:      ScheduleTaskWithContext | null;
@@ -127,19 +161,16 @@ function UpdateTaskModal({
 
   async function handleSave() {
     if (!task) return;
-
     const needsReason = status === 'delayed' || status === 'blocked';
     if (needsReason && !delayReason.trim()) {
       Alert.alert('Validation', `Please enter a reason for the ${status} status.`);
       return;
     }
-
     const rawProgress  = parseFloat(progressText);
     const actualProgress =
-      status === 'completed'                                  ? 100
-      : !isNaN(rawProgress) && rawProgress >= 0 && rawProgress <= 100 ? rawProgress
+      status === 'completed'                                              ? 100
+      : !isNaN(rawProgress) && rawProgress >= 0 && rawProgress <= 100   ? rawProgress
       : null;
-
     setSaving(true);
     try {
       await schedulesApi.updateTask(task.projectId, task.siteId, task.id, {
@@ -162,76 +193,154 @@ function UpdateTaskModal({
 
   const showProgress = status === 'in_progress' || status === 'completed';
   const showReason   = status === 'delayed' || status === 'blocked';
+  const cfg          = getStatusConfig(status);
+  const progressVal  = Math.min(100, Math.max(0, parseFloat(progressText) || 0));
 
   if (!task) return null;
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={styles.modal}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle} numberOfLines={1}>{task.title}</Text>
-          <TouchableOpacity onPress={onClose}>
-            <Text style={styles.modalClose}>✕</Text>
+      <View style={UM.root}>
+        {/* Header */}
+        <View style={UM.header}>
+          <View style={{ flex: 1, marginRight: 12 }}>
+            <Text style={UM.headerEyebrow}>Update Task Progress</Text>
+            <Text style={UM.title} numberOfLines={2}>{task.title}</Text>
+            {task.siteName ? (
+              <Text style={UM.subtitle}>
+                {task.siteName}{task.projectName ? ` · ${task.projectName}` : ''}
+              </Text>
+            ) : null}
+          </View>
+          <TouchableOpacity
+            style={UM.closeBtn}
+            onPress={onClose}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={UM.closeBtnText}>✕</Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.modalBody}>
-          {task.siteName ? (
-            <Text style={styles.modalSubtitle}>
-              {task.siteName}{task.projectName ? ` · ${task.projectName}` : ''}
-            </Text>
+        <ScrollView contentContainerStyle={UM.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          {/* Status */}
+          <Text style={UM.sectionLabel}>Task Status</Text>
+          <View style={UM.statusGrid}>
+            {STATUS_OPTIONS.map((opt) => {
+              const c        = STATUS_CONFIG[opt.value];
+              const isActive = status === opt.value;
+              return (
+                <TouchableOpacity
+                  key={opt.value}
+                  style={isActive
+                    ? [UM.statusChip, { backgroundColor: c.bg, borderColor: c.border }]
+                    : UM.statusChip
+                  }
+                  onPress={() => handleStatusChange(opt.value)}
+                  activeOpacity={0.8}
+                >
+                  <View style={[UM.statusDot, { backgroundColor: isActive ? c.color : '#1e3a5f' }]} />
+                  <Text style={[UM.statusChipText, isActive ? { color: c.color } : null]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {/* Progress */}
+          {showProgress ? (
+            <View style={UM.section}>
+              <Text style={UM.sectionLabel}>Completion Progress</Text>
+              {/* Live progress bar */}
+              <View style={UM.progressPreviewWrap}>
+                <View style={UM.progressPreviewBg}>
+                  <View
+                    style={[
+                      UM.progressPreviewFill,
+                      { width: `${progressVal}%` as `${number}%`, backgroundColor: cfg.color },
+                    ]}
+                  />
+                </View>
+                <Text style={[UM.progressPreviewPct, { color: cfg.color }]}>{progressVal}%</Text>
+              </View>
+              {/* Stepper row */}
+              <View style={UM.progressRow}>
+                <TouchableOpacity
+                  style={UM.stepperBtn}
+                  onPress={() => setProgressText(String(Math.max(0, progressVal - 5)))}
+                  activeOpacity={0.8}
+                >
+                  <Text style={UM.stepperBtnText}>−5</Text>
+                </TouchableOpacity>
+                <View style={UM.progressInputWrap}>
+                  <TextInput
+                    style={UM.progressInput}
+                    value={progressText}
+                    onChangeText={setProgressText}
+                    placeholder="0"
+                    placeholderTextColor="#1e3a5f"
+                    keyboardType="numeric"
+                    textAlign="center"
+                  />
+                  <Text style={UM.progressInputSuffix}>%</Text>
+                </View>
+                <TouchableOpacity
+                  style={UM.stepperBtn}
+                  onPress={() => setProgressText(String(Math.min(100, progressVal + 5)))}
+                  activeOpacity={0.8}
+                >
+                  <Text style={UM.stepperBtnText}>+5</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           ) : null}
 
-          <Text style={styles.fieldLabel}>Status</Text>
-          {STATUS_OPTIONS.map((opt) => (
-            <TouchableOpacity
-              key={opt.value}
-              style={[styles.selectItem, status === opt.value && styles.selectItemActive]}
-              onPress={() => handleStatusChange(opt.value)}
-            >
-              <View style={styles.statusOptionRow}>
-                <View style={[styles.statusDot, { backgroundColor: opt.color }]} />
-                <Text style={styles.selectItemText}>{opt.label}</Text>
+          {/* Delay / block reason */}
+          {showReason ? (
+            <View style={UM.section}>
+              <Text style={UM.sectionLabel}>
+                {status === 'blocked' ? 'Block Reason *' : 'Delay Reason *'}
+              </Text>
+              <View style={[UM.inputWrap, UM.inputMulti]}>
+                <TextInput
+                  style={[UM.input, { height: 72, textAlignVertical: 'top' }]}
+                  value={delayReason}
+                  onChangeText={setDelayReason}
+                  placeholder="Describe the cause…"
+                  placeholderTextColor="#1e3a5f"
+                  multiline
+                />
               </View>
-              {status === opt.value && <Text style={styles.checkmark}>✓</Text>}
-            </TouchableOpacity>
-          ))}
+            </View>
+          ) : null}
 
-          {showProgress && (
-            <Input
-              label="Actual Progress % (0–100)"
-              value={progressText}
-              onChangeText={setProgressText}
-              placeholder="e.g. 65"
-              keyboardType="numeric"
-              containerStyle={{ marginTop: 16 }}
-            />
-          )}
+          {/* Comments */}
+          <View style={UM.section}>
+            <Text style={UM.sectionLabel}>Comments (optional)</Text>
+            <View style={[UM.inputWrap, UM.inputMulti]}>
+              <TextInput
+                style={[UM.input, { height: 72, textAlignVertical: 'top' }]}
+                value={comments}
+                onChangeText={setComments}
+                placeholder="Any notes for the site team…"
+                placeholderTextColor="#1e3a5f"
+                multiline
+              />
+            </View>
+          </View>
 
-          {showReason && (
-            <Input
-              label={status === 'blocked' ? 'Blocked reason *' : 'Delay reason *'}
-              value={delayReason}
-              onChangeText={setDelayReason}
-              placeholder="Describe what is causing the delay or block"
-              containerStyle={{ marginTop: 4 }}
-            />
-          )}
-
-          <Input
-            label="Comments (optional)"
-            value={comments}
-            onChangeText={setComments}
-            placeholder="Any notes for the site team"
-            containerStyle={{ marginTop: 4 }}
-          />
-
-          <Button
-            title="Save Update"
-            onPress={handleSave}
-            loading={saving}
-            style={{ marginTop: 8 }}
-          />
+          {/* Actions */}
+          <TouchableOpacity
+            style={saving ? [UM.saveBtn, { marginTop: 24 }, UM.saveBtnLoading] : [UM.saveBtn, { marginTop: 24 }]}
+            onPress={() => void handleSave()}
+            disabled={saving}
+            activeOpacity={0.85}
+          >
+            <Text style={UM.saveBtnText}>{saving ? 'Saving…' : 'Save Changes'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={UM.discardBtn} onPress={onClose} disabled={saving} activeOpacity={0.7}>
+            <Text style={UM.discardBtnText}>Discard Changes</Text>
+          </TouchableOpacity>
         </ScrollView>
       </View>
     </Modal>
@@ -241,12 +350,7 @@ function UpdateTaskModal({
 // ─── Create Task Modal ────────────────────────────────────────────────────────
 
 function CreateTaskModal({
-  visible,
-  onClose,
-  sites,
-  projects,
-  contractors,
-  onCreated,
+  visible, onClose, sites, projects, contractors, onCreated,
 }: {
   visible:     boolean;
   onClose:     () => void;
@@ -264,42 +368,24 @@ function CreateTaskModal({
   const [saving,       setSaving]       = useState(false);
 
   function reset() {
-    setSiteId('');
-    setContractorId('');
-    setTitle('');
-    setStartDate('');
-    setEndDate('');
-    setArea('');
+    setSiteId(''); setContractorId(''); setTitle('');
+    setStartDate(''); setEndDate(''); setArea('');
   }
 
-  function handleClose() {
-    reset();
-    onClose();
-  }
+  function handleClose() { reset(); onClose(); }
 
   async function handleSave() {
-    if (!title.trim()) {
-      Alert.alert('Validation', 'Task title is required');
-      return;
-    }
-    if (!siteId) {
-      Alert.alert('Validation', 'Please select a site');
-      return;
-    }
-    if (!contractorId) {
-      Alert.alert('Validation', 'Please select a contractor');
-      return;
-    }
-
+    if (!title.trim())    { Alert.alert('Validation', 'Task title is required'); return; }
+    if (!siteId)          { Alert.alert('Validation', 'Please select a site'); return; }
+    if (!contractorId)    { Alert.alert('Validation', 'Please select a contractor'); return; }
     const site = sites.find((s) => s.id === siteId);
     if (!site) return;
-
     setSaving(true);
     try {
       await schedulesApi.createTask(site.projectId, site.id, {
         contractorId,
         title:            title.trim(),
-        area:             area.trim() || undefined,
+        area:             area.trim()      || undefined,
         plannedStartDate: startDate.trim() || undefined,
         plannedEndDate:   endDate.trim()   || undefined,
       });
@@ -318,90 +404,93 @@ function CreateTaskModal({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={styles.modal}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>New Schedule Task</Text>
-          <TouchableOpacity onPress={handleClose}>
-            <Text style={styles.modalClose}>✕</Text>
+      <View style={UM.root}>
+        <View style={UM.header}>
+          <Text style={UM.title}>New Schedule Task</Text>
+          <TouchableOpacity style={UM.closeBtn} onPress={handleClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={UM.closeBtnText}>✕</Text>
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.modalBody}>
-          {/* Site selector */}
-          <Text style={styles.fieldLabel}>Site *</Text>
-          {sites.length === 0
-            ? <Text style={styles.emptyNote}>No sites available</Text>
-            : sites.map((s) => {
-                const project = projects.find((p) => p.id === s.projectId);
-                return (
-                  <TouchableOpacity
-                    key={s.id}
-                    style={[styles.selectItem, siteId === s.id && styles.selectItemActive]}
-                    onPress={() => setSiteId(s.id)}
-                  >
-                    <View>
-                      <Text style={styles.selectItemText}>{s.name}</Text>
-                      {project && (
-                        <Text style={styles.selectItemSub}>{project.name}</Text>
-                      )}
-                    </View>
-                    {siteId === s.id && <Text style={styles.checkmark}>✓</Text>}
-                  </TouchableOpacity>
-                );
-              })
-          }
-
-          {/* Contractor selector */}
-          <Text style={[styles.fieldLabel, { marginTop: 16 }]}>Contractor *</Text>
-          {contractors.length === 0
-            ? <Text style={styles.emptyNote}>No active contractors found</Text>
-            : contractors.map((c) => (
+        <ScrollView contentContainerStyle={UM.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <Text style={UM.fieldLabel}>Site *</Text>
+          {sites.length === 0 ? (
+            <Text style={UM.emptyNote}>No sites available</Text>
+          ) : (
+            sites.map((s) => {
+              const project = projects.find((p) => p.id === s.projectId);
+              return (
                 <TouchableOpacity
-                  key={c.id}
-                  style={[styles.selectItem, contractorId === c.id && styles.selectItemActive]}
-                  onPress={() => setContractorId(c.id)}
+                  key={s.id}
+                  style={siteId === s.id ? [UM.selectRow, UM.selectRowActive] : UM.selectRow}
+                  onPress={() => setSiteId(s.id)}
+                  activeOpacity={0.8}
                 >
-                  <View>
-                    <Text style={styles.selectItemText}>{c.name}</Text>
-                    {c.tradeSpecialization && (
-                      <Text style={styles.selectItemSub}>{c.tradeSpecialization}</Text>
-                    )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={UM.selectName}>{s.name}</Text>
+                    {project ? <Text style={UM.selectSub}>{project.name}</Text> : null}
                   </View>
-                  {contractorId === c.id && <Text style={styles.checkmark}>✓</Text>}
+                  {siteId === s.id ? <Text style={UM.check}>✓</Text> : null}
                 </TouchableOpacity>
-              ))
-          }
+              );
+            })
+          )}
 
-          {/* Task fields */}
-          <Input
-            label="Title *"
-            value={title}
-            onChangeText={setTitle}
-            placeholder="e.g. Lay foundation slab"
-            containerStyle={{ marginTop: 16 }}
-          />
-          <Input
-            label="Area (optional)"
-            value={area}
-            onChangeText={setArea}
-            placeholder="e.g. Block A, Level 2"
-          />
-          <Input
-            label="Planned Start (YYYY-MM-DD)"
-            value={startDate}
-            onChangeText={setStartDate}
-            placeholder="2025-06-01"
-            keyboardType="numbers-and-punctuation"
-          />
-          <Input
-            label="Planned End (YYYY-MM-DD)"
-            value={endDate}
-            onChangeText={setEndDate}
-            placeholder="2025-06-15"
-            keyboardType="numbers-and-punctuation"
-          />
+          <Text style={[UM.fieldLabel, { marginTop: 16 }]}>Contractor *</Text>
+          {contractors.length === 0 ? (
+            <Text style={UM.emptyNote}>No active contractors found</Text>
+          ) : (
+            contractors.map((c) => (
+              <TouchableOpacity
+                key={c.id}
+                style={contractorId === c.id ? [UM.selectRow, UM.selectRowActive] : UM.selectRow}
+                onPress={() => setContractorId(c.id)}
+                activeOpacity={0.8}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={UM.selectName}>{c.name}</Text>
+                  {c.tradeSpecialization ? <Text style={UM.selectSub}>{c.tradeSpecialization}</Text> : null}
+                </View>
+                {contractorId === c.id ? <Text style={UM.check}>✓</Text> : null}
+              </TouchableOpacity>
+            ))
+          )}
 
-          <Button title="Create Task" onPress={handleSave} loading={saving} />
+          {[
+            { label: 'Title *', value: title, onChange: setTitle, placeholder: 'e.g. Lay foundation slab', keyboard: 'default' as const },
+            { label: 'Area (optional)', value: area, onChange: setArea, placeholder: 'e.g. Block A, Level 2', keyboard: 'default' as const },
+            { label: 'Planned Start (YYYY-MM-DD)', value: startDate, onChange: setStartDate, placeholder: '2025-06-01', keyboard: 'numbers-and-punctuation' as const },
+            { label: 'Planned End (YYYY-MM-DD)',   value: endDate,   onChange: setEndDate,   placeholder: '2025-06-15', keyboard: 'numbers-and-punctuation' as const },
+          ].map(({ label, value, onChange, placeholder, keyboard }) => (
+            <View key={label} style={[UM.fieldGroup, { marginTop: 12 }]}>
+              <Text style={UM.fieldLabel}>{label}</Text>
+              <View style={UM.inputWrap}>
+                <TextInput
+                  style={UM.input}
+                  value={value}
+                  onChangeText={onChange}
+                  placeholder={placeholder}
+                  placeholderTextColor="#1e3a5f"
+                  keyboardType={keyboard}
+                  autoCapitalize="none"
+                />
+              </View>
+            </View>
+          ))}
+
+          <View style={UM.btnRow}>
+            <TouchableOpacity style={UM.cancelBtn} onPress={handleClose} disabled={saving} activeOpacity={0.8}>
+              <Text style={UM.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={saving ? [UM.saveBtn, { flex: 2 }, UM.saveBtnLoading] : [UM.saveBtn, { flex: 2 }]}
+              onPress={() => void handleSave()}
+              disabled={saving}
+              activeOpacity={0.85}
+            >
+              <Text style={UM.saveBtnText}>{saving ? 'Creating…' : 'Create Task'}</Text>
+            </TouchableOpacity>
+          </View>
         </ScrollView>
       </View>
     </Modal>
@@ -411,20 +500,24 @@ function CreateTaskModal({
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ScheduleScreen() {
-  const user = useAuthStore((s) => s.user);
+  const user      = useAuthStore((s) => s.user);
   const canCreate = user && WRITE_ROLES.has(user.role);
   const canUpdate = user && PROGRESS_ROLES.has(user.role);
 
-  const [projects,      setProjects]      = useState<Project[]>([]);
-  const [sites,         setSites]         = useState<JobSite[]>([]);
-  const [tasks,         setTasks]         = useState<ScheduleTaskWithContext[]>([]);
-  const [contractors,   setContractors]   = useState<Contractor[]>([]);
-  const [filter,        setFilter]        = useState<ScheduleFilter>('today');
-  const [loading,       setLoading]       = useState(true);
-  const [refreshing,    setRefreshing]    = useState(false);
-  const [showCreate,    setShowCreate]    = useState(false);
-  const [selectedTask,  setSelectedTask]  = useState<ScheduleTaskWithContext | null>(null);
-  const [showUpdate,    setShowUpdate]    = useState(false);
+  const [projects,     setProjects]     = useState<Project[]>([]);
+  const [sites,        setSites]        = useState<JobSite[]>([]);
+  const [tasks,        setTasks]        = useState<ScheduleTaskWithContext[]>([]);
+  const [contractors,  setContractors]  = useState<Contractor[]>([]);
+  const [filter,       setFilter]       = useState<ScheduleFilter>('today');
+  const [selectedDay,  setSelectedDay]  = useState<string | null>(null);
+  const [loading,      setLoading]      = useState(true);
+  const [refreshing,   setRefreshing]   = useState(false);
+  const [showCreate,   setShowCreate]   = useState(false);
+  const [selectedTask, setSelectedTask] = useState<ScheduleTaskWithContext | null>(null);
+  const [showUpdate,   setShowUpdate]   = useState(false);
+
+  const weekDays = useMemo(() => getWeekDays(), []);
+  const todayStr = todayString();
 
   async function load() {
     try {
@@ -436,9 +529,7 @@ export default function ScheduleScreen() {
         try {
           const projectSites = await projectsApi.listSites(project.id);
           allSites.push(...projectSites);
-        } catch {
-          // skip
-        }
+        } catch { /* skip */ }
       }
       setSites(allSites);
 
@@ -450,9 +541,7 @@ export default function ScheduleScreen() {
           siteTasks.forEach((task) => {
             allTasks.push({ ...task, projectName: project?.name, siteName: site.name });
           });
-        } catch {
-          // skip
-        }
+        } catch { /* skip */ }
       }
 
       allTasks.sort((a, b) => {
@@ -462,14 +551,11 @@ export default function ScheduleScreen() {
       });
       setTasks(allTasks);
 
-      // Load contractors for create form (non-fatal)
       if (canCreate) {
         try {
           const cl = await contractorsApi.list({ isActive: true });
           setContractors(cl);
-        } catch {
-          // non-fatal
-        }
+        } catch { /* non-fatal */ }
       }
     } finally {
       setLoading(false);
@@ -498,138 +584,234 @@ export default function ScheduleScreen() {
   }
 
   const visibleTasks = useMemo(() => {
-    if (filter === 'today')    return tasks.filter(isTodayTask);
+    if (selectedDay)          return tasks.filter((t) => isOnDay(t, selectedDay));
+    if (filter === 'today')   return tasks.filter(isTodayTask);
     if (filter === 'upcoming') return tasks.filter(isUpcomingTask);
     return tasks;
-  }, [filter, tasks]);
+  }, [filter, selectedDay, tasks]);
 
-  if (loading) return <LoadingSpinner />;
+  const upcomingDeadlines = useMemo(() => {
+    const week = new Date();
+    week.setDate(week.getDate() + 7);
+    const weekStr = week.toISOString().split('T')[0]!;
+    return tasks
+      .filter((t) => {
+        const end = normalizeDate(t.plannedEndDate);
+        return end && end >= todayStr && end <= weekStr && t.status !== 'completed';
+      })
+      .slice(0, 3);
+  }, [tasks, todayStr]);
+
+  // Date range label (week)
+  const weekStart = weekDays[0];
+  const weekEnd   = weekDays[6];
+  const dateRangeLabel = weekStart && weekEnd
+    ? `${fmtDate(weekStart.date)} – ${fmtDate(weekEnd.date)}`
+    : '';
+
+  if (loading) {
+    return (
+      <View style={A.root}>
+        <View style={A.appBar}>
+          <Text style={A.appBarTitle}>Weekly Schedule</Text>
+        </View>
+        <View style={A.center}>
+          <ActivityIndicator color="#3b82f6" size="large" />
+        </View>
+      </View>
+    );
+  }
 
   return (
-    <Screen>
-      <View style={styles.header}>
+    <View style={A.root}>
+      {/* ── App bar ───────────────────────────────────────────── */}
+      <View style={A.appBar}>
         <View>
-          <Text style={styles.pageTitle}>Schedule</Text>
-          <Text style={styles.pageSubtitle}>
-            {sites.length} site{sites.length === 1 ? '' : 's'} · {tasks.length} task{tasks.length === 1 ? '' : 's'}
-          </Text>
+          <Text style={A.appBarTitle}>Weekly Schedule</Text>
+          <Text style={A.appBarDate}>{dateRangeLabel}</Text>
         </View>
-        {canCreate && (
-          <Button
-            title="+ Task"
-            onPress={() => setShowCreate(true)}
-            variant="secondary"
-            style={{ height: 36, paddingHorizontal: 14 }}
-          />
-        )}
+        <View style={A.appBarRight}>
+          <View style={A.taskCountBadge}>
+            <Text style={A.taskCountText}>{tasks.length}</Text>
+          </View>
+          {canCreate ? (
+            <TouchableOpacity style={A.createBtn} onPress={() => setShowCreate(true)} activeOpacity={0.8}>
+              <Text style={A.createBtnText}>+ Task</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
 
-      <View style={styles.filterRow}>
-        {FILTERS.map((item) => (
-          <TouchableOpacity
-            key={item.value}
-            style={[styles.filterChip, filter === item.value && styles.filterChipActive]}
-            onPress={() => setFilter(item.value)}
-          >
-            <Text style={[styles.filterChipText, filter === item.value && styles.filterChipTextActive]}>
-              {item.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      {/* ── Week day selector ─────────────────────────────────── */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={A.weekRow}
+        style={A.weekScroll}
+      >
+        {weekDays.map((wd) => {
+          const isToday    = wd.date === todayStr;
+          const isSelected = selectedDay === wd.date;
+          const dayTasks   = tasks.filter((t) => isOnDay(t, wd.date));
+          return (
+            <TouchableOpacity
+              key={wd.date}
+              style={isSelected ? [A.dayBtn, A.dayBtnSelected] : isToday ? [A.dayBtn, A.dayBtnToday] : A.dayBtn}
+              onPress={() => setSelectedDay(isSelected ? null : wd.date)}
+              activeOpacity={0.8}
+            >
+              <Text style={isSelected ? [A.dayLabel, A.dayLabelSelected] : isToday ? [A.dayLabel, A.dayLabelToday] : A.dayLabel}>
+                {wd.day}
+              </Text>
+              <Text style={isSelected ? [A.dayNum, A.dayNumSelected] : isToday ? [A.dayNum, A.dayNumToday] : A.dayNum}>
+                {wd.dayNum}
+              </Text>
+              {dayTasks.length > 0 ? (
+                <View style={isSelected ? [A.dayDot, A.dayDotSelected] : A.dayDot} />
+              ) : null}
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
-      {visibleTasks.length === 0 ? (
-        <EmptyState
-          title="No schedule tasks"
-          description={
-            filter === 'today'
-              ? 'No scheduled tasks for today.'
-              : 'No scheduled tasks found.'
-          }
-        />
-      ) : (
-        <FlatList
-          data={visibleTasks}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3b82f6" />
-          }
-          renderItem={({ item }) => {
-            const start = normalizeDate(item.plannedStartDate);
-            const end   = normalizeDate(item.plannedEndDate);
+      {/* ── Filter chips ──────────────────────────────────────── */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={A.filterRow} style={A.filterScroll}>
+        {FILTERS.map((item) => {
+          const isActive = !selectedDay && filter === item.value;
+          return (
+            <TouchableOpacity
+              key={item.value}
+              style={isActive ? [A.filterChip, A.filterChipActive] : A.filterChip}
+              onPress={() => { setFilter(item.value); setSelectedDay(null); }}
+              activeOpacity={0.8}
+            >
+              <Text style={isActive ? [A.filterChipText, A.filterChipTextActive] : A.filterChipText}>
+                {item.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
-            const cardContent = (
-              <Card style={styles.taskCard}>
-                <View style={styles.taskHeader}>
-                  <View style={styles.taskTitleWrap}>
-                    <Text style={styles.taskTitle}>{item.title}</Text>
-                    <Text style={styles.taskLocation}>
-                      {item.siteName ?? 'Site'}{item.projectName ? ` · ${item.projectName}` : ''}
-                    </Text>
+      {/* ── Task list ─────────────────────────────────────────── */}
+      <FlatList
+        data={visibleTasks}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={A.listContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor="#3b82f6" />
+        }
+        ListHeaderComponent={
+          upcomingDeadlines.length > 0 ? (
+            <View style={A.deadlinesCard}>
+              <Text style={A.deadlinesTitle}>⚠ Upcoming Deadlines</Text>
+              {upcomingDeadlines.map((t) => {
+                const cfg = getStatusConfig(t.status);
+                return (
+                  <View key={t.id} style={A.deadlineRow}>
+                    <View style={[A.deadlineAccent, { backgroundColor: cfg.color }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={A.deadlineName} numberOfLines={1}>{t.title}</Text>
+                      <Text style={A.deadlineSub}>{t.siteName ?? '—'} · Due {fmtDate(t.plannedEndDate)}</Text>
+                    </View>
                   </View>
-                  <StatusBadge status={item.status} />
+                );
+              })}
+            </View>
+          ) : null
+        }
+        ListEmptyComponent={
+          <View style={A.empty}>
+            <Text style={A.emptyTitle}>No tasks</Text>
+            <Text style={A.emptySub}>
+              {selectedDay
+                ? 'No tasks scheduled for this day.'
+                : filter === 'today'
+                  ? 'No tasks scheduled for today.'
+                  : 'No scheduled tasks found.'}
+            </Text>
+          </View>
+        }
+        renderItem={({ item }) => {
+          const cfg      = getStatusConfig(item.status);
+          const progress = item.actualProgress ?? 0;
+          const start    = normalizeDate(item.plannedStartDate);
+          const end      = normalizeDate(item.plannedEndDate);
+
+          const card = (
+            <View style={[A.taskCard, { borderLeftColor: cfg.color }]}>
+              {/* Top row */}
+              <View style={A.taskTop}>
+                <View style={A.taskTitleBlock}>
+                  <Text style={A.taskTitle} numberOfLines={2}>{item.title}</Text>
+                  {item.siteName ? (
+                    <Text style={A.taskLocation}>
+                      {item.siteName}{item.projectName ? ` · ${item.projectName}` : ''}
+                    </Text>
+                  ) : null}
                 </View>
+                <StatusBadge status={item.status} />
+              </View>
 
-                {item.description ? (
-                  <Text style={styles.taskDescription}>{item.description}</Text>
-                ) : null}
-
-                <View style={styles.metaBlock}>
-                  <Text style={styles.metaText}>Start: {start ?? 'Not set'}</Text>
-                  <Text style={styles.metaText}>End: {end ?? 'Not set'}</Text>
+              {/* Progress bar */}
+              {(item.status === 'in_progress' || item.status === 'completed') && (
+                <View style={A.progressWrap}>
+                  <View style={A.progressBg}>
+                    <View style={[A.progressFill, { width: `${progress}%` as `${number}%`, backgroundColor: cfg.color }]} />
+                  </View>
+                  <Text style={[A.progressPct, { color: cfg.color }]}>{progress}%</Text>
                 </View>
+              )}
 
+              {/* Meta row */}
+              <View style={A.metaRow}>
                 {item.contractor?.name ? (
-                  <Text style={styles.metaText}>Contractor: {item.contractor.name}</Text>
+                  <View style={A.metaPill}>
+                    <Text style={A.metaPillText}>👷 {item.contractor.name}</Text>
+                  </View>
                 ) : null}
-
                 {item.area ? (
-                  <Text style={styles.metaText}>Area: {item.area}</Text>
+                  <View style={A.metaPill}>
+                    <Text style={A.metaPillText}>📍 {item.area}</Text>
+                  </View>
                 ) : null}
+              </View>
 
-                {item.actualProgress != null ? (
-                  <Text style={styles.metaText}>Progress: {item.actualProgress}%</Text>
-                ) : null}
+              {/* Date row */}
+              <View style={A.dateRow}>
+                <View style={A.datePill}>
+                  <Text style={A.datePillLabel}>START</Text>
+                  <Text style={A.datePillValue}>{fmtDate(start)}</Text>
+                </View>
+                <View style={A.dateDivider} />
+                <View style={A.datePill}>
+                  <Text style={A.datePillLabel}>END</Text>
+                  <Text style={A.datePillValue}>{fmtDate(end)}</Text>
+                </View>
+              </View>
 
-                {item.materialsRequired ? (
-                  <Text style={styles.metaText}>Materials: {item.materialsRequired}</Text>
-                ) : null}
+              {/* Delay/block reason */}
+              {item.delayReason ? (
+                <Text style={A.delayText}>⚠ {item.delayReason}</Text>
+              ) : null}
 
-                {item.equipmentRequired ? (
-                  <Text style={styles.metaText}>Equipment: {item.equipmentRequired}</Text>
-                ) : null}
+              {/* Update hint */}
+              {canUpdate ? (
+                <Text style={A.tapHint}>Tap to update status →</Text>
+              ) : null}
+            </View>
+          );
 
-                {item.delayReason ? (
-                  <Text style={styles.warningText}>Delay: {item.delayReason}</Text>
-                ) : null}
+          return canUpdate ? (
+            <TouchableOpacity activeOpacity={0.8} onPress={() => openUpdate(item)}>
+              {card}
+            </TouchableOpacity>
+          ) : card;
+        }}
+      />
 
-                {(item.milestones?.length ?? 0) > 0 ? (
-                  <Text style={styles.metaText}>Milestones: {item.milestones.length}</Text>
-                ) : null}
-
-                {canUpdate && (
-                  <Text style={styles.tapHint}>Tap to update status</Text>
-                )}
-              </Card>
-            );
-
-            if (canUpdate) {
-              return (
-                <TouchableOpacity
-                  activeOpacity={0.75}
-                  onPress={() => openUpdate(item)}
-                >
-                  {cardContent}
-                </TouchableOpacity>
-              );
-            }
-            return cardContent;
-          }}
-        />
-      )}
-
-      {canCreate && (
+      {/* Modals */}
+      {canCreate ? (
         <CreateTaskModal
           visible={showCreate}
           onClose={() => setShowCreate(false)}
@@ -638,7 +820,7 @@ export default function ScheduleScreen() {
           contractors={contractors}
           onCreated={() => void onRefresh()}
         />
-      )}
+      ) : null}
 
       <UpdateTaskModal
         visible={showUpdate}
@@ -646,99 +828,328 @@ export default function ScheduleScreen() {
         onClose={closeUpdate}
         onUpdated={() => void onRefresh()}
       />
-    </Screen>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  header: {
-    flexDirection:  'row',
-    justifyContent: 'space-between',
-    alignItems:     'center',
-    paddingHorizontal: 16,
-    paddingTop:     16,
-    paddingBottom:  8,
-  },
-  pageTitle: {
-    color:      '#f1f5f9',
-    fontSize:   22,
-    fontWeight: '700',
-  },
-  pageSubtitle: {
-    color:    '#94a3b8',
-    fontSize: 13,
-    marginTop: 4,
-  },
+// ─── Main screen styles ───────────────────────────────────────────────────────
 
-  filterRow: {
-    flexDirection:    'row',
-    gap:              8,
-    paddingHorizontal: 16,
-    paddingBottom:    8,
+const A = StyleSheet.create({
+  root:   { flex: 1, backgroundColor: '#060d1b' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+
+  // App bar
+  appBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#060d1b',
+    borderBottomWidth: 1,
+    borderBottomColor: '#0e1f38',
+    paddingTop: 56,
+    paddingBottom: 12,
+    paddingHorizontal: 20,
   },
+  appBarTitle: { color: '#e8f0fe', fontSize: 20, fontWeight: '700', letterSpacing: -0.3 },
+  appBarDate:  { color: '#2d5070', fontSize: 12, fontWeight: '500', marginTop: 2 },
+  appBarRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  taskCountBadge: {
+    backgroundColor: '#0a1628',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#142240',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  taskCountText: { color: '#3d6090', fontSize: 12, fontWeight: '700' },
+  createBtn: {
+    backgroundColor: '#0e1e36',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1e3a6e',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  createBtnText: { color: '#60a5fa', fontSize: 13, fontWeight: '700' },
+
+  // Week day selector
+  weekScroll: { maxHeight: 80, borderBottomWidth: 1, borderBottomColor: '#0e1f38' },
+  weekRow:    { paddingHorizontal: 12, paddingVertical: 10, gap: 6, alignItems: 'center' },
+  dayBtn: {
+    width: 46,
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderRadius: 12,
+    gap: 2,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    backgroundColor: 'transparent',
+  },
+  dayBtnToday:    { backgroundColor: '#0a1628', borderColor: '#142240' },
+  dayBtnSelected: { backgroundColor: '#1d4ed8', borderColor: '#3b82f6' },
+  dayLabel:         { color: '#2d5070', fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+  dayLabelToday:    { color: '#3d6090' },
+  dayLabelSelected: { color: '#bfdbfe' },
+  dayNum:           { color: '#3d6090', fontSize: 16, fontWeight: '700' },
+  dayNumToday:      { color: '#c8d8f0' },
+  dayNumSelected:   { color: '#fff' },
+  dayDot:           { width: 4, height: 4, borderRadius: 2, backgroundColor: '#3b82f6', marginTop: 2 },
+  dayDotSelected:   { backgroundColor: '#bfdbfe' },
+
+  // Filters
+  filterScroll: { maxHeight: 50, borderBottomWidth: 1, borderBottomColor: '#0e1f38' },
+  filterRow: { paddingHorizontal: 16, paddingVertical: 10, gap: 8, alignItems: 'center' },
   filterChip: {
     paddingHorizontal: 14,
-    paddingVertical:   6,
-    borderRadius:      20,
-    backgroundColor:   '#1e293b',
-    borderWidth:       1,
-    borderColor:       '#334155',
+    paddingVertical: 5,
+    borderRadius: 20,
+    backgroundColor: '#0a1628',
+    borderWidth: 1,
+    borderColor: '#142240',
   },
-  filterChipActive:     { backgroundColor: '#1d4ed8', borderColor: '#3b82f6' },
-  filterChipText:       { color: '#94a3b8', fontSize: 12, fontWeight: '600' },
-  filterChipTextActive: { color: '#fff' },
+  filterChipActive:     { backgroundColor: '#0e1e36', borderColor: '#3b82f6' },
+  filterChipText:       { color: '#3d6090', fontSize: 12, fontWeight: '600' },
+  filterChipTextActive: { color: '#60a5fa' },
 
-  list:     { padding: 16, paddingBottom: 32 },
-  taskCard: { marginBottom: 10 },
-  taskHeader: {
-    flexDirection:  'row',
-    justifyContent: 'space-between',
-    gap:            12,
-    marginBottom:   8,
+  // List
+  listContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 48 },
+
+  // Deadlines card
+  deadlinesCard: {
+    backgroundColor: '#100c00',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#2a1e00',
+    padding: 14,
+    marginBottom: 14,
+    gap: 10,
   },
-  taskTitleWrap:   { flex: 1 },
-  taskTitle:       { color: '#f1f5f9', fontSize: 15, fontWeight: '700' },
-  taskLocation:    { color: '#94a3b8', fontSize: 12, marginTop: 2 },
-  taskDescription: { color: '#cbd5e1', fontSize: 13, marginBottom: 8 },
-  metaBlock:       { marginTop: 4 },
-  metaText:        { color: '#94a3b8', fontSize: 12, marginTop: 3 },
-  warningText:     { color: '#f59e0b', fontSize: 12, marginTop: 6, fontWeight: '600' },
-  statusBadge:     { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, alignSelf: 'flex-start' },
-  statusBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
-  tapHint:         { color: '#475569', fontSize: 11, marginTop: 8, textAlign: 'right' },
+  deadlinesTitle: { color: '#f59e0b', fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
+  deadlineRow:    { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  deadlineAccent: { width: 3, height: 36, borderRadius: 2 },
+  deadlineName:   { color: '#c8d8f0', fontSize: 13, fontWeight: '600' },
+  deadlineSub:    { color: '#6b7280', fontSize: 11, marginTop: 1 },
 
-  // Modal
-  modal:       { flex: 1, backgroundColor: '#0f172a' },
-  modalHeader: {
-    flexDirection:  'row',
+  // Task card
+  taskCard: {
+    backgroundColor: '#0a1628',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#142240',
+    borderLeftWidth: 4,
+    padding: 14,
+    marginBottom: 10,
+    gap: 10,
+  },
+  taskTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  taskTitleBlock: { flex: 1, gap: 3 },
+  taskTitle:      { color: '#e8f0fe', fontSize: 15, fontWeight: '700', lineHeight: 20 },
+  taskLocation:   { color: '#2d5070', fontSize: 11, fontWeight: '500' },
+
+  // Progress
+  progressWrap: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  progressBg:   { flex: 1, height: 5, backgroundColor: '#0e1e36', borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: 5, borderRadius: 3 },
+  progressPct:  { fontSize: 12, fontWeight: '700', width: 36, textAlign: 'right' },
+
+  // Meta
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  metaPill: {
+    backgroundColor: '#070f1e',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#0e1e36',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  metaPillText: { color: '#3d6090', fontSize: 11, fontWeight: '500' },
+
+  // Dates
+  dateRow:       { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  datePill:      { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  datePillLabel: { color: '#1e3a5f', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  datePillValue: { color: '#c8d8f0', fontSize: 12, fontWeight: '600' },
+  dateDivider:   { width: 1, height: 16, backgroundColor: '#0e1e36' },
+
+  delayText: { color: '#f59e0b', fontSize: 12, fontWeight: '500' },
+  tapHint:   { color: '#1e3a5f', fontSize: 11, textAlign: 'right' },
+
+  // Empty
+  empty:      { alignItems: 'center', paddingTop: 56, gap: 8 },
+  emptyTitle: { color: '#3d6090', fontSize: 16, fontWeight: '700' },
+  emptySub:   { color: '#1e3a5f', fontSize: 13, textAlign: 'center', paddingHorizontal: 32 },
+});
+
+// ─── Modal styles (shared between Update + Create) ────────────────────────────
+
+const UM = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#060d1b' },
+  header: {
+    flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems:     'center',
-    padding:        20,
+    alignItems: 'flex-start',
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#334155',
+    borderBottomColor: '#0e1f38',
   },
-  modalTitle:    { color: '#f1f5f9', fontSize: 18, fontWeight: '700', flex: 1, marginRight: 12 },
-  modalSubtitle: { color: '#64748b', fontSize: 13, marginBottom: 16 },
-  modalClose:    { color: '#94a3b8', fontSize: 20, padding: 4 },
-  modalBody:     { padding: 20 },
+  title:    { color: '#e8f0fe', fontSize: 18, fontWeight: '800', flex: 1 },
+  subtitle: { color: '#2d5070', fontSize: 12, marginTop: 4 },
+  closeBtn: {
+    width: 34, height: 34,
+    borderRadius: 17,
+    backgroundColor: '#0a1628',
+    borderWidth: 1,
+    borderColor: '#142240',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeBtnText: { color: '#3d6090', fontSize: 15, fontWeight: '600' },
+  content: { padding: 20, paddingBottom: 56 },
 
-  fieldLabel: { color: '#94a3b8', fontSize: 13, fontWeight: '500', marginBottom: 8 },
-  emptyNote:  { color: '#475569', fontSize: 13, marginBottom: 12 },
-  selectItem: {
-    flexDirection:  'row',
-    justifyContent: 'space-between',
-    alignItems:     'center',
-    backgroundColor: '#1e293b',
-    borderRadius:   8,
-    padding:        14,
-    borderWidth:    1,
-    borderColor:    '#334155',
-    marginBottom:   8,
+  fieldLabel: {
+    color: '#3d6090',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+    marginBottom: 10,
   },
-  selectItemActive:  { borderColor: '#3b82f6', backgroundColor: '#1e3a5f' },
-  selectItemText:    { color: '#f1f5f9', fontSize: 14 },
-  selectItemSub:     { color: '#64748b', fontSize: 12, marginTop: 2 },
-  checkmark:         { color: '#3b82f6', fontSize: 16 },
-  statusOptionRow:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  statusDot:         { width: 10, height: 10, borderRadius: 5 },
+  emptyNote: { color: '#1e3a5f', fontSize: 13, marginBottom: 12 },
+  fieldGroup: {},
+
+  // Status grid
+  statusGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  statusChip: {
+    width: '47.5%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: '#0a1628',
+    borderWidth: 1,
+    borderColor: '#142240',
+  },
+  statusDot:      { width: 8, height: 8, borderRadius: 4 },
+  statusChipText: { color: '#3d6090', fontSize: 13, fontWeight: '600' },
+
+  // Text inputs
+  inputWrap: {
+    backgroundColor: '#060e1c',
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: '#112036',
+    paddingHorizontal: 14,
+    height: 50,
+    justifyContent: 'center',
+  },
+  inputMulti: { height: 88, alignItems: 'flex-start', paddingTop: 12 },
+  input:      { color: '#d0e0f5', fontSize: 15, padding: 0 },
+
+  // Select rows
+  selectRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#0a1628',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#142240',
+    padding: 13,
+    marginBottom: 8,
+  },
+  selectRowActive: { borderColor: '#3b82f6', backgroundColor: '#0e1e36' },
+  selectName:      { color: '#c8d8f0', fontSize: 14, fontWeight: '600' },
+  selectSub:       { color: '#2d5070', fontSize: 12, marginTop: 2 },
+  check:           { color: '#3b82f6', fontSize: 16, fontWeight: '700' },
+
+  // Header eyebrow
+  headerEyebrow: {
+    color: '#1d4ed8',
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+
+  // Section
+  section:      { marginTop: 22 },
+  sectionLabel: {
+    color: '#2d5a9e',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 10,
+  },
+
+  // Progress preview bar
+  progressPreviewWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
+  progressPreviewBg:   { flex: 1, height: 8, backgroundColor: '#0e1e36', borderRadius: 4, overflow: 'hidden' },
+  progressPreviewFill: { height: 8, borderRadius: 4 },
+  progressPreviewPct:  { fontSize: 14, fontWeight: '800', width: 44, textAlign: 'right' },
+
+  // Stepper row
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  stepperBtn: {
+    width: 58,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 13,
+    backgroundColor: '#0a1628',
+    borderWidth: 1,
+    borderColor: '#142240',
+  },
+  stepperBtnText: { color: '#60a5fa', fontSize: 15, fontWeight: '800' },
+  progressInputWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 52,
+    backgroundColor: '#060e1c',
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: '#112036',
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+  },
+  progressInput:       { flex: 1, color: '#e8f0fe', fontSize: 24, fontWeight: '800', padding: 0 },
+  progressInputSuffix: { color: '#3d6090', fontSize: 18, fontWeight: '700' },
+
+  // Buttons
+  btnRow: { flexDirection: 'row', gap: 10, marginTop: 24 },
+  cancelBtn: {
+    flex: 1,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: '#142240',
+    backgroundColor: '#0a1628',
+  },
+  cancelBtnText: { color: '#3d6090', fontSize: 15, fontWeight: '600' },
+  saveBtn: {
+    height: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: '#2563eb',
+    backgroundColor: '#1d4ed8',
+  },
+  saveBtnLoading: { backgroundColor: '#1e3a70', borderColor: '#1e3a70' },
+  saveBtnText:    { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 0.2 },
+  discardBtn: {
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+  },
+  discardBtnText: { color: '#2d5070', fontSize: 14, fontWeight: '600' },
 });

@@ -1,44 +1,58 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Switch,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { useAuthStore } from '../../src/store/auth.store';
 import { authApi } from '../../src/api/auth';
 import { notificationsApi } from '../../src/api/notifications';
 import { getRefreshToken } from '../../src/auth/secureStorage';
-import { Screen } from '../../src/components/Screen';
-import { Card } from '../../src/components/Card';
-import { Button } from '../../src/components/Button';
-import { Badge } from '../../src/components/Badge';
+
+const ROLE_LABEL: Record<string, string> = {
+  company_admin:    'Company Admin',
+  project_manager:  'Project Manager',
+  site_supervisor:  'Site Supervisor',
+  finance_officer:  'Finance Officer',
+  consultant:       'Consultant',
+  contractor:       'Contractor',
+  worker:           'Worker',
+  viewer:           'Viewer',
+};
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, clearAuth } = useAuthStore();
   const [loggingOut, setLoggingOut] = useState(false);
 
+  // Settings state — UI only
+  const [notificationsOn, setNotificationsOn] = useState(true);
+  const [darkMode,        setDarkMode]        = useState(true);
+  const [locationOn,      setLocationOn]      = useState(false);
+
   if (!user) {
     return (
-      <Screen scroll>
-        <Card>
-          <Text style={styles.fullName}>No user data available</Text>
-          <Text style={styles.email}>Please log in again.</Text>
-        </Card>
-      </Screen>
+      <View style={S.root}>
+        <View style={S.appBar}>
+          <Text style={S.appBarTitle}>Profile</Text>
+        </View>
+        <View style={S.emptyWrap}>
+          <Text style={S.emptyText}>No user data. Please log in again.</Text>
+        </View>
+      </View>
     );
   }
 
-  const firstName = user.firstName?.trim() || 'User';
-  const lastName = user.lastName?.trim() || '';
-  const email = user.email?.trim() || 'No email';
-  const role = user.role || 'user';
-  const canViewFinance = !!user.canViewFinance;
+  const firstName  = user.firstName?.trim() || 'User';
+  const lastName   = user.lastName?.trim()  || '';
+  const fullName   = `${firstName} ${lastName}`.trim();
+  const email      = user.email?.trim()     || '—';
+  const roleKey    = user.role              || 'viewer';
+  const roleLabel  = ROLE_LABEL[roleKey]    ?? roleKey.replace(/_/g, ' ');
+  const initials   = `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase();
+  const isVerified = roleKey !== 'viewer';
 
-  const firstInitial = firstName.charAt(0) || 'U';
-  const lastInitial = lastName.charAt(0) || '';
-  const initials = `${firstInitial}${lastInitial}`.toUpperCase();
-
-  const roleLabel = role.replace(/_/g, ' ');
-
+  // ── Logout ──────────────────────────────────────────────────────────────
   async function handleLogout() {
     Alert.alert(
       'Log Out',
@@ -54,14 +68,10 @@ export default function ProfileScreen() {
               try {
                 const tokenData = await Notifications.getExpoPushTokenAsync();
                 await notificationsApi.unregisterPushToken(tokenData.data);
-              } catch {
-                // Non-fatal
-              }
+              } catch { /* non-fatal */ }
 
               const refreshToken = await getRefreshToken();
-              if (refreshToken) {
-                await authApi.logout(refreshToken).catch(() => {});
-              }
+              if (refreshToken) await authApi.logout(refreshToken).catch(() => {});
             } finally {
               await clearAuth();
               router.replace('/login');
@@ -73,107 +83,343 @@ export default function ProfileScreen() {
     );
   }
 
+  function stub(title: string) {
+    Alert.alert(title, 'This feature is coming soon.');
+  }
+
   return (
-    <Screen scroll>
-      <View style={styles.avatarSection}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{initials}</Text>
-        </View>
-        <Text style={styles.fullName}>
-          {firstName} {lastName}
-        </Text>
-        <Text style={styles.email}>{email}</Text>
-        <Badge label={roleLabel} variant="default" />
+    <View style={S.root}>
+      {/* ── App bar ──────────────────────────────────────────────────── */}
+      <View style={S.appBar}>
+        <Text style={S.appBarTitle}>Profile</Text>
       </View>
 
-      <Card style={styles.infoCard}>
-        <InfoRow label="Role" value={roleLabel} />
-        <InfoRow label="Email" value={email} />
-        {canViewFinance && (
-          <InfoRow label="Finance Access" value="Enabled" valueColor="#22c55e" />
-        )}
-      </Card>
+      <ScrollView
+        style={S.scroll}
+        contentContainerStyle={S.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── Profile card ─────────────────────────────────────────── */}
+        <View style={S.profileCard}>
+          {/* Avatar */}
+          <View style={S.avatarOuter}>
+            <View style={S.avatarInner}>
+              <Text style={S.avatarText}>{initials}</Text>
+            </View>
+          </View>
 
-      <Card style={[styles.infoCard, { marginTop: 12 }]}>
-        <Text style={styles.sectionTitle}>Account</Text>
-        <Button
-          title="Log Out"
-          onPress={handleLogout}
-          variant="destructive"
-          loading={loggingOut}
-          style={{ marginTop: 8 }}
-        />
-      </Card>
+          {/* Name + role */}
+          <Text style={S.fullName}>{fullName}</Text>
+          <View style={S.rolePill}>
+            <Text style={S.rolePillText}>{roleLabel}</Text>
+          </View>
 
-      <Text style={styles.version}>ConstructOS v1.0.0</Text>
-    </Screen>
-  );
-}
+          {/* Verified / Finance pills */}
+          <View style={S.pillsRow}>
+            {isVerified ? (
+              <View style={S.verifiedPill}>
+                <View style={S.pillDot} />
+                <Text style={S.verifiedPillText}>Verified Staff</Text>
+              </View>
+            ) : null}
+            {user.canViewFinance ? (
+              <View style={S.financePill}>
+                <View style={[S.pillDot, S.pillDotGold]} />
+                <Text style={S.financePillText}>Finance Access</Text>
+              </View>
+            ) : null}
+          </View>
 
-function InfoRow({
-  label,
-  value,
-  valueColor,
-}: {
-  label: string;
-  value: string;
-  valueColor?: string;
-}) {
-  return (
-    <View style={rowStyles.row}>
-      <Text style={rowStyles.label}>{label}</Text>
-      <Text style={[rowStyles.value, valueColor ? { color: valueColor } : null]}>
-        {value}
-      </Text>
+          {/* Edit Profile — UI only */}
+          <TouchableOpacity style={S.editBtn} onPress={() => stub('Edit Profile')} activeOpacity={0.8}>
+            <Text style={S.editBtnText}>Edit Profile</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Information ──────────────────────────────────────────── */}
+        <SectionCard title="Information">
+          <InfoRow icon="✉" label="Email" value={email} />
+          <InfoRow icon="🏢" label="Role"  value={roleLabel} last />
+        </SectionCard>
+
+        {/* ── App Settings ─────────────────────────────────────────── */}
+        <SectionCard title="App Settings">
+          <ToggleRow
+            icon="🔔"
+            label="Notifications"
+            value={notificationsOn}
+            onToggle={setNotificationsOn}
+          />
+          <ToggleRow
+            icon="🌙"
+            label="Dark Mode"
+            value={darkMode}
+            onToggle={setDarkMode}
+          />
+          <ToggleRow
+            icon="📍"
+            label="Location Services"
+            value={locationOn}
+            onToggle={setLocationOn}
+            last
+          />
+        </SectionCard>
+
+        {/* ── Support & Legal ───────────────────────────────────────── */}
+        <SectionCard title="Support & Legal">
+          <LinkRow icon="❓" label="Help Center" onPress={() => stub('Help Center')} />
+          <LinkRow icon="📄" label="Terms of Service" onPress={() => stub('Terms of Service')} />
+          <LinkRow icon="🔒" label="Privacy Policy"   onPress={() => stub('Privacy Policy')} />
+          <LinkRow icon="🚩" label="Report a Bug"     onPress={() => stub('Report a Bug')} last />
+        </SectionCard>
+
+        {/* ── Logout ───────────────────────────────────────────────── */}
+        <TouchableOpacity
+          style={loggingOut ? [S.logoutBtn, S.logoutBtnLoading] : S.logoutBtn}
+          onPress={() => void handleLogout()}
+          disabled={loggingOut}
+          activeOpacity={0.85}
+        >
+          <Text style={S.logoutBtnText}>
+            {loggingOut ? 'Logging out…' : 'Log Out'}
+          </Text>
+        </TouchableOpacity>
+
+        <Text style={S.version}>ConstructOS · v1.0.0</Text>
+      </ScrollView>
     </View>
   );
 }
 
-const rowStyles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <View style={C.card}>
+      <Text style={C.cardTitle}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
+function InfoRow({ icon, label, value, last }: { icon: string; label: string; value: string; last?: boolean }) {
+  return (
+    <View style={[R.row, last ? null : R.rowBorder]}>
+      <Text style={R.rowIcon}>{icon}</Text>
+      <Text style={R.rowLabel}>{label}</Text>
+      <Text style={R.rowValue} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
+function ToggleRow({
+  icon, label, value, onToggle, last,
+}: {
+  icon: string; label: string; value: boolean; onToggle: (v: boolean) => void; last?: boolean;
+}) {
+  return (
+    <View style={[R.row, last ? null : R.rowBorder]}>
+      <Text style={R.rowIcon}>{icon}</Text>
+      <Text style={[R.rowLabel, { flex: 1 }]}>{label}</Text>
+      <Switch
+        value={value}
+        onValueChange={onToggle}
+        trackColor={{ false: '#112036', true: '#1d4ed8' }}
+        thumbColor={value ? '#60a5fa' : '#3d6090'}
+        ios_backgroundColor="#112036"
+      />
+    </View>
+  );
+}
+
+function LinkRow({ icon, label, onPress, last }: { icon: string; label: string; onPress: () => void; last?: boolean }) {
+  return (
+    <TouchableOpacity style={[R.row, last ? null : R.rowBorder]} onPress={onPress} activeOpacity={0.7}>
+      <Text style={R.rowIcon}>{icon}</Text>
+      <Text style={[R.rowLabel, { flex: 1 }]}>{label}</Text>
+      <Text style={R.chevron}>›</Text>
+    </TouchableOpacity>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const S = StyleSheet.create({
+  root:  { flex: 1, backgroundColor: '#060d1b' },
+  scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: 16, paddingBottom: 48 },
+
+  // App bar
+  appBar: {
+    backgroundColor: '#060d1b',
     borderBottomWidth: 1,
-    borderBottomColor: '#334155',
+    borderBottomColor: '#0e1f38',
+    paddingTop: 56,
+    paddingBottom: 14,
+    paddingHorizontal: 20,
   },
-  label: { color: '#94a3b8', fontSize: 14 },
-  value: {
-    color: '#f1f5f9',
-    fontSize: 14,
+  appBarTitle: {
+    color: '#e8f0fe',
+    fontSize: 20,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+
+  // Empty state
+  emptyWrap:  { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  emptyText:  { color: '#3d6090', fontSize: 14 },
+
+  // Profile card
+  profileCard: {
+    backgroundColor: '#0a1628',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#142240',
+    alignItems: 'center',
+    paddingVertical: 28,
+    paddingHorizontal: 20,
+    marginTop: 20,
+    marginBottom: 14,
+  },
+
+  avatarOuter: {
+    width: 92, height: 92,
+    borderRadius: 46,
+    backgroundColor: '#0e1e36',
+    borderWidth: 2,
+    borderColor: '#1d4ed8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  avatarInner: {
+    width: 76, height: 76,
+    borderRadius: 38,
+    backgroundColor: '#1a3260',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: { color: '#60a5fa', fontSize: 30, fontWeight: '800' },
+
+  fullName: {
+    color: '#e8f0fe',
+    fontSize: 22,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+    marginBottom: 8,
+  },
+
+  rolePill: {
+    backgroundColor: '#0e1e36',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#1e3a6e',
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    marginBottom: 12,
+  },
+  rolePillText: { color: '#60a5fa', fontSize: 12, fontWeight: '600', letterSpacing: 0.3 },
+
+  pillsRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+
+  verifiedPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#071628',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#0f2a18',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  verifiedPillText: { color: '#22c55e', fontSize: 11, fontWeight: '600' },
+
+  financePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#1a1200',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2a1e00',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  financePillText: { color: '#f59e0b', fontSize: 11, fontWeight: '600' },
+
+  pillDot:     { width: 5, height: 5, borderRadius: 3, backgroundColor: '#22c55e' },
+  pillDotGold: { backgroundColor: '#f59e0b' },
+
+  editBtn: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1e3a6e',
+    backgroundColor: '#0e1e36',
+    paddingHorizontal: 24,
+    paddingVertical: 9,
+  },
+  editBtnText: { color: '#60a5fa', fontSize: 14, fontWeight: '600' },
+
+  // Logout
+  logoutBtn: {
+    backgroundColor: '#7f1d1d',
+    borderRadius: 13,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#991b1b',
+  },
+  logoutBtnLoading: { backgroundColor: '#450a0a', borderColor: '#450a0a' },
+  logoutBtnText: { color: '#fca5a5', fontSize: 16, fontWeight: '700', letterSpacing: 0.2 },
+
+  version: {
+    color: '#1e3a5f',
+    fontSize: 11,
+    textAlign: 'center',
     fontWeight: '500',
-    textAlign: 'right',
-    flex: 1,
-    marginLeft: 8,
+    letterSpacing: 0.5,
+    marginBottom: 8,
   },
 });
 
-const styles = StyleSheet.create({
-  avatarSection: { alignItems: 'center', paddingVertical: 32, gap: 8 },
-  avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#1e3a5f',
-    borderWidth: 2,
-    borderColor: '#3b82f6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
+const C = StyleSheet.create({
+  card: {
+    backgroundColor: '#0a1628',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#142240',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 4,
+    marginBottom: 14,
   },
-  avatarText: { color: '#3b82f6', fontSize: 26, fontWeight: '700' },
-  fullName: { color: '#f1f5f9', fontSize: 20, fontWeight: '700' },
-  email: { color: '#94a3b8', fontSize: 14 },
-
-  infoCard: { marginBottom: 0 },
-  sectionTitle: {
-    color: '#94a3b8',
+  cardTitle: {
+    color: '#3d6090',
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 1,
-    marginBottom: 4,
+    letterSpacing: 0.8,
+    marginBottom: 10,
   },
+});
 
-  version: { color: '#334155', fontSize: 12, textAlign: 'center', marginTop: 32 },
+const R = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 13,
+    gap: 12,
+  },
+  rowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#0e1e36',
+  },
+  rowIcon:  { fontSize: 16, width: 22, textAlign: 'center' },
+  rowLabel: { color: '#c8d8f0', fontSize: 14, fontWeight: '500' },
+  rowValue: { color: '#3d6090', fontSize: 14, flex: 1, textAlign: 'right' },
+  chevron:  { color: '#1e3a5f', fontSize: 20, fontWeight: '300' },
 });

@@ -292,7 +292,7 @@ export async function deliveryReport(
       String(d.quantityDelivered),
       d.conditionOnArrival ?? '',
       d.inspectionStatus,
-      d.acceptanceStatus,
+      d.acceptanceStatus ?? '',
     ];
   });
 

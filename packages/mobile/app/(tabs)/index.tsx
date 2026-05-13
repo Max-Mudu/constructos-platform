@@ -10,11 +10,18 @@ import {
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../src/store/auth.store';
 import { notificationsApi } from '../../src/api/notifications';
-import { Screen } from '../../src/components/Screen';
-import { Card } from '../../src/components/Card';
-import { Button } from '../../src/components/Button';
-import { Badge } from '../../src/components/Badge';
 import { useSSEEvent } from '../../src/hooks/useSSEEvent';
+
+const ROLE_LABEL: Record<string, string> = {
+  company_admin:   'Company Admin',
+  project_manager: 'Project Manager',
+  site_supervisor: 'Site Supervisor',
+  finance_officer: 'Finance Officer',
+  consultant:      'Consultant',
+  contractor:      'Contractor',
+  worker:          'Worker',
+  viewer:          'Viewer',
+};
 
 // ─── Worker My Day ────────────────────────────────────────────────────────────
 
@@ -27,10 +34,10 @@ function WorkerMyDay() {
   const [checkingIn,  setCheckingIn]  = useState(false);
   const [refreshing,  setRefreshing]  = useState(false);
 
-  const now     = new Date();
-  const hour    = now.getHours();
+  const now      = new Date();
+  const hour     = now.getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
-  const today   = now.toLocaleDateString('en-GB', {
+  const today    = now.toLocaleDateString('en-GB', {
     weekday: 'long', day: 'numeric', month: 'long',
   });
 
@@ -49,7 +56,6 @@ function WorkerMyDay() {
 
   useEffect(() => { void loadUnread(); }, []);
 
-  // Listen for new notifications via SSE
   const handleNotification = useCallback(() => {
     setUnreadCount((c) => c + 1);
   }, []);
@@ -80,63 +86,111 @@ function WorkerMyDay() {
   }
 
   return (
-    <Screen scroll>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>{greeting}, {user.firstName}</Text>
-          <Text style={styles.date}>{today}</Text>
-        </View>
-        {unreadCount > 0 && (
-          <Badge label={`${unreadCount} alerts`} variant="warning" />
-        )}
+    <View style={H.root}>
+      {/* ── App bar ──────────────────────────────────────────────────────── */}
+      <View style={H.appBar}>
+        <Text style={H.appBarTitle}>My Day</Text>
+        {unreadCount > 0 ? (
+          <TouchableOpacity
+            style={H.notifBadge}
+            onPress={() => router.push('/(tabs)/notifications')}
+            activeOpacity={0.8}
+          >
+            <Text style={H.notifBadgeText}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
-      <Card style={styles.card}>
-        <Text style={styles.cardTitle}>Today's Status</Text>
-        <Text style={styles.cardSub}>
-          {checkedIn ? 'You have checked in today' : 'You have not checked in yet'}
-        </Text>
-        <Button
-          title={checkedIn ? 'Update Attendance' : 'Check In Now'}
-          onPress={handleSelfAttendance}
-          loading={checkingIn}
-          style={{ marginTop: 12 }}
-        />
-      </Card>
+      <ScrollView
+        style={H.scroll}
+        contentContainerStyle={H.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3b82f6" />
+        }
+      >
+        {/* ── Greeting ─────────────────────────────────────────────────── */}
+        <View style={H.greetingWrap}>
+          <Text style={H.greetingText}>{greeting}, {user.firstName ?? 'there'}</Text>
+          <Text style={H.greetingDate}>{today}</Text>
+          <View style={H.rolePill}>
+            <Text style={H.rolePillText}>{ROLE_LABEL[user.role] ?? user.role}</Text>
+          </View>
+        </View>
 
-      <Card style={[styles.card, { marginTop: 12 }]}>
-        <Text style={styles.cardTitle}>Quick Actions</Text>
-        <TouchableOpacity
-          style={styles.actionRow}
-          onPress={() => router.push('/(tabs)/attendance')}
-        >
-          <Text style={styles.actionText}>View Attendance History</Text>
-          <Text style={styles.actionArrow}>→</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.actionRow}
-          onPress={() => router.push('/(tabs)/notifications')}
-        >
-          <Text style={styles.actionText}>Notifications</Text>
-          {unreadCount > 0 && <Badge label={String(unreadCount)} variant="warning" />}
-        </TouchableOpacity>
-      </Card>
-    </Screen>
+        {/* ── Today's Attendance card ───────────────────────────────────── */}
+        <View style={H.card}>
+          <Text style={H.cardLabel}>TODAY'S ATTENDANCE</Text>
+          <View style={H.statusRow}>
+            <View style={checkedIn ? H.statusDotGreen : H.statusDotAmber} />
+            <Text style={H.statusText}>
+              {checkedIn ? 'Checked In' : 'Not Checked In'}
+            </Text>
+          </View>
+          <Text style={H.statusSub}>
+            {checkedIn
+              ? 'Your attendance has been recorded for today.'
+              : 'You have not checked in yet for today.'}
+          </Text>
+          <TouchableOpacity
+            style={checkingIn ? [H.checkInBtn, H.checkInBtnLoading] : H.checkInBtn}
+            onPress={() => void handleSelfAttendance()}
+            disabled={checkingIn}
+            activeOpacity={0.85}
+          >
+            <Text style={H.checkInBtnText}>
+              {checkingIn ? 'Opening…' : checkedIn ? 'Update Attendance' : 'Check In Now'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── Quick Actions card ────────────────────────────────────────── */}
+        <View style={H.card}>
+          <Text style={H.cardLabel}>QUICK ACTIONS</Text>
+
+          <TouchableOpacity
+            style={H.actionRow}
+            onPress={() => router.push('/(tabs)/attendance')}
+            activeOpacity={0.7}
+          >
+            <Text style={H.actionIcon}>📋</Text>
+            <Text style={H.actionText}>View Attendance History</Text>
+            <Text style={H.chevron}>›</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[H.actionRow, H.actionRowLast]}
+            onPress={() => router.push('/(tabs)/notifications')}
+            activeOpacity={0.7}
+          >
+            <Text style={H.actionIcon}>🔔</Text>
+            <Text style={H.actionText}>Notifications</Text>
+            {unreadCount > 0 ? (
+              <View style={H.inlineNotifBadge}>
+                <Text style={H.inlineNotifText}>{unreadCount}</Text>
+              </View>
+            ) : (
+              <Text style={H.chevron}>›</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 // ─── Supervisor / Manager Home ────────────────────────────────────────────────
 
 function SupervisorHome() {
-  const router       = useRouter();
-  const user         = useAuthStore((s) => s.user)!;
-  const [unread, setUnread] = useState(0);
+  const router = useRouter();
+  const user   = useAuthStore((s) => s.user)!;
+  const [unread,     setUnread]     = useState(0);
   const [refreshing, setRefreshing] = useState(false);
 
-  const now2     = new Date();
-  const hour2    = now2.getHours();
+  const now2      = new Date();
+  const hour2     = now2.getHours();
   const greeting2 = hour2 < 12 ? 'Good morning' : hour2 < 18 ? 'Good afternoon' : 'Good evening';
-  const today    = now2.toLocaleDateString('en-GB', {
+  const today     = now2.toLocaleDateString('en-GB', {
     weekday: 'long', day: 'numeric', month: 'long',
   });
 
@@ -157,57 +211,76 @@ function SupervisorHome() {
   const handleNotification = useCallback(() => { setUnread((c) => c + 1); }, []);
   useSSEEvent('notification', handleNotification);
 
-  const roleLabel = user.role.replace(/_/g, ' ');
+  const roleLabel = ROLE_LABEL[user.role] ?? user.role.replace(/_/g, ' ');
+
+  const siteLinks: { icon: string; label: string; route: '/(tabs)/labour' | '/(tabs)/deliveries' | '/(tabs)/attendance' }[] = [
+    { icon: '👷', label: 'Labour Entries', route: '/(tabs)/labour'     },
+    { icon: '📦', label: 'Deliveries',     route: '/(tabs)/deliveries' },
+    { icon: '✅', label: 'Attendance',     route: '/(tabs)/attendance' },
+  ];
 
   return (
-    <Screen>
+    <View style={H.root}>
+      {/* ── App bar ──────────────────────────────────────────────────────── */}
+      <View style={H.appBar}>
+        <Text style={H.appBarTitle}>My Day</Text>
+        <View style={H.rolePillAppBar}>
+          <Text style={H.rolePillAppBarText}>{roleLabel}</Text>
+        </View>
+      </View>
+
       <ScrollView
-        style={{ flex: 1 }}
-        contentContainerStyle={styles.scrollContent}
+        style={H.scroll}
+        contentContainerStyle={H.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3b82f6" />
         }
       >
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>{greeting2}, {user.firstName}</Text>
-            <Text style={styles.date}>{today}</Text>
-          </View>
-          <Badge label={roleLabel} variant="default" />
+        {/* ── Greeting ─────────────────────────────────────────────────── */}
+        <View style={H.greetingWrap}>
+          <Text style={H.greetingText}>{greeting2}, {user.firstName ?? 'there'}</Text>
+          <Text style={H.greetingDate}>{today}</Text>
         </View>
 
-        <Text style={styles.sectionTitle}>Site Management</Text>
+        {/* ── Site Management ───────────────────────────────────────────── */}
+        <Text style={H.sectionLabel}>SITE MANAGEMENT</Text>
+        <View style={H.card}>
+          {siteLinks.map((item, idx) => (
+            <TouchableOpacity
+              key={item.route}
+              style={idx === siteLinks.length - 1 ? [H.actionRow, H.actionRowLast] : H.actionRow}
+              onPress={() => router.push(item.route)}
+              activeOpacity={0.7}
+            >
+              <Text style={H.actionIcon}>{item.icon}</Text>
+              <Text style={H.actionText}>{item.label}</Text>
+              <Text style={H.chevron}>›</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-        {[
-          { label: 'Labour Entries',  route: '/(tabs)/labour'    as const },
-          { label: 'Deliveries',      route: '/(tabs)/deliveries' as const },
-          { label: 'Attendance',      route: '/(tabs)/attendance' as const },
-        ].map((item) => (
+        {/* ── Communications ────────────────────────────────────────────── */}
+        <Text style={H.sectionLabel}>COMMUNICATIONS</Text>
+        <View style={H.card}>
           <TouchableOpacity
-            key={item.route}
-            style={styles.navCard}
-            onPress={() => router.push(item.route)}
-            activeOpacity={0.75}
+            style={[H.actionRow, H.actionRowLast]}
+            onPress={() => router.push('/(tabs)/notifications')}
+            activeOpacity={0.7}
           >
-            <Text style={styles.navCardText}>{item.label}</Text>
-            <Text style={styles.actionArrow}>→</Text>
+            <Text style={H.actionIcon}>🔔</Text>
+            <Text style={H.actionText}>Notifications</Text>
+            {unread > 0 ? (
+              <View style={H.inlineNotifBadge}>
+                <Text style={H.inlineNotifText}>{unread}</Text>
+              </View>
+            ) : (
+              <Text style={H.chevron}>›</Text>
+            )}
           </TouchableOpacity>
-        ))}
-
-        <TouchableOpacity
-          style={[styles.navCard, { marginTop: 4 }]}
-          onPress={() => router.push('/(tabs)/notifications')}
-          activeOpacity={0.75}
-        >
-          <Text style={styles.navCardText}>Notifications</Text>
-          {unread > 0
-            ? <Badge label={String(unread)} variant="warning" />
-            : <Text style={styles.actionArrow}>→</Text>
-          }
-        </TouchableOpacity>
+        </View>
       </ScrollView>
-    </Screen>
+    </View>
   );
 }
 
@@ -220,45 +293,159 @@ export default function HomeScreen() {
   return user.role === 'worker' ? <WorkerMyDay /> : <SupervisorHome />;
 }
 
-const styles = StyleSheet.create({
-  scrollContent: { padding: 16, paddingBottom: 32 },
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
-  header: {
-    flexDirection:  'row',
-    justifyContent: 'space-between',
-    alignItems:     'flex-start',
-    marginBottom:   20,
+const H = StyleSheet.create({
+  root:          { flex: 1, backgroundColor: '#060d1b' },
+  scroll:        { flex: 1 },
+  scrollContent: { paddingHorizontal: 16, paddingBottom: 48 },
+
+  // App bar
+  appBar: {
+    backgroundColor:    '#060d1b',
+    borderBottomWidth:  1,
+    borderBottomColor:  '#0e1f38',
+    paddingTop:         56,
+    paddingBottom:      14,
+    paddingHorizontal:  20,
+    flexDirection:      'row',
+    alignItems:         'center',
+    justifyContent:     'space-between',
   },
-  greeting: { color: '#f1f5f9', fontSize: 22, fontWeight: '700' },
-  date:     { color: '#94a3b8', fontSize: 13, marginTop: 2 },
+  appBarTitle: {
+    color:         '#e8f0fe',
+    fontSize:      20,
+    fontWeight:    '700',
+    letterSpacing: -0.3,
+  },
 
-  card:      { marginBottom: 0 },
-  cardTitle: { color: '#f1f5f9', fontSize: 16, fontWeight: '600', marginBottom: 4 },
-  cardSub:   { color: '#94a3b8', fontSize: 13 },
-
-  sectionTitle: { color: '#94a3b8', fontSize: 11, fontWeight: '700', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8, marginTop: 8 },
-
-  navCard: {
-    backgroundColor: '#1e293b',
-    borderRadius:    10,
-    padding:         16,
-    borderWidth:     1,
-    borderColor:     '#334155',
-    flexDirection:   'row',
-    justifyContent:  'space-between',
+  // Notification badge in app bar (worker view)
+  notifBadge: {
+    backgroundColor: '#991b1b',
+    borderRadius:    12,
+    minWidth:        24,
+    height:          24,
+    paddingHorizontal: 7,
     alignItems:      'center',
-    marginBottom:    8,
+    justifyContent:  'center',
   },
-  navCardText: { color: '#f1f5f9', fontSize: 15, fontWeight: '500' },
+  notifBadgeText: { color: '#fca5a5', fontSize: 11, fontWeight: '700' },
 
-  actionRow: {
-    flexDirection:  'row',
-    justifyContent: 'space-between',
-    alignItems:     'center',
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#334155',
+  // Role pill in app bar (supervisor view)
+  rolePillAppBar: {
+    backgroundColor: '#0e1e36',
+    borderRadius:    20,
+    borderWidth:     1,
+    borderColor:     '#1e3a6e',
+    paddingHorizontal: 12,
+    paddingVertical:   4,
   },
-  actionText:  { color: '#f1f5f9', fontSize: 14 },
-  actionArrow: { color: '#64748b', fontSize: 16 },
+  rolePillAppBarText: { color: '#60a5fa', fontSize: 11, fontWeight: '600', letterSpacing: 0.3 },
+
+  // Greeting section
+  greetingWrap: { marginTop: 24, marginBottom: 20 },
+  greetingText: {
+    color:         '#e8f0fe',
+    fontSize:      24,
+    fontWeight:    '700',
+    letterSpacing: -0.4,
+    marginBottom:  4,
+  },
+  greetingDate: {
+    color:        '#3d6090',
+    fontSize:     13,
+    fontWeight:   '500',
+    marginBottom: 12,
+  },
+  rolePill: {
+    alignSelf:       'flex-start',
+    backgroundColor: '#0e1e36',
+    borderRadius:    20,
+    borderWidth:     1,
+    borderColor:     '#1e3a6e',
+    paddingHorizontal: 12,
+    paddingVertical:   4,
+  },
+  rolePillText: { color: '#60a5fa', fontSize: 11, fontWeight: '600', letterSpacing: 0.3 },
+
+  // Section label (supervisor view)
+  sectionLabel: {
+    color:         '#3d6090',
+    fontSize:      11,
+    fontWeight:    '700',
+    letterSpacing: 0.8,
+    marginBottom:  8,
+    marginTop:     4,
+  },
+
+  // Card container
+  card: {
+    backgroundColor:  '#0a1628',
+    borderRadius:     16,
+    borderWidth:      1,
+    borderColor:      '#142240',
+    paddingHorizontal: 16,
+    paddingTop:       14,
+    paddingBottom:    4,
+    marginBottom:     16,
+  },
+  cardLabel: {
+    color:         '#3d6090',
+    fontSize:      11,
+    fontWeight:    '700',
+    letterSpacing: 0.8,
+    marginBottom:  12,
+  },
+
+  // Attendance status
+  statusRow: {
+    flexDirection: 'row',
+    alignItems:    'center',
+    gap:           10,
+    marginBottom:  6,
+  },
+  statusDotGreen: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#22c55e' },
+  statusDotAmber: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#f59e0b' },
+  statusText:     { color: '#e8f0fe', fontSize: 16, fontWeight: '600' },
+  statusSub:      { color: '#3d6090', fontSize: 13, marginBottom: 16 },
+
+  // Check-in button
+  checkInBtn: {
+    backgroundColor: '#1d4ed8',
+    borderRadius:    11,
+    height:          48,
+    alignItems:      'center',
+    justifyContent:  'center',
+    marginBottom:    14,
+    borderWidth:     1,
+    borderColor:     '#2563eb',
+  },
+  checkInBtnLoading: { backgroundColor: '#1e3a70', borderColor: '#1e3a70' },
+  checkInBtnText:    { color: '#ffffff', fontSize: 15, fontWeight: '700', letterSpacing: 0.2 },
+
+  // Action rows inside cards
+  actionRow: {
+    flexDirection:     'row',
+    alignItems:        'center',
+    paddingVertical:   14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#0e1e36',
+    gap:               12,
+  },
+  actionRowLast: { borderBottomWidth: 0 },
+  actionIcon:    { fontSize: 16, width: 22, textAlign: 'center' },
+  actionText:    { color: '#c8d8f0', fontSize: 14, fontWeight: '500', flex: 1 },
+  chevron:       { color: '#1e3a5f', fontSize: 20, fontWeight: '300' },
+
+  // Inline notification badge (inside action rows)
+  inlineNotifBadge: {
+    backgroundColor: '#991b1b',
+    borderRadius:    10,
+    minWidth:        20,
+    height:          20,
+    paddingHorizontal: 6,
+    alignItems:      'center',
+    justifyContent:  'center',
+  },
+  inlineNotifText: { color: '#fca5a5', fontSize: 11, fontWeight: '700' },
 });

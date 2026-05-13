@@ -89,28 +89,56 @@ export interface LabourEntry {
 
 // ─── Deliveries ───────────────────────────────────────────────────────────────
 
+export type InspectionStatus = 'pending' | 'passed' | 'failed' | 'waived';
+export type AcceptanceStatus = 'accepted' | 'partially_accepted' | 'rejected';
+export type DeliveryCondition = 'good' | 'damaged' | 'partial' | 'incorrect';
+
 export interface DeliveryRecord {
-  id:                 string;
-  companyId:          string;
-  projectId:          string;
-  siteId:             string;
-  supplierName:       string;
-  deliveryDate:       string;
-  itemDescription:    string;
-  quantityOrdered:    number;
-  quantityDelivered:  number;
-  unitOfMeasure:      string;
-  conditionOnArrival: string;
-  inspectionStatus:   string;
-  acceptanceStatus:   string;
-  notes:              string | null;
-  photos:             DeliveryPhoto[];
+  id:                  string;
+  companyId:           string;
+  projectId:           string;
+  siteId:              string;
+  supplierName:        string;
+  supplierContact:     string | null;
+  deliveryDate:        string;
+  deliveryTime:        string | null;
+  driverName:          string | null;
+  vehicleRegistration: string | null;
+  purchaseOrderNumber: string | null;
+  deliveryNoteNumber:  string | null;
+  invoiceNumber:       string | null;
+  itemDescription:     string;
+  unitOfMeasure:       string;
+  quantityOrdered:     number;
+  quantityDelivered:   number;
+  conditionOnArrival:  DeliveryCondition;
+  inspectionStatus:    InspectionStatus;
+  acceptanceStatus:    AcceptanceStatus | null;
+  rejectionReason:     string | null;
+  discrepancyNotes:    string | null;
+  receivedById:        string;
+  receivedBy:          { id: string; firstName: string; lastName: string; email: string } | null;
+  comments:            string | null;
+  notes?:              string | null;  // legacy alias — may not be populated
+  photos:              DeliveryPhoto[];
+  documents:           DeliveryDocument[];
+  createdAt:           string;
+  updatedAt:           string;
 }
 
 export interface DeliveryPhoto {
-  id:       string;
-  fileUrl:  string;
-  fileName: string;
+  id:            string;
+  fileUrl:       string;
+  fileName:      string;
+  fileSizeBytes: number;
+}
+
+export interface DeliveryDocument {
+  id:            string;
+  fileUrl:       string;
+  fileName:      string;
+  fileSizeBytes: number;
+  fileType:      string;
 }
 
 // ─── Notifications ────────────────────────────────────────────────────────────
@@ -281,6 +309,44 @@ export interface Contractor {
   phone:               string | null;
   tradeSpecialization: string | null;
   isActive:            boolean;
+}
+
+// ─── Inventory ────────────────────────────────────────────────────────────────
+
+export type InventoryTxType =
+  | 'delivery_in'
+  | 'usage_out'
+  | 'adjustment_in'
+  | 'adjustment_out'
+  | 'transfer_in'
+  | 'transfer_out';
+
+export interface SiteInventoryItem {
+  id:                string;
+  companyId:         string;
+  siteId:            string;
+  materialName:      string;
+  unitOfMeasure:     string;
+  currentQuantity:   number;
+  lowStockThreshold: number | null;
+  createdAt:         string;
+  updatedAt:         string;
+  site:              { id: string; name: string };
+}
+
+export interface InventoryTransaction {
+  id:            string;
+  type:          InventoryTxType;
+  quantity:      number;
+  unitOfMeasure: string;
+  note:          string | null;
+  createdAt:     string;
+  delivery:      { id: string; supplierName: string; deliveryDate: string } | null;
+  performedBy:   { id: string; firstName: string; lastName: string } | null;
+}
+
+export interface SiteInventoryItemDetail extends SiteInventoryItem {
+  transactions: InventoryTransaction[];
 }
 
 // ─── API Response shapes ──────────────────────────────────────────────────────

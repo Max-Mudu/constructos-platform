@@ -5,7 +5,7 @@
  * Used by the mobile app where the supervisor/PM browses across all sites.
  */
 import { FastifyInstance } from 'fastify';
-import { Prisma } from '@prisma/client';
+import { Prisma, AcceptanceStatus } from '@prisma/client';
 import { authenticate } from '../middleware/authenticate';
 import { requireRole } from '../middleware/requireRole';
 import { prisma } from '../utils/prisma';
@@ -122,7 +122,7 @@ export async function mobileRoutes(fastify: FastifyInstance): Promise<void> {
           ...(projectId && { projectId }),
           ...(siteId    && { siteId    }),
           ...(acceptanceStatus && {
-            acceptanceStatus: acceptanceStatus as Prisma.EnumAcceptanceStatusFilter['equals'],
+            acceptanceStatus: acceptanceStatus as AcceptanceStatus,
           }),
           ...dateFilter,
           ...(search && {

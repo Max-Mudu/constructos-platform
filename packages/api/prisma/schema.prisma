@@ -179,6 +179,15 @@ enum AcceptanceStatus {
   rejected
 }
 
+enum InventoryTxType {
+  delivery_in
+  usage_out
+  adjustment_in
+  adjustment_out
+  transfer_in
+  transfer_out
+}
+
 enum WorkerEmploymentStatus {
   active
   inactive
@@ -188,97 +197,100 @@ enum WorkerEmploymentStatus {
 // ─── Companies & Users ───────────────────────────────────────────────────────
 
 model Company {
-  id          String   @id @default(uuid())
-  name        String
-  slug        String   @unique
-  country     String?
-  currency    String   @default("USD")
-  timezone    String   @default("UTC")
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  country   String?
+  currency  String   @default("USD")
+  timezone  String   @default("UTC")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  users               User[]
-  projects            Project[]
-  workers             Worker[]
-  workerAssignments   WorkerAssignment[]
-  contractors         Contractor[]
-  suppliers           Supplier[]
-  budgets             Budget[]
-  invoices            Invoice[]
-  financeInflows      FinanceInflow[]
-  notifications               Notification[]
-  notificationPreferences     NotificationPreference[]
-  auditLogs           AuditLog[]
-  deliveryRecords     DeliveryRecord[]
-  pushTokens          PushToken[]
+  users                   User[]
+  projects                Project[]
+  workers                 Worker[]
+  workerAssignments       WorkerAssignment[]
+  contractors             Contractor[]
+  suppliers               Supplier[]
+  budgets                 Budget[]
+  invoices                Invoice[]
+  financeInflows          FinanceInflow[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  auditLogs               AuditLog[]
+  deliveryRecords         DeliveryRecord[]
+  pushTokens              PushToken[]
+  siteInventoryItems      SiteInventory[]
+  inventoryTransactions   InventoryTransaction[]
 
   @@map("companies")
 }
 
 model User {
-  id               String    @id @default(uuid())
+  id               String          @id @default(uuid())
   companyId        String
-  email            String    @unique
+  email            String          @unique
   passwordHash     String
   firstName        String
   lastName         String
   phone            String?
   role             UserRole
   consultantType   ConsultantType?
-  canViewFinance   Boolean   @default(false)
-  isActive         Boolean   @default(true)
+  canViewFinance   Boolean         @default(false)
+  isActive         Boolean         @default(true)
   lastLoginAt      DateTime?
-  failedLoginCount Int       @default(0)
+  failedLoginCount Int             @default(0)
   lockedAt         DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
-  company          Company   @relation(fields: [companyId], references: [id])
-  refreshTokens    RefreshToken[]
-  projectMembers   ProjectMember[]
-  auditLogs        AuditLog[]
-  notifications               Notification[]
-  notificationPreferences     NotificationPreference[]
-  labourEntries       LabourEntry[]      @relation("RegisteredBy")
-  attendanceRecords   AttendanceRecord[] @relation("RecordedBy")
-  dailyTargets        DailyTarget[]      @relation("SetBy")
-  approvedTargets     DailyTarget[]      @relation("ApprovedBy")
-  uploadedDrawings      DrawingRevision[]       @relation("UploadedBy")
-  drawingsCreated       Drawing[]               @relation("DrawingsCreatedBy")
-  drawingRevApprovals   DrawingRevision[]       @relation("DrawingRevisionApprovedBy")
-  drawingComments       DrawingComment[]        @relation("DrawingCommentUser")
-  instructionsIssued    ConsultantInstruction[] @relation("InstructionsIssuedBy")
-  consultantAssignments ConsultantAssignment[]
-  financeInflows   FinanceInflow[]  @relation("RecordedBy")
-  receivedDeliveries DeliveryRecord[] @relation("ReceivedDeliveries")
-  workerAssignments WorkerAssignment[] @relation("WorkerAssignedBy")
-  workPackagesCreated  WorkPackage[]  @relation("WorkPackageCreatedBy")
-  scheduleTasksCreated ScheduleTask[] @relation("ScheduleTaskCreatedBy")
-  weeklyPlansCreated   WeeklyPlan[]   @relation("WeeklyPlanCreatedBy")
-  budgetsCreated           Budget[]         @relation("BudgetsCreatedBy")
-  budgetsApproved          Budget[]         @relation("BudgetsApprovedBy")
-  invoicesCreated          Invoice[]        @relation("InvoicesCreatedBy")
-  invoicesApproved         Invoice[]        @relation("InvoicesApprovedBy")
-  invoiceConsultant        Invoice[]        @relation("InvoiceConsultant")
-  invoicePaymentsRecorded  InvoicePayment[] @relation("InvoicePaymentsRecordedBy")
-  worker                   Worker?
-  pushTokens               PushToken[]
+  company                 Company                  @relation(fields: [companyId], references: [id])
+  refreshTokens           RefreshToken[]
+  projectMembers          ProjectMember[]
+  auditLogs               AuditLog[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreference[]
+  labourEntries           LabourEntry[]            @relation("RegisteredBy")
+  attendanceRecords       AttendanceRecord[]       @relation("RecordedBy")
+  dailyTargets            DailyTarget[]            @relation("SetBy")
+  approvedTargets         DailyTarget[]            @relation("ApprovedBy")
+  uploadedDrawings        DrawingRevision[]        @relation("UploadedBy")
+  drawingsCreated         Drawing[]                @relation("DrawingsCreatedBy")
+  drawingRevApprovals     DrawingRevision[]        @relation("DrawingRevisionApprovedBy")
+  drawingComments         DrawingComment[]         @relation("DrawingCommentUser")
+  instructionsIssued      ConsultantInstruction[]  @relation("InstructionsIssuedBy")
+  consultantAssignments   ConsultantAssignment[]
+  financeInflows          FinanceInflow[]          @relation("RecordedBy")
+  receivedDeliveries      DeliveryRecord[]         @relation("ReceivedDeliveries")
+  workerAssignments       WorkerAssignment[]       @relation("WorkerAssignedBy")
+  workPackagesCreated     WorkPackage[]            @relation("WorkPackageCreatedBy")
+  scheduleTasksCreated    ScheduleTask[]           @relation("ScheduleTaskCreatedBy")
+  weeklyPlansCreated      WeeklyPlan[]             @relation("WeeklyPlanCreatedBy")
+  budgetsCreated          Budget[]                 @relation("BudgetsCreatedBy")
+  budgetsApproved         Budget[]                 @relation("BudgetsApprovedBy")
+  invoicesCreated         Invoice[]                @relation("InvoicesCreatedBy")
+  invoicesApproved        Invoice[]                @relation("InvoicesApprovedBy")
+  invoiceConsultant       Invoice[]                @relation("InvoiceConsultant")
+  invoicePaymentsRecorded InvoicePayment[]         @relation("InvoicePaymentsRecordedBy")
+  worker                  Worker?
+  pushTokens              PushToken[]
+  inventoryTransactions   InventoryTransaction[]   @relation("InventoryTransactionPerformedBy")
 
   @@map("users")
 }
 
 model RefreshToken {
-  id          String    @id @default(uuid())
-  userId      String
-  tokenHash   String    @unique
-  expiresAt   DateTime
-  revokedAt   DateTime?
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime  @default(now())
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime  @default(now())
 
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("refresh_tokens")
 }
@@ -298,20 +310,20 @@ model Project {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
-  company           Company            @relation(fields: [companyId], references: [id])
-  jobSites          JobSite[]
-  projectMembers    ProjectMember[]
-  workerAssignments WorkerAssignment[]
-  labourEntries     LabourEntry[]
-  attendanceRecords AttendanceRecord[]
-  dailyTargets      DailyTarget[]
-  contractorSchedules ContractorSchedule[]
-  consultantAssignments ConsultantAssignment[]
-  drawings          Drawing[]
-  budgets           Budget[]
-  invoices          Invoice[]
-  financeInflows    FinanceInflow[]
-  deliveryRecords   DeliveryRecord[]
+  company                Company                 @relation(fields: [companyId], references: [id])
+  jobSites               JobSite[]
+  projectMembers         ProjectMember[]
+  workerAssignments      WorkerAssignment[]
+  labourEntries          LabourEntry[]
+  attendanceRecords      AttendanceRecord[]
+  dailyTargets           DailyTarget[]
+  contractorSchedules    ContractorSchedule[]
+  consultantAssignments  ConsultantAssignment[]
+  drawings               Drawing[]
+  budgets                Budget[]
+  invoices               Invoice[]
+  financeInflows         FinanceInflow[]
+  deliveryRecords        DeliveryRecord[]
   workPackages           WorkPackage[]
   scheduleTasks          ScheduleTask[]
   weeklyPlans            WeeklyPlan[]
@@ -321,23 +333,23 @@ model Project {
 }
 
 model JobSite {
-  id          String   @id @default(uuid())
-  companyId   String
-  projectId   String
-  name        String
-  address     String?
-  latitude    Decimal? @db.Decimal(10, 7)
-  longitude   Decimal? @db.Decimal(10, 7)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(uuid())
+  companyId String
+  projectId String
+  name      String
+  address   String?
+  latitude  Decimal? @db.Decimal(10, 7)
+  longitude Decimal? @db.Decimal(10, 7)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  project           Project            @relation(fields: [projectId], references: [id])
-  projectMembers    ProjectMember[]
-  workerAssignments WorkerAssignment[]
-  labourEntries     LabourEntry[]
-  attendanceRecords AttendanceRecord[]
-  dailyTargets      DailyTarget[]
+  project                Project                 @relation(fields: [projectId], references: [id])
+  projectMembers         ProjectMember[]
+  workerAssignments      WorkerAssignment[]
+  labourEntries          LabourEntry[]
+  attendanceRecords      AttendanceRecord[]
+  dailyTargets           DailyTarget[]
   deliveryRecords        DeliveryRecord[]
   workPackages           WorkPackage[]
   scheduleTasks          ScheduleTask[]
@@ -345,6 +357,8 @@ model JobSite {
   drawings               Drawing[]
   consultantInstructions ConsultantInstruction[]
   invoices               Invoice[]
+  siteInventoryItems     SiteInventory[]
+  inventoryTransactions  InventoryTransaction[]
 
   @@map("job_sites")
 }
@@ -358,9 +372,9 @@ model ProjectMember {
   assignedAt DateTime  @default(now())
   removedAt  DateTime?
 
-  project    Project   @relation(fields: [projectId], references: [id])
-  user       User      @relation(fields: [userId], references: [id])
-  site       JobSite?  @relation(fields: [siteId], references: [id])
+  project Project  @relation(fields: [projectId], references: [id])
+  user    User     @relation(fields: [userId], references: [id])
+  site    JobSite? @relation(fields: [siteId], references: [id])
 
   @@unique([projectId, userId])
   @@map("project_members")
@@ -385,12 +399,12 @@ model Worker {
   emergencyContactPhone String?
   notes                 String?
   photoUrl              String?
-  userId                String?                @unique  // linked platform user (worker role)
+  userId                String?                @unique // linked platform user (worker role)
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
 
-  company           Company              @relation(fields: [companyId], references: [id])
-  user              User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  company           Company            @relation(fields: [companyId], references: [id])
+  user              User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   assignments       WorkerAssignment[]
   labourEntries     LabourEntry[]
   attendanceRecords AttendanceRecord[]
@@ -409,11 +423,11 @@ model WorkerAssignment {
   assignedAt   DateTime  @default(now())
   removedAt    DateTime?
 
-  company     Company  @relation(fields: [companyId], references: [id])
-  project     Project  @relation(fields: [projectId], references: [id])
-  site        JobSite  @relation(fields: [siteId], references: [id])
-  worker      Worker   @relation(fields: [workerId], references: [id])
-  assignedBy  User     @relation("WorkerAssignedBy", fields: [assignedById], references: [id])
+  company    Company @relation(fields: [companyId], references: [id])
+  project    Project @relation(fields: [projectId], references: [id])
+  site       JobSite @relation(fields: [siteId], references: [id])
+  worker     Worker  @relation(fields: [workerId], references: [id])
+  assignedBy User    @relation("WorkerAssignedBy", fields: [assignedById], references: [id])
 
   @@unique([siteId, workerId])
   @@map("worker_assignments")
@@ -434,11 +448,11 @@ model LabourEntry {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  project        Project   @relation(fields: [projectId], references: [id])
-  site           JobSite   @relation(fields: [siteId], references: [id])
-  worker         Worker    @relation(fields: [workerId], references: [id])
-  registeredBy   User      @relation("RegisteredBy", fields: [registeredById], references: [id])
-  invoices       Invoice[]
+  project      Project   @relation(fields: [projectId], references: [id])
+  site         JobSite   @relation(fields: [siteId], references: [id])
+  worker       Worker    @relation(fields: [workerId], references: [id])
+  registeredBy User      @relation("RegisteredBy", fields: [registeredById], references: [id])
+  invoices     Invoice[]
 
   @@unique([siteId, workerId, date])
   @@map("labour_entries")
@@ -459,38 +473,38 @@ model AttendanceRecord {
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
 
-  project      Project   @relation(fields: [projectId], references: [id])
-  site         JobSite   @relation(fields: [siteId], references: [id])
-  worker       Worker    @relation(fields: [workerId], references: [id])
-  recordedBy   User      @relation("RecordedBy", fields: [recordedById], references: [id])
+  project    Project @relation(fields: [projectId], references: [id])
+  site       JobSite @relation(fields: [siteId], references: [id])
+  worker     Worker  @relation(fields: [workerId], references: [id])
+  recordedBy User    @relation("RecordedBy", fields: [recordedById], references: [id])
 
   @@unique([siteId, workerId, date])
   @@map("attendance_records")
 }
 
 model DailyTarget {
-  id               String    @id @default(uuid())
-  companyId        String
-  projectId        String
-  siteId           String
-  workerId         String?
-  date             DateTime  @db.Date
-  description      String
-  targetValue      Decimal   @db.Decimal(10, 2)
-  targetUnit       String
-  actualValue      Decimal?  @db.Decimal(10, 2)
-  notes            String?
-  setById          String
-  approvedById     String?
-  approvedAt       DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  id           String    @id @default(uuid())
+  companyId    String
+  projectId    String
+  siteId       String
+  workerId     String?
+  date         DateTime  @db.Date
+  description  String
+  targetValue  Decimal   @db.Decimal(10, 2)
+  targetUnit   String
+  actualValue  Decimal?  @db.Decimal(10, 2)
+  notes        String?
+  setById      String
+  approvedById String?
+  approvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
-  project          Project   @relation(fields: [projectId], references: [id])
-  site             JobSite   @relation(fields: [siteId], references: [id])
-  worker           Worker?   @relation(fields: [workerId], references: [id])
-  setBy            User      @relation("SetBy", fields: [setById], references: [id])
-  approvedBy       User?     @relation("ApprovedBy", fields: [approvedById], references: [id])
+  project    Project @relation(fields: [projectId], references: [id])
+  site       JobSite @relation(fields: [siteId], references: [id])
+  worker     Worker? @relation(fields: [workerId], references: [id])
+  setBy      User    @relation("SetBy", fields: [setById], references: [id])
+  approvedBy User?   @relation("ApprovedBy", fields: [approvedById], references: [id])
 
   @@map("daily_targets")
 }
@@ -498,22 +512,22 @@ model DailyTarget {
 // ─── Contractors ──────────────────────────────────────────────────────────────
 
 model Contractor {
-  id                 String   @id @default(uuid())
-  companyId          String
-  userId             String?
-  name               String
-  contactPerson      String?
-  email              String?
-  phone              String?
-  registrationNumber String?
+  id                  String   @id @default(uuid())
+  companyId           String
+  userId              String?
+  name                String
+  contactPerson       String?
+  email               String?
+  phone               String?
+  registrationNumber  String?
   tradeSpecialization String?
-  isActive           Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  company      Company              @relation(fields: [companyId], references: [id])
-  schedules    ContractorSchedule[]
-  invoices     Invoice[]
+  company                Company                 @relation(fields: [companyId], references: [id])
+  schedules              ContractorSchedule[]
+  invoices               Invoice[]
   workPackages           WorkPackage[]
   scheduleTasks          ScheduleTask[]
   weeklyPlans            WeeklyPlan[]
@@ -536,25 +550,25 @@ model ContractorSchedule {
   createdAt     DateTime                 @default(now())
   updatedAt     DateTime                 @updatedAt
 
-  project     Project                    @relation(fields: [projectId], references: [id])
-  contractor  Contractor                 @relation(fields: [contractorId], references: [id])
-  milestones  ContractorMilestone[]
+  project    Project               @relation(fields: [projectId], references: [id])
+  contractor Contractor            @relation(fields: [contractorId], references: [id])
+  milestones ContractorMilestone[]
 
   @@map("contractor_schedules")
 }
 
 model ContractorMilestone {
-  id           String    @id @default(uuid())
-  scheduleId   String
-  name         String
-  description  String?
-  dueDate      DateTime  @db.Date
-  completedAt  DateTime?
-  isComplete   Boolean   @default(false)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id          String    @id @default(uuid())
+  scheduleId  String
+  name        String
+  description String?
+  dueDate     DateTime  @db.Date
+  completedAt DateTime?
+  isComplete  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  schedule     ContractorSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  schedule ContractorSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
 
   @@map("contractor_milestones")
 }
@@ -577,8 +591,8 @@ model ConsultantAssignment {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  project        Project        @relation(fields: [projectId], references: [id])
-  user           User           @relation(fields: [userId], references: [id])
+  project Project @relation(fields: [projectId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
 
   @@map("consultant_assignments")
 }
@@ -586,7 +600,7 @@ model ConsultantAssignment {
 // ─── Drawings ─────────────────────────────────────────────────────────────────
 
 model Drawing {
-  id                String        @id @default(uuid())
+  id                String   @id @default(uuid())
   companyId         String
   projectId         String
   siteId            String?
@@ -595,14 +609,14 @@ model Drawing {
   discipline        String?
   currentRevisionId String?
   createdById       String
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  project           Project            @relation(fields: [projectId], references: [id])
-  site              JobSite?           @relation(fields: [siteId], references: [id])
-  createdBy         User               @relation("DrawingsCreatedBy", fields: [createdById], references: [id])
-  revisions         DrawingRevision[]
-  comments          DrawingComment[]
+  project                Project                 @relation(fields: [projectId], references: [id])
+  site                   JobSite?                @relation(fields: [siteId], references: [id])
+  createdBy              User                    @relation("DrawingsCreatedBy", fields: [createdById], references: [id])
+  revisions              DrawingRevision[]
+  comments               DrawingComment[]
   consultantInstructions ConsultantInstruction[]
 
   @@unique([projectId, drawingNumber])
@@ -628,10 +642,10 @@ model DrawingRevision {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  drawing        Drawing           @relation(fields: [drawingId], references: [id], onDelete: Cascade)
-  uploadedBy     User              @relation("UploadedBy", fields: [uploadedById], references: [id])
-  approvedBy     User?             @relation("DrawingRevisionApprovedBy", fields: [approvedById], references: [id])
-  comments       DrawingComment[]
+  drawing                Drawing                 @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  uploadedBy             User                    @relation("UploadedBy", fields: [uploadedById], references: [id])
+  approvedBy             User?                   @relation("DrawingRevisionApprovedBy", fields: [approvedById], references: [id])
+  comments               DrawingComment[]
   consultantInstructions ConsultantInstruction[]
 
   @@map("drawing_revisions")
@@ -647,9 +661,9 @@ model DrawingComment {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  drawing    Drawing         @relation(fields: [drawingId], references: [id], onDelete: Cascade)
-  revision   DrawingRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
-  user       User            @relation("DrawingCommentUser", fields: [userId], references: [id])
+  drawing  Drawing         @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  revision DrawingRevision @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+  user     User            @relation("DrawingCommentUser", fields: [userId], references: [id])
 
   @@map("drawing_comments")
 }
@@ -680,21 +694,21 @@ model ConsultantInstruction {
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
-  project     Project            @relation(fields: [projectId], references: [id])
-  site        JobSite?           @relation(fields: [siteId], references: [id])
-  contractor  Contractor?        @relation(fields: [contractorId], references: [id])
-  issuedBy    User               @relation("InstructionsIssuedBy", fields: [issuedById], references: [id])
-  drawing     Drawing?           @relation(fields: [drawingId], references: [id])
-  revision    DrawingRevision?   @relation(fields: [revisionId], references: [id])
-  milestone   ScheduleMilestone? @relation(fields: [milestoneId], references: [id])
-  workPackage WorkPackage?       @relation(fields: [workPackageId], references: [id])
+  project     Project                 @relation(fields: [projectId], references: [id])
+  site        JobSite?                @relation(fields: [siteId], references: [id])
+  contractor  Contractor?             @relation(fields: [contractorId], references: [id])
+  issuedBy    User                    @relation("InstructionsIssuedBy", fields: [issuedById], references: [id])
+  drawing     Drawing?                @relation(fields: [drawingId], references: [id])
+  revision    DrawingRevision?        @relation(fields: [revisionId], references: [id])
+  milestone   ScheduleMilestone?      @relation(fields: [milestoneId], references: [id])
+  workPackage WorkPackage?            @relation(fields: [workPackageId], references: [id])
   attachments InstructionAttachment[]
 
   @@map("consultant_instructions")
 }
 
 model InstructionAttachment {
-  id            String                @id @default(uuid())
+  id            String   @id @default(uuid())
   instructionId String
   companyId     String
   fileUrl       String
@@ -703,9 +717,9 @@ model InstructionAttachment {
   fileSizeBytes Int
   fileType      String
   uploadedById  String
-  createdAt     DateTime              @default(now())
+  createdAt     DateTime @default(now())
 
-  instruction   ConsultantInstruction @relation(fields: [instructionId], references: [id], onDelete: Cascade)
+  instruction ConsultantInstruction @relation(fields: [instructionId], references: [id], onDelete: Cascade)
 
   @@map("instruction_attachments")
 }
@@ -726,10 +740,10 @@ model Budget {
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
-  company         Company           @relation(fields: [companyId], references: [id])
-  project         Project           @relation(fields: [projectId], references: [id])
-  createdBy       User?             @relation("BudgetsCreatedBy", fields: [createdById], references: [id])
-  approvedBy      User?             @relation("BudgetsApprovedBy", fields: [approvedById], references: [id])
+  company         Company          @relation(fields: [companyId], references: [id])
+  project         Project          @relation(fields: [projectId], references: [id])
+  createdBy       User?            @relation("BudgetsCreatedBy", fields: [createdById], references: [id])
+  approvedBy      User?            @relation("BudgetsApprovedBy", fields: [approvedById], references: [id])
   lineItems       BudgetLineItem[]
   variationOrders VariationOrder[]
 
@@ -754,11 +768,11 @@ model BudgetLineItem {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
 
-  budget                Budget                @relation(fields: [budgetId], references: [id], onDelete: Cascade)
-  consultantCostEntry   ConsultantCostEntry?
-  marketingBudgetEntry  MarketingBudgetEntry?
-  invoices              Invoice[]
-  deliveryRecords       DeliveryRecord[]
+  budget               Budget                @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  consultantCostEntry  ConsultantCostEntry?
+  marketingBudgetEntry MarketingBudgetEntry?
+  invoices             Invoice[]
+  deliveryRecords      DeliveryRecord[]
 
   @@map("budget_line_items")
 }
@@ -778,8 +792,8 @@ model ConsultantCostEntry {
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
 
-  budgetLineItem   BudgetLineItem @relation(fields: [budgetLineItemId], references: [id], onDelete: Cascade)
-  invoices         Invoice[]
+  budgetLineItem BudgetLineItem @relation(fields: [budgetLineItemId], references: [id], onDelete: Cascade)
+  invoices       Invoice[]
 
   @@map("consultant_cost_entries")
 }
@@ -800,8 +814,8 @@ model MarketingBudgetEntry {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  budgetLineItem   BudgetLineItem @relation(fields: [budgetLineItemId], references: [id], onDelete: Cascade)
-  invoices         Invoice[]
+  budgetLineItem BudgetLineItem @relation(fields: [budgetLineItemId], references: [id], onDelete: Cascade)
+  invoices       Invoice[]
 
   @@map("marketing_budget_entries")
 }
@@ -822,8 +836,8 @@ model VariationOrder {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
-  budget          Budget          @relation(fields: [budgetId], references: [id])
-  invoices        Invoice[]
+  budget   Budget    @relation(fields: [budgetId], references: [id])
+  invoices Invoice[]
 
   @@map("variation_orders")
 }
@@ -897,7 +911,7 @@ model InvoiceLineItem {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@map("invoice_line_items")
 }
@@ -915,8 +929,8 @@ model InvoicePayment {
   recordedById String
   createdAt    DateTime @default(now())
 
-  invoice      Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  recordedBy   User     @relation("InvoicePaymentsRecordedBy", fields: [recordedById], references: [id])
+  invoice    Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  recordedBy User    @relation("InvoicePaymentsRecordedBy", fields: [recordedById], references: [id])
 
   @@map("invoice_payments")
 }
@@ -938,9 +952,9 @@ model FinanceInflow {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
-  company         Company           @relation(fields: [companyId], references: [id])
-  project         Project?          @relation(fields: [projectId], references: [id])
-  recordedBy      User              @relation("RecordedBy", fields: [recordedById], references: [id])
+  company    Company  @relation(fields: [companyId], references: [id])
+  project    Project? @relation(fields: [projectId], references: [id])
+  recordedBy User     @relation("RecordedBy", fields: [recordedById], references: [id])
 
   @@map("finance_inflows")
 }
@@ -960,8 +974,8 @@ model Notification {
   readAt     DateTime?
   createdAt  DateTime  @default(now())
 
-  company    Company  @relation(fields: [companyId], references: [id])
-  user       User     @relation(fields: [userId], references: [id])
+  company Company @relation(fields: [companyId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
 
   @@map("notifications")
 }
@@ -975,8 +989,8 @@ model NotificationPreference {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company   Company  @relation(fields: [companyId], references: [id])
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id])
 
   @@unique([userId, type])
   @@map("notification_preferences")
@@ -999,8 +1013,8 @@ model AuditLog {
   userAgent     String?
   createdAt     DateTime    @default(now())
 
-  company       Company?    @relation(fields: [companyId], references: [id])
-  user          User?       @relation(fields: [userId], references: [id])
+  company Company? @relation(fields: [companyId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
 
   @@map("audit_logs")
 }
@@ -1023,11 +1037,11 @@ model WorkPackage {
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
-  project     Project    @relation(fields: [projectId], references: [id])
-  site        JobSite    @relation(fields: [siteId], references: [id])
-  contractor  Contractor @relation(fields: [contractorId], references: [id])
-  createdBy   User       @relation("WorkPackageCreatedBy", fields: [createdById], references: [id])
-  tasks       ScheduleTask[]
+  project                Project                 @relation(fields: [projectId], references: [id])
+  site                   JobSite                 @relation(fields: [siteId], references: [id])
+  contractor             Contractor              @relation(fields: [contractorId], references: [id])
+  createdBy              User                    @relation("WorkPackageCreatedBy", fields: [createdById], references: [id])
+  tasks                  ScheduleTask[]
   consultantInstructions ConsultantInstruction[]
 
   @@map("work_packages")
@@ -1058,11 +1072,11 @@ model ScheduleTask {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
-  project      Project      @relation(fields: [projectId], references: [id])
-  site         JobSite      @relation(fields: [siteId], references: [id])
-  contractor   Contractor   @relation(fields: [contractorId], references: [id])
-  workPackage  WorkPackage? @relation(fields: [workPackageId], references: [id])
-  createdBy    User         @relation("ScheduleTaskCreatedBy", fields: [createdById], references: [id])
+  project      Project              @relation(fields: [projectId], references: [id])
+  site         JobSite              @relation(fields: [siteId], references: [id])
+  contractor   Contractor           @relation(fields: [contractorId], references: [id])
+  workPackage  WorkPackage?         @relation(fields: [workPackageId], references: [id])
+  createdBy    User                 @relation("ScheduleTaskCreatedBy", fields: [createdById], references: [id])
   milestones   ScheduleMilestone[]
   outgoingDeps ScheduleDependency[] @relation("DependentTask")
   incomingDeps ScheduleDependency[] @relation("DependsOnTask")
@@ -1085,21 +1099,21 @@ model ScheduleMilestone {
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
-  task        ScheduleTask    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  task                   ScheduleTask            @relation(fields: [taskId], references: [id], onDelete: Cascade)
   consultantInstructions ConsultantInstruction[]
 
   @@map("schedule_milestones")
 }
 
 model ScheduleDependency {
-  id              String @id @default(uuid())
+  id              String   @id @default(uuid())
   companyId       String
   taskId          String
   dependsOnTaskId String
   createdAt       DateTime @default(now())
 
-  task          ScheduleTask @relation("DependentTask",   fields: [taskId],          references: [id], onDelete: Cascade)
-  dependsOnTask ScheduleTask @relation("DependsOnTask",   fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+  task          ScheduleTask @relation("DependentTask", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOnTask ScheduleTask @relation("DependsOnTask", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
 
   @@unique([taskId, dependsOnTaskId])
   @@map("schedule_dependencies")
@@ -1117,10 +1131,10 @@ model WeeklyPlan {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  project    Project    @relation(fields: [projectId], references: [id])
-  site       JobSite    @relation(fields: [siteId], references: [id])
-  contractor Contractor @relation(fields: [contractorId], references: [id])
-  createdBy  User       @relation("WeeklyPlanCreatedBy", fields: [createdById], references: [id])
+  project    Project          @relation(fields: [projectId], references: [id])
+  site       JobSite          @relation(fields: [siteId], references: [id])
+  contractor Contractor       @relation(fields: [contractorId], references: [id])
+  createdBy  User             @relation("WeeklyPlanCreatedBy", fields: [createdById], references: [id])
   items      WeeklyPlanItem[]
 
   @@unique([siteId, contractorId, weekStartDate])
@@ -1136,7 +1150,7 @@ model WeeklyPlanItem {
   createdAt    DateTime @default(now())
 
   weeklyPlan WeeklyPlan   @relation(fields: [weeklyPlanId], references: [id], onDelete: Cascade)
-  task       ScheduleTask @relation(fields: [taskId],       references: [id], onDelete: Cascade)
+  task       ScheduleTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
   @@unique([weeklyPlanId, taskId])
   @@map("weekly_plan_items")
@@ -1156,8 +1170,8 @@ model Supplier {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  company       Company   @relation(fields: [companyId], references: [id])
-  invoices      Invoice[]
+  company  Company   @relation(fields: [companyId], references: [id])
+  invoices Invoice[]
 
   @@map("suppliers")
 }
@@ -1165,68 +1179,69 @@ model Supplier {
 // ─── Deliveries ───────────────────────────────────────────────────────────────
 
 model DeliveryRecord {
-  id                  String            @id @default(uuid())
-  companyId           String
-  projectId           String
-  siteId              String
+  id        String @id @default(uuid())
+  companyId String
+  projectId String
+  siteId    String
 
   // Supplier / vendor
-  supplierName        String
-  supplierContact     String?
+  supplierName    String
+  supplierContact String?
 
   // Delivery logistics
-  deliveryDate        DateTime          @db.Date
-  deliveryTime        String?           // "HH:MM" 24-hour
+  deliveryDate        DateTime @db.Date
+  deliveryTime        String? // "HH:MM" 24-hour
   driverName          String?
   vehicleRegistration String?
 
   // Reference numbers
   purchaseOrderNumber String?
   deliveryNoteNumber  String?
-  invoiceNumber       String?           // free-text reference; use supplierInvoiceId for FK link
+  invoiceNumber       String? // free-text reference; use supplierInvoiceId for FK link
 
   // Item / material
-  itemDescription     String
-  unitOfMeasure       String
-  quantityOrdered     Decimal           @db.Decimal(12, 3)
-  quantityDelivered   Decimal           @db.Decimal(12, 3)
+  itemDescription   String
+  unitOfMeasure     String
+  quantityOrdered   Decimal @db.Decimal(12, 3)
+  quantityDelivered Decimal @db.Decimal(12, 3)
 
   // Condition & acceptance
-  conditionOnArrival  DeliveryCondition @default(good)
-  inspectionStatus    InspectionStatus  @default(pending)
-  acceptanceStatus    AcceptanceStatus  @default(accepted)
-  rejectionReason     String?
-  discrepancyNotes    String?
+  conditionOnArrival DeliveryCondition @default(good)
+  inspectionStatus   InspectionStatus  @default(pending)
+  acceptanceStatus   AcceptanceStatus?
+  rejectionReason    String?
+  discrepancyNotes   String?
 
   // Personnel
-  receivedById        String
+  receivedById String
 
   // Optional links
-  budgetLineItemId    String?
-  supplierInvoiceId   String?
+  budgetLineItemId  String?
+  supplierInvoiceId String?
 
   // Notes
-  comments            String?
+  comments String?
 
-  createdAt           DateTime          @default(now())
-  updatedAt           DateTime          @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
-  company             Company           @relation(fields: [companyId], references: [id])
-  project             Project           @relation(fields: [projectId], references: [id])
-  site                JobSite           @relation(fields: [siteId], references: [id])
-  receivedBy          User              @relation("ReceivedDeliveries", fields: [receivedById], references: [id])
-  budgetLineItem      BudgetLineItem?   @relation(fields: [budgetLineItemId], references: [id])
-  supplierInvoice     Invoice?          @relation("DeliveryInvoice", fields: [supplierInvoiceId], references: [id])
-  linkedInvoices      Invoice[]         @relation("InvoiceDelivery")
-  photos              DeliveryPhoto[]
-  documents           DeliveryDocument[]
+  company               Company                @relation(fields: [companyId], references: [id])
+  project               Project                @relation(fields: [projectId], references: [id])
+  site                  JobSite                @relation(fields: [siteId], references: [id])
+  receivedBy            User                   @relation("ReceivedDeliveries", fields: [receivedById], references: [id])
+  budgetLineItem        BudgetLineItem?        @relation(fields: [budgetLineItemId], references: [id])
+  supplierInvoice       Invoice?               @relation("DeliveryInvoice", fields: [supplierInvoiceId], references: [id])
+  linkedInvoices        Invoice[]              @relation("InvoiceDelivery")
+  photos                DeliveryPhoto[]
+  documents             DeliveryDocument[]
+  inventoryTransactions InventoryTransaction[]
 
   @@map("delivery_records")
 }
 
 model DeliveryPhoto {
-  id               String         @id @default(uuid())
+  id               String   @id @default(uuid())
   deliveryRecordId String
   companyId        String
   fileUrl          String
@@ -1234,15 +1249,15 @@ model DeliveryPhoto {
   fileName         String
   fileSizeBytes    Int
   uploadedById     String
-  createdAt        DateTime       @default(now())
+  createdAt        DateTime @default(now())
 
-  deliveryRecord   DeliveryRecord @relation(fields: [deliveryRecordId], references: [id], onDelete: Cascade)
+  deliveryRecord DeliveryRecord @relation(fields: [deliveryRecordId], references: [id], onDelete: Cascade)
 
   @@map("delivery_photos")
 }
 
 model DeliveryDocument {
-  id               String         @id @default(uuid())
+  id               String   @id @default(uuid())
   deliveryRecordId String
   companyId        String
   fileUrl          String
@@ -1251,9 +1266,9 @@ model DeliveryDocument {
   fileSizeBytes    Int
   fileType         String
   uploadedById     String
-  createdAt        DateTime       @default(now())
+  createdAt        DateTime @default(now())
 
-  deliveryRecord   DeliveryRecord @relation(fields: [deliveryRecordId], references: [id], onDelete: Cascade)
+  deliveryRecord DeliveryRecord @relation(fields: [deliveryRecordId], references: [id], onDelete: Cascade)
 
   @@map("delivery_documents")
 }
@@ -1265,11 +1280,60 @@ model PushToken {
   userId    String
   companyId String
   token     String   @unique
-  platform  String   // 'ios' | 'android' | 'expo'
+  platform  String // 'ios' | 'android' | 'expo'
   createdAt DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  company   Company  @relation(fields: [companyId], references: [id])
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id])
 
   @@map("push_tokens")
+}
+
+// ─── Inventory ────────────────────────────────────────────────────────────────
+
+model SiteInventory {
+  id                String   @id @default(uuid())
+  companyId         String
+  siteId            String
+  materialName      String
+  unitOfMeasure     String
+  currentQuantity   Decimal  @default(0) @db.Decimal(12, 3)
+  lowStockThreshold Decimal? @db.Decimal(12, 3)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  company      Company                @relation(fields: [companyId], references: [id])
+  site         JobSite                @relation(fields: [siteId], references: [id])
+  transactions InventoryTransaction[]
+
+  @@unique([siteId, materialName, unitOfMeasure])
+  @@index([companyId])
+  @@index([siteId])
+  @@map("site_inventory")
+}
+
+model InventoryTransaction {
+  id            String          @id @default(uuid())
+  companyId     String
+  siteId        String
+  inventoryId   String
+  deliveryId    String?
+  type          InventoryTxType
+  quantity      Decimal         @db.Decimal(12, 3)
+  unitOfMeasure String
+  note          String?
+  performedById String?
+  createdAt     DateTime        @default(now())
+
+  company     Company         @relation(fields: [companyId], references: [id])
+  site        JobSite         @relation(fields: [siteId], references: [id])
+  inventory   SiteInventory   @relation(fields: [inventoryId], references: [id])
+  delivery    DeliveryRecord? @relation(fields: [deliveryId], references: [id])
+  performedBy User?           @relation("InventoryTransactionPerformedBy", fields: [performedById], references: [id])
+
+  @@index([inventoryId])
+  @@index([siteId])
+  @@index([companyId])
+  @@index([deliveryId])
+  @@map("inventory_transactions")
 }

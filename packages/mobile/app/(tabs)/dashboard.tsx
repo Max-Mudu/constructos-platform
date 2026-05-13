@@ -1,6 +1,5 @@
 /**
- * Dashboard screen — Phase 2
- * Mirrors the web dashboard: aggregated company-wide stats.
+ * Dashboard screen — operations command center.
  * Finance section only shown for canViewFinance roles.
  */
 import React, { useCallback, useEffect, useState } from 'react';
@@ -11,37 +10,148 @@ import { useRouter } from 'expo-router';
 import { dashboardApi } from '../../src/api/dashboard';
 import { useAuthStore } from '../../src/store/auth.store';
 import { Screen } from '../../src/components/Screen';
-import { Card } from '../../src/components/Card';
-import { Badge } from '../../src/components/Badge';
 import { LoadingSpinner } from '../../src/components/LoadingSpinner';
 import { useSSEEvent } from '../../src/hooks/useSSEEvent';
 import { DashboardStats } from '../../src/types';
 
-// ─── Stat tile ────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function StatTile({
-  label, value, sub, accent,
-}: { label: string; value: string | number; sub?: string; accent?: boolean }) {
+function fmt(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(0)}K`;
+  return String(Math.round(n));
+}
+
+// ─── AppBar ───────────────────────────────────────────────────────────────────
+
+function AppBar({
+  firstName, unread, onProfile,
+}: {
+  firstName: string;
+  unread:    number;
+  onProfile: () => void;
+}) {
   return (
-    <View style={[styles.tile, accent && styles.tileAccent]}>
-      <Text style={styles.tileValue}>{value}</Text>
-      <Text style={styles.tileLabel}>{label}</Text>
-      {sub ? <Text style={styles.tileSub}>{sub}</Text> : null}
+    <View style={D.appBar}>
+      <View style={D.appBarBrand}>
+        <View style={D.appBarLogoBox}>
+          <Text style={D.appBarLogoText}>C</Text>
+        </View>
+        <Text style={D.appBarTitle}>ConstructOS</Text>
+      </View>
+      <View style={D.appBarRight}>
+        <TouchableOpacity style={D.avatarWrap} onPress={onProfile} activeOpacity={0.8}>
+          {unread > 0 ? <View style={D.avatarBadge} /> : null}
+          <Text style={D.avatarInitial}>{firstName[0]?.toUpperCase() ?? 'U'}</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
-// ─── Section header ───────────────────────────────────────────────────────────
+// ─── MetricCard ───────────────────────────────────────────────────────────────
 
-function SectionHeader({ title }: { title: string }) {
-  return <Text style={styles.sectionTitle}>{title}</Text>;
+function MetricCard({
+  icon, label, value, sub, urgent, onPress,
+}: {
+  icon:     string;
+  label:    string;
+  value:    string | number;
+  sub?:     string;
+  urgent?:  boolean;
+  onPress?: () => void;
+}) {
+  const inner = (
+    <View style={[D.metricCard, urgent ? D.metricCardUrgent : null]}>
+      <View style={[D.metricIconBadge, urgent ? D.metricIconBadgeUrgent : null]}>
+        <Text style={D.metricIconText}>{icon}</Text>
+      </View>
+      <Text style={[D.metricValue, urgent ? D.metricValueUrgent : null]}>{value}</Text>
+      <Text style={D.metricLabel}>{label}</Text>
+      {sub ? (
+        <Text style={[D.metricSub, urgent ? D.metricSubUrgent : null]}>{sub}</Text>
+      ) : null}
+    </View>
+  );
+  if (onPress) {
+    return (
+      <TouchableOpacity style={D.metricWrap} onPress={onPress} activeOpacity={0.72}>
+        {inner}
+      </TouchableOpacity>
+    );
+  }
+  return <View style={D.metricWrap}>{inner}</View>;
+}
+
+// ─── AlertCard ────────────────────────────────────────────────────────────────
+
+function AlertCard({
+  accentColor, title, body,
+}: {
+  accentColor: string;
+  title:       string;
+  body:        string;
+}) {
+  return (
+    <View style={D.alertCard}>
+      <View style={[D.alertAccentBar, { backgroundColor: accentColor }]} />
+      <View style={D.alertCardInner}>
+        <Text style={D.alertCardTitle}>{title}</Text>
+        <Text style={D.alertCardBody}>{body}</Text>
+      </View>
+      <View style={[D.alertIndicator, { backgroundColor: accentColor }]} />
+    </View>
+  );
+}
+
+// ─── SectionHeader ────────────────────────────────────────────────────────────
+
+function SectionHeader({ title, action, onAction }: {
+  title:     string;
+  action?:   string;
+  onAction?: () => void;
+}) {
+  return (
+    <View style={D.sectionHeader}>
+      <Text style={D.sectionTitle}>{title}</Text>
+      {action && onAction ? (
+        <TouchableOpacity onPress={onAction}>
+          <Text style={D.sectionAction}>{action}</Text>
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
+}
+
+// ─── ProjectRow ───────────────────────────────────────────────────────────────
+
+function ProjectRow({
+  name, status, onPress,
+}: {
+  name:    string;
+  status:  string;
+  onPress: () => void;
+}) {
+  const dotColor =
+    status === 'active'  ? '#16a34a' :
+    status === 'on_hold' ? '#d97706' : '#1e3a5f';
+  return (
+    <TouchableOpacity style={D.projectRow} onPress={onPress} activeOpacity={0.68}>
+      <View style={[D.projectDot, { backgroundColor: dotColor }]} />
+      <View style={D.projectContent}>
+        <Text style={D.projectName} numberOfLines={1}>{name}</Text>
+        <Text style={D.projectStatus}>{status.replace(/_/g, ' ')}</Text>
+      </View>
+      <Text style={D.projectArrow}>›</Text>
+    </TouchableOpacity>
+  );
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardScreen() {
   const router       = useRouter();
-  const user         = useAuthStore((s) => s.user)!;
+  const user         = useAuthStore((s) => s.user);   // no ! — null is valid at runtime
   const [stats,      setStats]      = useState<DashboardStats | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -66,204 +176,478 @@ export default function DashboardScreen() {
 
   // Auto-refresh on relevant SSE mutations
   const refreshOnEvent = useCallback(() => { void load(); }, []);
-  useSSEEvent('delivery_created',   refreshOnEvent);
-  useSSEEvent('labour_created',     refreshOnEvent);
-  useSSEEvent('invoice_updated',    refreshOnEvent);
+  useSSEEvent('delivery_created',    refreshOnEvent);
+  useSSEEvent('labour_created',      refreshOnEvent);
+  useSSEEvent('invoice_updated',     refreshOnEvent);
   useSSEEvent('instruction_updated', refreshOnEvent);
 
   if (loading) return <LoadingSpinner />;
 
+  // Guard: auth store initialises with null; re-renders during logout also set null
+  if (!user) return null;
+
   if (error || !stats) {
     return (
       <Screen>
-        <View style={styles.errorWrap}>
-          <Text style={styles.errorText}>{error ?? 'No data'}</Text>
-          <TouchableOpacity onPress={load} style={styles.retryBtn}>
-            <Text style={styles.retryText}>Retry</Text>
+        <View style={D.errorWrap}>
+          <Text style={D.errorText}>{error ?? 'No data'}</Text>
+          <TouchableOpacity onPress={() => void load()} style={D.retryBtn}>
+            <Text style={D.retryText}>Retry</Text>
           </TouchableOpacity>
         </View>
       </Screen>
     );
   }
 
-  const today = new Date().toLocaleDateString('en-GB', {
-    weekday: 'short', day: 'numeric', month: 'short',
+  const now      = new Date();
+  const hour     = now.getHours();
+  const greeting =
+    hour >= 5 && hour < 12  ? 'Good morning'   :
+    hour >= 12 && hour < 17 ? 'Good afternoon' :
+    hour >= 17 && hour < 22 ? 'Good evening'   :
+                               'Good night';
+  const today    = now.toLocaleDateString('en-GB', {
+    weekday: 'long', day: 'numeric', month: 'long',
   });
+
+  const canViewInvoices = (
+    user.canViewFinance ||
+    user.role === 'company_admin' ||
+    user.role === 'finance_officer' ||
+    user.role === 'project_manager'
+  );
+
+  // Safe reads — API may return partial shapes even when the stats object exists
+  const criticalCount      = stats.instructions?.critical          ?? 0;
+  const openCount          = stats.instructions?.open              ?? 0;
+  const pendingInspections = stats.deliveries?.pendingInspectionCount ?? 0;
+  const overdueInvoices    = stats.invoices?.overdueCount          ?? 0;
+  const presentToday       = stats.attendance?.todayPresent        ?? 0;
+  const totalToday         = stats.attendance?.todayTotal          ?? 0;
+  const activeSites        = stats.projects?.active                ?? 0;
+  const totalProjects      = stats.projects?.total                 ?? 0;
+  const recentProjects     = stats.projects?.recent                ?? [];
+  const budgetRemaining    = stats.budget?.totalRemaining          ?? 0;
+
+  const hasCritical  = criticalCount      > 0;
+  const hasPending   = pendingInspections > 0;
+  const hasOverdue   = canViewInvoices && overdueInvoices > 0;
+  const hasAlerts    = hasCritical || hasPending || hasOverdue;
+
+  const currentProject = recentProjects[0];
 
   return (
     <Screen>
+      {/* ── APP BAR (sticky, outside scroll) ───────────────────────── */}
+      <AppBar
+        firstName={user.firstName ?? ''}
+        unread={stats.notifications?.unread ?? 0}
+        onProfile={() => router.push('/(tabs)/profile')}
+      />
+
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={D.scroll}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3b82f6" />
         }
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.heading}>Dashboard</Text>
-            <Text style={styles.subheading}>{today}</Text>
+
+        {/* ── GREETING ──────────────────────────────────────────────── */}
+        <View style={D.greetingBlock}>
+          <Text style={D.greetingLine}>{greeting},</Text>
+          <Text style={D.greetingName}>{user.firstName}</Text>
+          <Text style={D.greetingDate}>{today}</Text>
+        </View>
+
+        {/* ── SITE PILL ─────────────────────────────────────────────── */}
+        <TouchableOpacity
+          style={D.sitePill}
+          onPress={() => router.push('/(tabs)/projects')}
+          activeOpacity={0.78}
+        >
+          <Text style={D.sitePillPin}>📍</Text>
+          <Text style={D.sitePillText} numberOfLines={1}>
+            {currentProject ? currentProject.name : 'All Projects'}
+          </Text>
+          <Text style={D.sitePillChev}>›</Text>
+        </TouchableOpacity>
+
+        {/* ── QUICK ACTIONS ─────────────────────────────────────────── */}
+        <View style={D.quickRow}>
+          <TouchableOpacity
+            style={D.quickPrimary}
+            onPress={() => router.push('/(tabs)/attendance')}
+            activeOpacity={0.85}
+          >
+            <Text style={D.quickPrimaryIcon}>✓</Text>
+            <Text style={D.quickPrimaryLabel}>Mark Attendance</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={D.quickSecondary}
+            onPress={() => router.push('/(tabs)/schedule')}
+            activeOpacity={0.8}
+          >
+            <Text style={D.quickSecondaryIcon}>▦</Text>
+            <Text style={D.quickSecondaryLabel}>View Schedule</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ── 2×2 METRIC GRID ───────────────────────────────────────── */}
+        <SectionHeader title="Overview" />
+        <View style={D.metricsGrid}>
+          <View style={D.metricsRow}>
+            <MetricCard
+              icon="🏗"
+              label="Active Sites"
+              value={activeSites}
+              sub={`${totalProjects} total`}
+              onPress={() => router.push('/(tabs)/projects')}
+            />
+            <MetricCard
+              icon="👷"
+              label="Workers Present"
+              value={presentToday}
+              sub={`of ${totalToday} today`}
+              onPress={() => router.push('/(tabs)/attendance')}
+            />
           </View>
-          {stats.notifications.unread > 0 && (
-            <Badge label={`${stats.notifications.unread} alerts`} variant="warning" />
-          )}
+          <View style={D.metricsRow}>
+            <MetricCard
+              icon="📋"
+              label="Open Instructions"
+              value={openCount}
+              sub="Open from site details"
+              urgent={hasCritical}
+            />
+            <MetricCard
+              icon="⚠"
+              label="Critical Items"
+              value={criticalCount}
+              sub="need attention"
+              urgent={hasCritical}
+            />
+          </View>
         </View>
 
-        {/* Projects */}
-        <SectionHeader title="Projects" />
-        <View style={styles.tileRow}>
-          <StatTile label="Total"    value={stats.projects.total}    accent />
-          <StatTile label="Active"   value={stats.projects.active}   />
-          <StatTile label="Planning" value={stats.projects.planning} />
-        </View>
-
-        {stats.projects.recent.length > 0 && (
-          <Card style={styles.recentCard}>
-            <Text style={styles.cardTitle}>Recent Projects</Text>
-            {stats.projects.recent.slice(0, 3).map((p) => (
-              <TouchableOpacity
-                key={p.id}
-                style={styles.recentRow}
-                onPress={() => router.push('/(tabs)/projects')}
-              >
-                <Text style={styles.recentName} numberOfLines={1}>{p.name}</Text>
-                <Badge
-                  label={p.status}
-                  variant={p.status === 'active' ? 'success' : 'default'}
-                />
-              </TouchableOpacity>
-            ))}
-          </Card>
-        )}
-
-        {/* Workforce */}
-        <SectionHeader title="Workforce" />
-        <View style={styles.tileRow}>
-          <StatTile label="Workers"     value={stats.workers.total}           />
-          <StatTile label="Active"      value={stats.workers.active}          />
-          <StatTile
-            label="Today Present"
-            value={`${stats.attendance.todayPresent}/${stats.attendance.todayTotal}`}
-            sub={`${stats.attendance.todayRate.toFixed(0)}%`}
-            accent
-          />
-        </View>
-        <View style={styles.tileRow}>
-          <StatTile label="Week Hours"  value={stats.labour.thisWeekHours.toFixed(0)} />
-          <StatTile label="Month Cost"  value={stats.labour.thisMonthCost.toFixed(0)} />
-        </View>
-
-        {/* Deliveries */}
-        <SectionHeader title="Deliveries" />
-        <View style={styles.tileRow}>
-          <StatTile label="This Month"    value={stats.deliveries.thisMonthCount}         />
-          <StatTile label="Total"         value={stats.deliveries.totalCount}             />
-          <StatTile
-            label="Pending Check"
-            value={stats.deliveries.pendingInspectionCount}
-            accent={stats.deliveries.pendingInspectionCount > 0}
-          />
-        </View>
-
-        {/* Instructions */}
-        <SectionHeader title="Instructions" />
-        <View style={styles.tileRow}>
-          <StatTile
-            label="Open"
-            value={stats.instructions.open}
-            accent={stats.instructions.open > 0}
-          />
-          <StatTile
-            label="Critical"
-            value={stats.instructions.critical}
-            accent={stats.instructions.critical > 0}
-          />
-        </View>
-
-        {/* Invoices */}
-        {(user.canViewFinance || user.role === 'company_admin' || user.role === 'finance_officer' || user.role === 'project_manager') && (
+        {/* ── CRITICAL ALERTS ───────────────────────────────────────── */}
+        {hasAlerts ? (
           <>
-            <SectionHeader title="Invoices" />
-            <View style={styles.tileRow}>
-              <StatTile label="Total"    value={stats.invoices.total}                    />
-              <StatTile label="Pending"  value={stats.invoices.pendingApproval} accent={stats.invoices.pendingApproval > 0} />
-              <StatTile label="Overdue"  value={stats.invoices.overdueCount}    accent={stats.invoices.overdueCount > 0}    />
-            </View>
-          </>
-        )}
-
-        {/* Budget */}
-        {user.canViewFinance && (
-          <>
-            <SectionHeader title="Budget" />
-            <View style={styles.tileRow}>
-              <StatTile label="Budgeted"  value={stats.budget.totalBudgeted.toFixed(0)}  />
-              <StatTile label="Spent"     value={stats.budget.totalSpent.toFixed(0)}     />
-              <StatTile
-                label="Remaining"
-                value={stats.budget.totalRemaining.toFixed(0)}
-                accent={stats.budget.totalRemaining < 0}
+            <SectionHeader title="Critical Alerts" />
+            {hasCritical ? (
+              <AlertCard
+                accentColor="#ef4444"
+                title={`${criticalCount} Critical Instruction${criticalCount !== 1 ? 's' : ''}`}
+                body="Immediate review required — tap to manage"
               />
+            ) : null}
+            {hasPending ? (
+              <AlertCard
+                accentColor="#f59e0b"
+                title={`${pendingInspections} Delivery Inspection${pendingInspections !== 1 ? 's' : ''} Pending`}
+                body="Deliveries awaiting quality check"
+              />
+            ) : null}
+            {hasOverdue ? (
+              <AlertCard
+                accentColor="#f97316"
+                title={`${overdueInvoices} Overdue Invoice${overdueInvoices !== 1 ? 's' : ''}`}
+                body="Payment action required"
+              />
+            ) : null}
+          </>
+        ) : null}
+
+        {/* ── ONGOING PROJECTS ──────────────────────────────────────── */}
+        {recentProjects.length > 0 ? (
+          <>
+            <SectionHeader
+              title="Ongoing Projects"
+              action="See all"
+              onAction={() => router.push('/(tabs)/projects')}
+            />
+            <View style={D.projectsCard}>
+              {recentProjects.slice(0, 4).map((p) => (
+                <ProjectRow
+                  key={p.id}
+                  name={p.name}
+                  status={p.status}
+                  onPress={() => router.push('/(tabs)/projects')}
+                />
+              ))}
             </View>
           </>
-        )}
+        ) : null}
 
-        {/* Finance (admin/finance only) */}
-        {stats.finance && (
+        {/* ── FINANCE STRIP (role-gated) ────────────────────────────── */}
+        {canViewInvoices && stats.finance ? (
           <>
             <SectionHeader title="Finance" />
-            <View style={styles.tileRow}>
-              <StatTile label="Total Inflows"  value={stats.finance.totalInflows.toFixed(0)}     />
-              <StatTile label="This Month"     value={stats.finance.inflowsThisMonth.toFixed(0)} />
-              <StatTile
-                label="Net Position"
-                value={stats.finance.netPosition.toFixed(0)}
-                accent
-              />
+            <View style={D.financeStrip}>
+              <View style={D.financeStat}>
+                <Text style={D.financeVal}>{fmt(stats.finance.netPosition ?? 0)}</Text>
+                <Text style={D.financeLbl}>Net Position</Text>
+              </View>
+              <View style={D.financeSep} />
+              <View style={D.financeStat}>
+                <Text style={D.financeVal}>{fmt(stats.finance.inflowsThisMonth ?? 0)}</Text>
+                <Text style={D.financeLbl}>This Month</Text>
+              </View>
+              <View style={D.financeSep} />
+              <View style={D.financeStat}>
+                <Text style={[D.financeVal, budgetRemaining < 0 ? D.financeValNeg : null]}>
+                  {fmt(budgetRemaining)}
+                </Text>
+                <Text style={D.financeLbl}>Remaining</Text>
+              </View>
             </View>
           </>
-        )}
+        ) : null}
 
+        <View style={D.bottomPad} />
       </ScrollView>
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  scroll: { padding: 16, paddingBottom: 40 },
+// ─── Styles ───────────────────────────────────────────────────────────────────
 
-  header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-    marginBottom: 20,
+const D = StyleSheet.create({
+  scroll: { paddingBottom: 0 },
+
+  // ── App bar ───────────────────────────────────────────────────────
+  appBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#0d1e35',
+    backgroundColor: '#060d1b',
   },
-  heading:    { color: '#f1f5f9', fontSize: 24, fontWeight: '700' },
-  subheading: { color: '#94a3b8', fontSize: 13, marginTop: 2 },
+  appBarBrand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  appBarLogoBox: {
+    width: 30, height: 30, borderRadius: 8,
+    backgroundColor: '#1d4ed8',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  appBarLogoText: { color: '#fff', fontSize: 16, fontWeight: '900' },
+  appBarTitle:    { color: '#c5d8f0', fontSize: 16, fontWeight: '700', letterSpacing: 0.2 },
 
+  appBarRight:   { flexDirection: 'row', alignItems: 'center', gap: 10 },
+
+  avatarWrap: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: '#0f2040', borderWidth: 1.5, borderColor: '#2563eb',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  avatarBadge: {
+    position: 'absolute', top: -1, right: -1,
+    width: 10, height: 10, borderRadius: 5,
+    backgroundColor: '#ef4444', borderWidth: 1.5, borderColor: '#060d1b',
+  },
+  avatarInitial: { color: '#60a5fa', fontSize: 14, fontWeight: '700' },
+
+  // ── Greeting ──────────────────────────────────────────────────────
+  greetingBlock: { paddingHorizontal: 18, paddingTop: 20, paddingBottom: 6 },
+  greetingLine: { color: '#7aafd0', fontSize: 13, fontWeight: '500' },
+  greetingName: {
+    color: '#dde9f8', fontSize: 26, fontWeight: '800',
+    letterSpacing: -0.3, marginTop: 2,
+  },
+  greetingDate: { color: '#4a7ab5', fontSize: 12, marginTop: 4 },
+
+  // ── Site pill ─────────────────────────────────────────────────────
+  sitePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginHorizontal: 18,
+    marginTop: 14,
+    backgroundColor: '#0a1728',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#142240',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
+    maxWidth: '80%',
+  },
+  sitePillPin:  { fontSize: 12 },
+  sitePillText: { color: '#3d6090', fontSize: 13, fontWeight: '600', flex: 1 },
+  sitePillChev: { color: '#1e3a5f', fontSize: 16, fontWeight: '500' },
+
+  // ── Quick actions ─────────────────────────────────────────────────
+  quickRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginHorizontal: 18,
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  quickPrimary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1d4ed8',
+    borderRadius: 12,
+    paddingVertical: 13,
+    borderWidth: 1,
+    borderColor: '#2563eb',
+  },
+  quickPrimaryIcon:  { color: '#ffffff', fontSize: 16, fontWeight: '800' },
+  quickPrimaryLabel: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
+
+  quickSecondary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#0a1628',
+    borderRadius: 12,
+    paddingVertical: 13,
+    borderWidth: 1,
+    borderColor: '#162338',
+  },
+  quickSecondaryIcon:  { color: '#3d6090', fontSize: 15 },
+  quickSecondaryLabel: { color: '#3d6090', fontSize: 14, fontWeight: '600' },
+
+  // ── Section header ────────────────────────────────────────────────
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginHorizontal: 18,
+    marginTop: 24,
+    marginBottom: 12,
+  },
   sectionTitle: {
-    color: '#64748b', fontSize: 10, fontWeight: '700',
-    textTransform: 'uppercase', letterSpacing: 1.2,
-    marginTop: 20, marginBottom: 8,
+    color: '#3d6090', fontSize: 11, fontWeight: '800',
+    textTransform: 'uppercase', letterSpacing: 1.5,
+  },
+  sectionAction: { color: '#2563eb', fontSize: 12, fontWeight: '600' },
+
+  // ── Metrics 2×2 ───────────────────────────────────────────────────
+  metricsGrid: { paddingHorizontal: 18, gap: 10 },
+  metricsRow:  { flexDirection: 'row', gap: 10 },
+  metricWrap:  { flex: 1 },
+
+  metricCard: {
+    backgroundColor: '#0a1628',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#142238',
+    padding: 16,
+    minHeight: 110,
+  },
+  metricCardUrgent: {
+    backgroundColor: '#0f0608',
+    borderColor: '#3d0a0a',
+    borderLeftWidth: 3,
+    borderLeftColor: '#dc2626',
   },
 
-  tileRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  tile: {
-    flex: 1, backgroundColor: '#1e293b', borderRadius: 10,
-    padding: 12, borderWidth: 1, borderColor: '#334155',
-    alignItems: 'center', minHeight: 64,
+  metricIconBadge: {
+    width: 32, height: 32, borderRadius: 8,
+    backgroundColor: '#0f2040',
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 10,
   },
-  tileAccent: { borderColor: '#3b82f6', backgroundColor: '#172554' },
-  tileValue:  { color: '#f1f5f9', fontSize: 20, fontWeight: '700' },
-  tileLabel:  { color: '#94a3b8', fontSize: 10, fontWeight: '600', marginTop: 2, textAlign: 'center' },
-  tileSub:    { color: '#64748b', fontSize: 10, marginTop: 1 },
+  metricIconBadgeUrgent: { backgroundColor: '#200808' },
+  metricIconText: { fontSize: 16 },
 
-  recentCard:  { marginBottom: 0 },
-  cardTitle:   { color: '#94a3b8', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 },
-  recentRow:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#334155' },
-  recentName:  { color: '#f1f5f9', fontSize: 13, fontWeight: '500', flex: 1, marginRight: 8 },
+  metricValue: {
+    color: '#d0e4f8', fontSize: 26, fontWeight: '800',
+    letterSpacing: -0.3, marginBottom: 3,
+  },
+  metricValueUrgent: { color: '#f87171' },
+  metricLabel: {
+    color: '#2a4a70', fontSize: 10, fontWeight: '700',
+    textTransform: 'uppercase', letterSpacing: 0.8,
+  },
+  metricSub:       { color: '#1a3050', fontSize: 10, marginTop: 3 },
+  metricSubUrgent: { color: '#7f1d1d', fontSize: 10, marginTop: 3 },
 
+  // ── Alert cards ───────────────────────────────────────────────────
+  alertCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 18,
+    marginBottom: 8,
+    backgroundColor: '#090f1e',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#112030',
+    overflow: 'hidden',
+  },
+  alertAccentBar: { width: 4, alignSelf: 'stretch' },
+  alertCardInner: { flex: 1, paddingHorizontal: 14, paddingVertical: 13 },
+  alertCardTitle: {
+    color: '#c5d8f0', fontSize: 13, fontWeight: '700', marginBottom: 3,
+  },
+  alertCardBody:  { color: '#2d4f78', fontSize: 12 },
+  alertIndicator: {
+    width: 8, height: 8, borderRadius: 4,
+    marginRight: 14, opacity: 0.8,
+  },
+
+  // ── Projects card ─────────────────────────────────────────────────
+  projectsCard: {
+    marginHorizontal: 18,
+    backgroundColor: '#080e1c',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#0f1e35',
+    overflow: 'hidden',
+  },
+  projectRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#0d1b2e',
+    gap: 12,
+  },
+  projectDot:     { width: 7, height: 7, borderRadius: 4 },
+  projectContent: { flex: 1 },
+  projectName:    { color: '#6a90b8', fontSize: 13, fontWeight: '600' },
+  projectStatus:  { color: '#1e3655', fontSize: 10, marginTop: 2, textTransform: 'capitalize' },
+  projectArrow:   { color: '#1a3050', fontSize: 20, fontWeight: '300' },
+
+  // ── Finance strip ─────────────────────────────────────────────────
+  financeStrip: {
+    flexDirection: 'row',
+    marginHorizontal: 18,
+    backgroundColor: '#07101f',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#112030',
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+  },
+  financeStat:   { flex: 1, alignItems: 'center' },
+  financeSep:    { width: 1, backgroundColor: '#0f1e35' },
+  financeVal:    { color: '#4a7ab5', fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
+  financeValNeg: { color: '#f87171' },
+  financeLbl: {
+    color: '#1e3655', fontSize: 9, fontWeight: '700',
+    textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 4,
+  },
+
+  // ── Error ─────────────────────────────────────────────────────────
   errorWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   errorText: { color: '#ef4444', fontSize: 15, marginBottom: 16 },
-  retryBtn:  { backgroundColor: '#1e293b', borderRadius: 8, paddingHorizontal: 20, paddingVertical: 10, borderWidth: 1, borderColor: '#334155' },
+  retryBtn: {
+    backgroundColor: '#0c1829', borderRadius: 8,
+    paddingHorizontal: 20, paddingVertical: 10,
+    borderWidth: 1, borderColor: '#162338',
+  },
   retryText: { color: '#3b82f6', fontSize: 14, fontWeight: '600' },
+
+  bottomPad: { height: 36 },
 });

@@ -40,7 +40,7 @@ const createDeliverySchema = z.object({
   quantityDelivered:   z.number().min(0),
   conditionOnArrival:  z.enum(CONDITIONS).default('good'),
   inspectionStatus:    z.enum(INSPECTIONS).default('pending'),
-  acceptanceStatus:    z.enum(ACCEPTANCES).default('accepted'),
+  acceptanceStatus:    z.enum(ACCEPTANCES).optional(),
   rejectionReason:     z.string().max(1000).optional(),
   discrepancyNotes:    z.string().max(1000).optional(),
   receivedById:        z.string().uuid(),

@@ -17,6 +17,7 @@ import { projectRoutes } from './routes/project.routes';
 import { jobsiteRoutes } from './routes/jobsite.routes';
 import { memberRoutes } from './routes/member.routes';
 import { deliveryRoutes } from './routes/delivery.routes';
+import { inventoryRoutes } from './routes/inventory.routes';
 import { supplierRoutes } from './routes/supplier.routes';
 import { workerRoutes, siteWorkerRoutes } from './routes/worker.routes';
 import { labourRoutes } from './routes/labour.routes';
@@ -78,7 +79,8 @@ export async function buildApp() {
   await app.register(projectRoutes, { prefix: '/api/v1/projects' });
   await app.register(jobsiteRoutes, { prefix: '/api/v1/projects/:projectId/sites' });
   await app.register(memberRoutes, { prefix: '/api/v1/projects/:projectId/members' });
-  await app.register(deliveryRoutes, { prefix: '/api/v1/projects/:projectId/sites/:siteId/deliveries' });
+  await app.register(deliveryRoutes,   { prefix: '/api/v1/projects/:projectId/sites/:siteId/deliveries' });
+  await app.register(inventoryRoutes,  { prefix: '/api/v1/projects/:projectId/sites/:siteId/inventory' });
   await app.register(supplierRoutes, { prefix: '/api/v1/suppliers' });
   await app.register(workerRoutes,   { prefix: '/api/v1/workers' });
   await app.register(siteWorkerRoutes, { prefix: '/api/v1/projects/:projectId/sites/:siteId/workers' });

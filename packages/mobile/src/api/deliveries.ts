@@ -11,8 +11,20 @@ export const deliveriesApi = {
     limit?:            number;
     offset?:           number;
   }): Promise<{ records: DeliveryRecord[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }> => {
-    const res = await apiClient.get<{ records: DeliveryRecord[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }>('/deliveries', { params });
-    return res.data;
+    const { projectId, siteId, ...rest } = params ?? {};
+    if (!projectId || !siteId) return { records: [], pagination: { total: 0, limit: 0, offset: 0, hasMore: false } };
+    console.log('[deliveriesApi.list] GET', `/projects/${projectId}/sites/${siteId}/deliveries`, rest);
+    const res = await apiClient.get<{ deliveries: DeliveryRecord[] }>(
+      `/projects/${projectId}/sites/${siteId}/deliveries`,
+      { params: rest },
+    );
+    console.log('[deliveriesApi.list] raw response keys:', Object.keys(res.data ?? {}));
+    const deliveries = Array.isArray(res.data?.deliveries) ? res.data.deliveries : [];
+    console.log('[deliveriesApi.list] deliveries count:', deliveries.length);
+    return {
+      records:    deliveries,
+      pagination: { total: deliveries.length, limit: deliveries.length, offset: 0, hasMore: false },
+    };
   },
 
   create: async (data: {
@@ -25,11 +37,16 @@ export const deliveriesApi = {
     quantityDelivered:  number;
     unitOfMeasure:      string;
     conditionOnArrival: string;
-    acceptanceStatus:   string;
-    notes?:             string;
+    receivedById:       string;
+    acceptanceStatus?:  string;
+    comments?:          string;
     supplierId?:        string;
   }): Promise<DeliveryRecord> => {
-    const res = await apiClient.post<{ record: DeliveryRecord }>('/deliveries', data);
+    const { projectId, siteId, ...body } = data;
+    const res = await apiClient.post<{ record: DeliveryRecord }>(
+      `/projects/${projectId}/sites/${siteId}/deliveries`,
+      body,
+    );
     return res.data.record;
   },
 

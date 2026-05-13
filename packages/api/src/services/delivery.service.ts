@@ -4,6 +4,7 @@ import { RequestUser } from '../types';
 import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
 import { DeliveryCondition, InspectionStatus, AcceptanceStatus } from '@prisma/client';
 import { emitToCompany } from './event-emitter.service';
+import * as inventoryService from './inventory.service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -249,7 +250,7 @@ export async function createDelivery(
       quantityDelivered: input.quantityDelivered,
       conditionOnArrival: input.conditionOnArrival ?? 'good',
       inspectionStatus: input.inspectionStatus ?? 'pending',
-      acceptanceStatus: input.acceptanceStatus ?? 'accepted',
+      acceptanceStatus: input.acceptanceStatus ?? null,
       rejectionReason: input.rejectionReason,
       discrepancyNotes: input.discrepancyNotes,
       receivedById: input.receivedById,
@@ -344,6 +345,25 @@ export async function updateDelivery(
       changesAfter: updated as object,
     },
   });
+
+  // Credit inventory once when acceptanceStatus first transitions to accepted/partially_accepted
+  const wasAccepted =
+    before.acceptanceStatus === 'accepted' ||
+    before.acceptanceStatus === 'partially_accepted';
+  const isNowAccepted =
+    updated.acceptanceStatus === 'accepted' ||
+    updated.acceptanceStatus === 'partially_accepted';
+  const justAccepted = !wasAccepted && isNowAccepted;
+
+  console.log('[inventory-hook] deliveryId:', deliveryId);
+  console.log('[inventory-hook] before.acceptanceStatus:', before.acceptanceStatus);
+  console.log('[inventory-hook] updated.acceptanceStatus:', updated.acceptanceStatus);
+  console.log('[inventory-hook] wasAccepted:', wasAccepted, '| isNowAccepted:', isNowAccepted, '| justAccepted:', justAccepted);
+
+  if (justAccepted) {
+    console.log('[inventory-hook] calling creditFromDelivery — materialName:', updated.itemDescription, '| qty:', String(updated.quantityDelivered), '| siteId:', updated.siteId, '| companyId:', updated.companyId);
+    await inventoryService.creditFromDelivery(updated, actor.id);
+  }
 
   return updated;
 }
