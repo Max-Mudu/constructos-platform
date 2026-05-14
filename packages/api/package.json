@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
-    "start": "node dist/server.js",
+    "build": "prisma generate && tsc",
+    "start": "prisma migrate deploy && node dist/server.js",
     "test": "jest --runInBand --forceExit",
     "test:watch": "jest --watch --runInBand",
     "db:migrate": "prisma migrate dev",

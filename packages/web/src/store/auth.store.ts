@@ -3,45 +3,75 @@
 import { create } from 'zustand';
 import { AuthUser } from '@/lib/types';
 
-interface AuthState {
-  user: AuthUser | null;
-  accessToken: string | null;
-  /** true while the initial refresh-on-mount is in flight */
-  isBootstrapping: boolean;
-  /**
-   * Set to true when a mid-session API call receives 401 and the silent
-   * token refresh also fails — i.e. the session has definitively expired.
-   * Cleared whenever auth is successfully set or explicitly cleared (logout).
-   */
-  sessionExpired: boolean;
+// ─── localStorage keys ────────────────────────────────────────────────────────
 
-  setAuth: (user: AuthUser, accessToken: string) => void;
-  clearAuth: () => void;
-  /** Mark the session as expired without explicitly logging out. */
-  expireSession: () => void;
+export const TOKEN_KEY = 'constructos_token';
+export const USER_KEY  = 'constructos_user';
+
+function persistToStorage(token: string | null, user: AuthUser | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (token && user) {
+      localStorage.setItem(TOKEN_KEY, token);
+      localStorage.setItem(USER_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+    }
+  } catch { /* private browsing / quota */ }
+}
+
+// ─── State ────────────────────────────────────────────────────────────────────
+
+interface AuthState {
+  user:             AuthUser | null;
+  accessToken:      string | null;
+  /** True while the initial bootstrap refresh is in flight. */
+  isBootstrapping:  boolean;
+  /** True once bootstrap has completed (success or failure). Gate for AuthGuard. */
+  isHydrated:       boolean;
+  /**
+   * Set when a mid-session API call receives 401 and the silent token refresh
+   * also fails — i.e. the session has definitively expired.
+   * Cleared when auth is successfully set or explicitly cleared.
+   */
+  sessionExpired:   boolean;
+
+  setAuth:          (user: AuthUser, accessToken: string) => void;
+  clearAuth:        () => void;
+  expireSession:    () => void;
   setBootstrapping: (v: boolean) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  accessToken: null,
+  user:            null,
+  accessToken:     null,
   isBootstrapping: true,
-  sessionExpired: false,
+  isHydrated:      false,
+  sessionExpired:  false,
 
-  setAuth: (user, accessToken) =>
-    set({ user, accessToken, isBootstrapping: false, sessionExpired: false }),
+  setAuth: (user, accessToken) => {
+    persistToStorage(accessToken, user);
+    set({ user, accessToken, isBootstrapping: false, isHydrated: true, sessionExpired: false });
+  },
 
-  clearAuth: () =>
-    set({ user: null, accessToken: null, isBootstrapping: false, sessionExpired: false }),
+  clearAuth: () => {
+    persistToStorage(null, null);
+    set({ user: null, accessToken: null, isBootstrapping: false, isHydrated: true, sessionExpired: false });
+  },
 
-  expireSession: () =>
-    set({ user: null, accessToken: null, isBootstrapping: false, sessionExpired: true }),
+  expireSession: () => {
+    persistToStorage(null, null);
+    set({ user: null, accessToken: null, isBootstrapping: false, isHydrated: true, sessionExpired: true });
+  },
 
-  setBootstrapping: (v) => set({ isBootstrapping: v }),
+  setBootstrapping: (v) =>
+    set(v ? { isBootstrapping: true } : { isBootstrapping: false, isHydrated: true }),
 }));
 
-// Provide the current access token to the API client without creating a
-// circular dependency between the store and the API module at module-load time.
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** Read current token without creating a React subscription. */
 export function getAccessToken(): string | null {
   return useAuthStore.getState().accessToken;
 }

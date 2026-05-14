@@ -858,3 +858,41 @@ export interface ReportData {
   rows:        string[][];
 }
 
+// ─── Inventory ────────────────────────────────────────────────────────────────
+
+export type InventoryTxType =
+  | 'delivery_in'
+  | 'usage_out'
+  | 'adjustment_in'
+  | 'adjustment_out'
+  | 'transfer_in'
+  | 'transfer_out';
+
+export interface SiteInventoryItem {
+  id:                string;
+  companyId:         string;
+  siteId:            string;
+  materialName:      string;
+  unitOfMeasure:     string;
+  currentQuantity:   string;     // Prisma Decimal → string
+  lowStockThreshold: string | null;
+  createdAt:         string;
+  updatedAt:         string;
+  site: { id: string; name: string };
+}
+
+export interface InventoryTransaction {
+  id:            string;
+  type:          InventoryTxType;
+  quantity:      string;          // Prisma Decimal → string
+  unitOfMeasure: string;
+  note:          string | null;
+  createdAt:     string;
+  delivery:      { id: string; supplierName: string; deliveryDate: string } | null;
+  performedBy:   { id: string; firstName: string; lastName: string } | null;
+}
+
+export interface SiteInventoryItemDetail extends SiteInventoryItem {
+  transactions: InventoryTransaction[];
+}
+

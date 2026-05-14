@@ -4,65 +4,58 @@ import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuthStore } from '@/store/auth.store';
 
+function Spinner({ label }: { label: string }) {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-background">
+      <div
+        className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"
+        role="status"
+        aria-label={label}
+      />
+    </div>
+  );
+}
+
 /**
  * Wraps all protected (app) pages.
  *
  * Rendering rules:
- * - isBootstrapping=true  → show full-page spinner (refresh in flight)
- * - user=null, !bootstrapping → return null + redirect to /login
+ * - isHydrated=false  → spinner (bootstrap in flight, don't evaluate auth yet)
+ * - isHydrated=true, user=null → spinner + redirect
  *   - sessionExpired=true  → /login?reason=expired&next=<path>
- *   - sessionExpired=false → /login  (normal bootstrap failure or post-logout)
- * - user set, !bootstrapping → render children
+ *   - sessionExpired=false → /login  (unauthenticated fresh visit / post-logout)
+ * - isHydrated=true, user set → render children
  *
- * This is the ONLY place that redirects on auth failure, ensuring:
- * - No authenticated content ever renders with a null user
- * - No "Welcome back, !" placeholders appear
- * - The session-expired message and ?next= are reliably appended
+ * isHydrated is set by setAuth / clearAuth / expireSession in auth.store.ts,
+ * ensuring it only becomes true once the bootstrap attempt has fully resolved —
+ * not on the initial render where user is null but bootstrap hasn't run yet.
+ * This eliminates the race condition where AuthGuard sees user=null before
+ * AuthBootstrap has had a chance to restore the session.
+ *
+ * This is the ONLY place that redirects on auth failure.
  */
 export function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { user, isBootstrapping, sessionExpired } = useAuthStore();
+  const { user, isHydrated, sessionExpired } = useAuthStore();
   const router   = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!isBootstrapping && !user) {
+    if (isHydrated && !user) {
+      console.log('[auth] redirecting unauthenticated user');
       if (sessionExpired) {
         const params = new URLSearchParams({ reason: 'expired', next: pathname });
         router.replace(`/login?${params.toString()}`);
       } else {
-        // Post-logout or failed bootstrap — plain login, no expired banner.
         router.replace('/login');
       }
     }
-  }, [isBootstrapping, user, sessionExpired, pathname, router]);
+  }, [isHydrated, user, sessionExpired, pathname, router]);
 
-  // Bootstrap in progress — don't render page content or trigger page effects.
-  if (isBootstrapping) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div
-          className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"
-          role="status"
-          aria-label="Loading"
-        />
-      </div>
-    );
-  }
+  // Bootstrap not yet complete — block all rendering and effects.
+  if (!isHydrated) return <Spinner label="Loading" />;
 
-  // Auth cleared — redirect is in flight via the effect above.
-  // Show the spinner rather than null so the user never sees a blank dark screen
-  // while router.replace() is pending.
-  if (!user) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <div
-          className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary"
-          role="status"
-          aria-label="Redirecting"
-        />
-      </div>
-    );
-  }
+  // Auth cleared — redirect is in flight; show spinner instead of blank page.
+  if (!user) return <Spinner label="Redirecting" />;
 
   return <>{children}</>;
 }

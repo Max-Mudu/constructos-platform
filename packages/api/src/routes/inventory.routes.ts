@@ -21,9 +21,13 @@ export async function inventoryRoutes(fastify: FastifyInstance): Promise<void> {
     async (request, reply) => {
       try {
         const { projectId, siteId } = request.params as { projectId: string; siteId: string };
+        console.log('[inventory] list — projectId:', projectId, 'siteId:', siteId);
         const inventory = await inventoryService.listInventory(projectId, siteId, request.user);
         return reply.send({ inventory });
-      } catch (err) { return handleError(err, reply); }
+      } catch (err) {
+        console.error('[inventory] list error:', err);
+        return handleError(err, reply);
+      }
     },
   );
 
@@ -36,9 +40,13 @@ export async function inventoryRoutes(fastify: FastifyInstance): Promise<void> {
         const { projectId, siteId, inventoryId } = request.params as {
           projectId: string; siteId: string; inventoryId: string;
         };
+        console.log('[inventory] get — inventoryId:', inventoryId);
         const item = await inventoryService.getInventoryItem(projectId, siteId, inventoryId, request.user);
         return reply.send({ item });
-      } catch (err) { return handleError(err, reply); }
+      } catch (err) {
+        console.error('[inventory] get error:', err);
+        return handleError(err, reply);
+      }
     },
   );
 }

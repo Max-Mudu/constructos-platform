@@ -20,7 +20,7 @@ import { Separator } from '@/components/ui/Separator';
 import Link from 'next/link';
 import {
   ClipboardCheck, Target, Truck, Users, AlertCircle, MapPin, Plus, ClipboardList,
-  UserMinus, UserPlus,
+  UserMinus, UserPlus, Package2,
 } from 'lucide-react';
 
 const ASSIGN_ROLES = new Set(['company_admin', 'project_manager']);
@@ -305,10 +305,11 @@ export default function SiteDetailPage() {
         {/* Module links */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {[
-            { href: `/projects/${projectId}/sites/${siteId}/attendance`, icon: ClipboardCheck, label: 'Attendance',       sub: 'Daily worker check-in/out'  },
-            { href: `/projects/${projectId}/sites/${siteId}/targets`,    icon: Target,         label: 'Daily Targets',     sub: 'Set and track work targets' },
-            { href: `/projects/${projectId}/sites/${siteId}/labour`,     icon: Users,          label: 'Labour Register',   sub: 'Track hours and wages'      },
-            { href: `/projects/${projectId}/sites/${siteId}/deliveries`, icon: Truck,          label: 'Deliveries',        sub: 'Log material deliveries'    },
+            { href: `/projects/${projectId}/sites/${siteId}/attendance`, icon: ClipboardCheck, label: 'Attendance',       sub: 'Daily worker check-in/out'   },
+            { href: `/projects/${projectId}/sites/${siteId}/targets`,    icon: Target,         label: 'Daily Targets',     sub: 'Set and track work targets'  },
+            { href: `/projects/${projectId}/sites/${siteId}/labour`,     icon: Users,          label: 'Labour Register',   sub: 'Track hours and wages'       },
+            { href: `/projects/${projectId}/sites/${siteId}/deliveries`, icon: Truck,          label: 'Deliveries',        sub: 'Log material deliveries'     },
+            { href: `/projects/${projectId}/sites/${siteId}/inventory`,  icon: Package2,       label: 'Inventory',         sub: 'Site material stock levels'  },
             { href: `/projects/${projectId}/sites/${siteId}/schedules`,  icon: ClipboardList,  label: 'Schedule',          sub: 'Contractor tasks & progress' },
           ].map(({ href, icon: Icon, label, sub }) => (
             <Link key={href} href={href} className="group flex items-center gap-4 rounded-xl border border-border bg-card px-4 py-4 transition-colors hover:bg-navy-elevated">

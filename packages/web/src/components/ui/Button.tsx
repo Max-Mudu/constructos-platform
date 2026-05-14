@@ -37,16 +37,24 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, loading = false, children, disabled, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button';
+
+    // When asChild, Radix Slot calls React.Children.only and requires exactly one
+    // ReactElement child. Rendering {loading && <Loader2/>} as a sibling expression
+    // passes [false, children] — an array — which throws at runtime.
+    // The loader is therefore only included on the native <button> path.
+    const content = !asChild && loading
+      ? <><Loader2 className="h-4 w-4 animate-spin" />{children}</>
+      : children;
+
     return (
       <Comp
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
         disabled={disabled || loading}
         {...props}
-      >
-        {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-        {children}
-      </Comp>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        children={content as any}
+      />
     );
   },
 );

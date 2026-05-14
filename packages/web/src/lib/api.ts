@@ -1423,3 +1423,14 @@ export const activityApi = {
     return request<{ activities: ActivityEntry[] }>(`/activity${q ? `?${q}` : ''}`);
   },
 };
+
+export const inventoryApi = {
+  list: (projectId: string, siteId: string) =>
+    request<{ inventory: import('./types').SiteInventoryItem[] }>(
+      `/projects/${projectId}/sites/${siteId}/inventory`,
+    ),
+  get: (projectId: string, siteId: string, inventoryId: string) =>
+    request<{ item: import('./types').SiteInventoryItemDetail }>(
+      `/projects/${projectId}/sites/${siteId}/inventory/${inventoryId}`,
+    ),
+};
