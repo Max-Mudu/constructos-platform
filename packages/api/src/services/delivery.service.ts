@@ -279,6 +279,18 @@ export async function createDelivery(
     payload: { deliveryId: record.id, projectId, siteId, supplierName: record.supplierName },
   });
 
+  // Credit inventory immediately when delivery is created already-accepted.
+  const createdAccepted =
+    record.acceptanceStatus === 'accepted' ||
+    record.acceptanceStatus === 'partially_accepted';
+
+  console.log('[inventory-hook] createDelivery — acceptanceStatus:', record.acceptanceStatus, '| willCredit:', createdAccepted);
+
+  if (createdAccepted) {
+    console.log('[inventory-hook] calling creditFromDelivery on create — materialName:', record.itemDescription, '| qty:', String(record.quantityDelivered), '| siteId:', record.siteId, '| companyId:', record.companyId);
+    await inventoryService.creditFromDelivery(record, actor.id);
+  }
+
   return record;
 }
 
