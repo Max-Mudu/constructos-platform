@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { NotFoundError } from '../utils/errors';
+import { NotFoundError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
 
@@ -153,4 +153,61 @@ export async function getInventoryItem(
   });
 
   return { ...item, transactions };
+}
+
+// ─── Usage deduction ──────────────────────────────────────────────────────────
+
+export async function recordUsage(
+  projectId:   string,
+  siteId:      string,
+  inventoryId: string,
+  quantity:    number,
+  note:        string | undefined,
+  actor:       RequestUser,
+) {
+  await checkSiteAccess(siteId, projectId, actor);
+
+  console.log('[inventory-usage] request — inventoryId:', inventoryId, '| qty:', quantity, '| actor:', actor.id);
+
+  const item = await prisma.siteInventory.findFirst({
+    where: { id: inventoryId, siteId, companyId: actor.companyId },
+  });
+  if (!item) throw new NotFoundError('Inventory item');
+
+  const current = Number(item.currentQuantity);
+  if (quantity > current) {
+    console.log('[inventory-usage] insufficient stock — requested:', quantity, '| available:', current);
+    throw new ValidationError(`Insufficient stock: requested ${quantity}, available ${current}`);
+  }
+
+  const negativeQty = new Prisma.Decimal(-quantity);
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const decremented = await tx.siteInventory.update({
+      where:  { id: inventoryId },
+      data:   { currentQuantity: { decrement: quantity } },
+      select: INVENTORY_ITEM_SELECT,
+    });
+
+    console.log('[inventory-usage] decrement success — newQty:', String(decremented.currentQuantity));
+
+    await tx.inventoryTransaction.create({
+      data: {
+        companyId:     actor.companyId,
+        siteId,
+        inventoryId,
+        type:          'usage_out',
+        quantity:      negativeQty,
+        unitOfMeasure: item.unitOfMeasure,
+        note:          note ?? null,
+        performedById: actor.id,
+      },
+    });
+
+    console.log('[inventory-usage] transaction committed — inventoryId:', inventoryId);
+
+    return decremented;
+  });
+
+  return updated;
 }
