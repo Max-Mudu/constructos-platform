@@ -174,6 +174,17 @@ export interface DashboardStats {
   contractors: { total: number; activeSchedules: number };
   instructions:{ open: number; critical: number };
   notifications:{ unread: number };
+  lowStockInventory?: {
+    count: number;
+    items: Array<{
+      id:                string;
+      materialName:      string;
+      currentQuantity:   number;
+      unitOfMeasure:     string;
+      lowStockThreshold: number;
+      siteName:          string;
+    }>;
+  };
   finance?:    { totalInflows: number; inflowsThisMonth: number; netPosition: number };
 }
 

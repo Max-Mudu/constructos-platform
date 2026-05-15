@@ -104,6 +104,44 @@ function AlertCard({
   );
 }
 
+// ─── LowStockCard ────────────────────────────────────────────────────────────
+
+function LowStockCard({
+  count, items, onPress,
+}: {
+  count:   number;
+  items:   Array<{ id: string; materialName: string; currentQuantity: number; unitOfMeasure: string; lowStockThreshold: number; siteName: string }>;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity style={D.lowStockCard} onPress={onPress} activeOpacity={0.78}>
+      <View style={D.lowStockHead}>
+        <View style={D.lowStockTitleRow}>
+          <Text style={D.lowStockIcon}>⚠</Text>
+          <Text style={D.lowStockTitle}>Low Stock Alerts</Text>
+        </View>
+        <Text style={D.lowStockCount}>
+          {count} material{count !== 1 ? 's' : ''} need attention
+        </Text>
+      </View>
+      <View style={D.lowStockDivider} />
+      {items.slice(0, 3).map((item) => (
+        <View key={item.id} style={D.lowStockRow}>
+          <View style={D.lowStockRowLeft}>
+            <Text style={D.lowStockMaterial} numberOfLines={1}>{item.materialName}</Text>
+            <Text style={D.lowStockSite} numberOfLines={1}>{item.siteName}</Text>
+          </View>
+          <View style={D.lowStockRowRight}>
+            <Text style={D.lowStockQty}>{item.currentQuantity} {item.unitOfMeasure}</Text>
+            <Text style={D.lowStockLimit}>limit {item.lowStockThreshold}</Text>
+          </View>
+        </View>
+      ))}
+      <Text style={D.lowStockTap}>Tap to manage inventory ›</Text>
+    </TouchableOpacity>
+  );
+}
+
 // ─── SectionHeader ────────────────────────────────────────────────────────────
 
 function SectionHeader({ title, action, onAction }: {
@@ -234,6 +272,9 @@ export default function DashboardScreen() {
   const hasOverdue   = canViewInvoices && overdueInvoices > 0;
   const hasAlerts    = hasCritical || hasPending || hasOverdue;
 
+  const lowStockItems = stats.lowStockInventory?.items ?? [];
+  const lowStockCount = stats.lowStockInventory?.count ?? 0;
+
   const currentProject = recentProjects[0];
 
   return (
@@ -356,6 +397,15 @@ export default function DashboardScreen() {
               />
             ) : null}
           </>
+        ) : null}
+
+        {/* ── LOW STOCK ALERTS ──────────────────────────────────────── */}
+        {lowStockCount > 0 ? (
+          <LowStockCard
+            count={lowStockCount}
+            items={lowStockItems}
+            onPress={() => router.push('/(tabs)/inventory')}
+          />
         ) : null}
 
         {/* ── ONGOING PROJECTS ──────────────────────────────────────── */}
@@ -650,4 +700,37 @@ const D = StyleSheet.create({
   retryText: { color: '#3b82f6', fontSize: 14, fontWeight: '600' },
 
   bottomPad: { height: 36 },
+
+  // ── Low Stock Card ────────────────────────────────────────────
+  lowStockCard: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    backgroundColor: '#1c1000',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#92400e',
+    overflow: 'hidden',
+  },
+  lowStockHead:     { padding: 14, paddingBottom: 10 },
+  lowStockTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 3 },
+  lowStockIcon:     { color: '#f59e0b', fontSize: 13 },
+  lowStockTitle:    { color: '#f59e0b', fontSize: 14, fontWeight: '800' },
+  lowStockCount:    { color: '#b45309', fontSize: 12, fontWeight: '500' },
+  lowStockDivider:  { height: 1, backgroundColor: '#3d1c00', marginHorizontal: 0 },
+  lowStockRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a1200',
+  },
+  lowStockRowLeft:  { flex: 1, marginRight: 12 },
+  lowStockMaterial: { color: '#fbbf24', fontSize: 13, fontWeight: '600' },
+  lowStockSite:     { color: '#78350f', fontSize: 11, marginTop: 2 },
+  lowStockRowRight: { alignItems: 'flex-end' },
+  lowStockQty:      { color: '#f59e0b', fontSize: 14, fontWeight: '700' },
+  lowStockLimit:    { color: '#78350f', fontSize: 10, marginTop: 1 },
+  lowStockTap:      { color: '#92400e', fontSize: 11, textAlign: 'center', padding: 10, fontWeight: '600' },
 });

@@ -64,6 +64,17 @@ export interface DashboardStats {
   notifications: {
     unread: number;
   };
+  lowStockInventory: {
+    count: number;
+    items: Array<{
+      id:                string;
+      materialName:      string;
+      currentQuantity:   number;
+      unitOfMeasure:     string;
+      lowStockThreshold: number;
+      siteName:          string;
+    }>;
+  };
   /** Only present for company_admin / finance_officer with canViewFinance */
   finance?: {
     totalInflows:     number;
@@ -215,6 +226,31 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     where: { userId: actor.id, companyId, isRead: false },
   });
 
+  // ── Low-stock inventory ───────────────────────────────────────────────────
+  const inventoryWithThreshold = await prisma.siteInventory.findMany({
+    where:  { companyId, lowStockThreshold: { not: null } },
+    select: {
+      id:                true,
+      materialName:      true,
+      currentQuantity:   true,
+      unitOfMeasure:     true,
+      lowStockThreshold: true,
+      site:              { select: { name: true } },
+    },
+  });
+  const lowStockRows = inventoryWithThreshold
+    .filter((i) => i.currentQuantity.lte(i.lowStockThreshold!))
+    .sort((a, b) => Number(a.currentQuantity) - Number(b.currentQuantity))
+    .slice(0, 10)
+    .map((i) => ({
+      id:                i.id,
+      materialName:      i.materialName,
+      currentQuantity:   Number(i.currentQuantity),
+      unitOfMeasure:     i.unitOfMeasure,
+      lowStockThreshold: Number(i.lowStockThreshold),
+      siteName:          i.site.name,
+    }));
+
   // ── Finance (gated) ───────────────────────────────────────────────────────
   let finance: DashboardStats['finance'];
   if (
@@ -300,6 +336,10 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     },
     notifications: {
       unread: unreadNotifications,
+    },
+    lowStockInventory: {
+      count: lowStockRows.length,
+      items: lowStockRows,
     },
     finance,
   };
