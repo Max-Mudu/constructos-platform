@@ -1,5 +1,5 @@
 import { prisma } from '../utils/prisma';
-import { ForbiddenError, NotFoundError } from '../utils/errors';
+import { ForbiddenError, NotFoundError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -28,7 +28,8 @@ export type ReportType =
   | 'deliveries'
   | 'contractors'
   | 'consultants'
-  | 'project-health';
+  | 'project-health'
+  | 'daily-site-report';
 
 // ─── RBAC map ─────────────────────────────────────────────────────────────────
 
@@ -39,7 +40,8 @@ const REPORT_ROLES: Record<ReportType, string[]> = {
   'deliveries':     ['company_admin', 'finance_officer', 'project_manager', 'site_supervisor'],
   'contractors':    ['company_admin', 'project_manager', 'site_supervisor'],
   'consultants':    ['company_admin', 'project_manager', 'consultant'],
-  'project-health': ['company_admin', 'finance_officer', 'project_manager'],
+  'project-health':      ['company_admin', 'finance_officer', 'project_manager'],
+  'daily-site-report':  ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer'],
 };
 
 export function assertReportAccess(type: ReportType, actor: RequestUser): void {
@@ -542,6 +544,155 @@ export async function projectHealthReport(
   };
 }
 
+// ─── Daily Site Report ────────────────────────────────────────────────────────
+
+export async function dailySiteReport(
+  actor: RequestUser,
+  filters: ReportFilters,
+): Promise<ReportData> {
+  const { companyId } = actor;
+
+  if (!filters.projectId) throw new ValidationError('projectId is required for daily-site-report');
+  if (!filters.siteId)    throw new ValidationError('siteId is required for daily-site-report');
+  if (!filters.startDate) throw new ValidationError('startDate (the report date) is required for daily-site-report');
+
+  const { projectId, siteId, startDate } = filters;
+
+  const dayStart = new Date(startDate + 'T00:00:00.000Z');
+  const dayEnd   = new Date(startDate + 'T00:00:00.000Z');
+  dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+
+  const [
+    attendanceRows,
+    labourAgg,
+    deliveriesReceivedCount,
+    pendingDeliveriesCount,
+    materialUsageAgg,
+    lowStockCandidates,
+    openInstructionsCount,
+    criticalInstructionsCount,
+    scheduleTasks,
+  ] = await Promise.all([
+    prisma.attendanceRecord.groupBy({
+      by:    ['status'],
+      where: { companyId, projectId, siteId, date: { gte: dayStart, lt: dayEnd } },
+      _count: { _all: true },
+    }),
+    prisma.labourEntry.aggregate({
+      where: { companyId, projectId, siteId, date: { gte: dayStart, lt: dayEnd } },
+      _sum:  { hoursWorked: true },
+    }),
+    prisma.deliveryRecord.count({
+      where: { companyId, projectId, siteId, deliveryDate: { gte: dayStart, lt: dayEnd } },
+    }),
+    prisma.deliveryRecord.count({
+      where: {
+        companyId, projectId, siteId,
+        OR: [{ inspectionStatus: 'pending' }, { acceptanceStatus: null }],
+      },
+    }),
+    prisma.inventoryTransaction.aggregate({
+      where: { companyId, siteId, type: 'usage_out', createdAt: { gte: dayStart, lt: dayEnd } },
+      _count: { _all: true },
+      _sum:   { quantity: true },
+    }),
+    prisma.siteInventory.findMany({
+      where:  { companyId, siteId, lowStockThreshold: { not: null } },
+      select: { materialName: true, currentQuantity: true, unitOfMeasure: true, lowStockThreshold: true },
+    }),
+    prisma.consultantInstruction.count({
+      where: {
+        companyId, projectId,
+        OR:     [{ siteId }, { siteId: null }],
+        status: { in: ['open', 'acknowledged', 'in_progress'] },
+      },
+    }),
+    prisma.consultantInstruction.count({
+      where: {
+        companyId, projectId,
+        OR:       [{ siteId }, { siteId: null }],
+        priority: 'critical',
+        status:   { notIn: ['resolved', 'rejected'] },
+      },
+    }),
+    prisma.scheduleTask.findMany({
+      where:  { companyId, projectId, siteId },
+      select: { status: true, plannedEndDate: true },
+    }),
+  ]);
+
+  // ── Attendance breakdown ─────────────────────────────────────────────────
+  const byStatus: Record<string, number> = {};
+  for (const r of attendanceRows) byStatus[r.status] = r._count._all;
+  const workersPresent = byStatus['present']  ?? 0;
+  const workersLate    = byStatus['late']     ?? 0;
+  const workersHalfDay = byStatus['half_day'] ?? 0;
+  const workersAbsent  = byStatus['absent']   ?? 0;
+  const workersExcused = byStatus['excused']  ?? 0;
+  const workersOnSite  = workersPresent + workersLate + workersHalfDay;
+
+  // ── Labour ───────────────────────────────────────────────────────────────
+  const labourHoursToday = Number(labourAgg._sum.hoursWorked ?? 0);
+
+  // ── Materials consumed ───────────────────────────────────────────────────
+  const materialsCount    = materialUsageAgg._count._all;
+  const materialsQtyTotal = Math.abs(Number(materialUsageAgg._sum.quantity ?? 0));
+
+  // ── Low stock ────────────────────────────────────────────────────────────
+  const lowStockCount = lowStockCandidates.filter(
+    (i) => Number(i.currentQuantity) <= Number(i.lowStockThreshold!),
+  ).length;
+
+  // ── Schedule tasks ───────────────────────────────────────────────────────
+  const tasksInProgress = scheduleTasks.filter((t) => t.status === 'in_progress').length;
+  const tasksCompleted  = scheduleTasks.filter((t) => t.status === 'completed').length;
+  const tasksDelayed    = scheduleTasks.filter(
+    (t) => t.status !== 'completed' && t.plannedEndDate !== null && t.plannedEndDate < dayStart,
+  ).length;
+
+  const summary = [
+    { label: 'Workers On Site',               value: String(workersOnSite) },
+    { label: 'Workers Absent',                value: String(workersAbsent) },
+    { label: 'Workers Late',                  value: String(workersLate) },
+    { label: 'Labour Hours Today',            value: fmt(labourHoursToday, 1) },
+    { label: 'Deliveries Received Today',     value: String(deliveriesReceivedCount) },
+    { label: 'Deliveries Pending',            value: String(pendingDeliveriesCount) },
+    { label: 'Material Usage Transactions',   value: String(materialsCount) },
+    { label: 'Low-Stock Items',               value: String(lowStockCount) },
+    { label: 'Open Instructions',             value: String(openInstructionsCount) },
+    { label: 'Critical Instructions',         value: String(criticalInstructionsCount) },
+    { label: 'Tasks In Progress',             value: String(tasksInProgress) },
+    { label: 'Tasks Completed',               value: String(tasksCompleted) },
+    { label: 'Tasks Delayed',                 value: String(tasksDelayed) },
+  ];
+
+  const rows: string[][] = [
+    ['Workers On Site',             String(workersOnSite),           `Late: ${workersLate}, Half-day: ${workersHalfDay}`],
+    ['Workers Absent',              String(workersAbsent),           workersExcused > 0 ? `Excused: ${workersExcused}` : ''],
+    ['Workers Late',                String(workersLate),             ''],
+    ['Labour Hours Today',          fmt(labourHoursToday, 1),        ''],
+    ['Deliveries Received Today',   String(deliveriesReceivedCount), ''],
+    ['Deliveries Pending',          String(pendingDeliveriesCount),  'Pending inspection or acceptance'],
+    ['Material Usage Transactions', String(materialsCount),          `Total qty consumed: ${fmt(materialsQtyTotal, 3)}`],
+    ['Low-Stock Items',             String(lowStockCount),           lowStockCount > 0 ? 'Check inventory' : ''],
+    ['Open Instructions',           String(openInstructionsCount),   ''],
+    ['Critical Instructions',       String(criticalInstructionsCount), criticalInstructionsCount > 0 ? 'Requires immediate attention' : ''],
+    ['Tasks In Progress',           String(tasksInProgress),         ''],
+    ['Tasks Completed',             String(tasksCompleted),          ''],
+    ['Tasks Delayed',               String(tasksDelayed),            tasksDelayed > 0 ? 'Past planned end date' : ''],
+  ];
+
+  return {
+    title:       'Daily Site Report',
+    subtitle:    `Site activity snapshot for ${startDate}`,
+    generatedAt: new Date().toISOString(),
+    filters:     { 'Project ID': projectId, 'Site ID': siteId, 'Date': startDate },
+    summary,
+    columns: ['Metric', 'Value', 'Notes'],
+    rows,
+  };
+}
+
 // ─── Dispatcher ───────────────────────────────────────────────────────────────
 
 export async function generateReport(
@@ -558,7 +709,8 @@ export async function generateReport(
     case 'deliveries':     return deliveryReport(actor, filters);
     case 'contractors':    return contractorReport(actor, filters);
     case 'consultants':    return consultantReport(actor, filters);
-    case 'project-health': return projectHealthReport(actor, filters);
+    case 'project-health':      return projectHealthReport(actor, filters);
+    case 'daily-site-report':  return dailySiteReport(actor, filters);
     default:
       throw new NotFoundError('Report type');
   }
@@ -567,6 +719,6 @@ export async function generateReport(
 export function isValidReportType(type: string): type is ReportType {
   return [
     'labour', 'budget', 'invoices', 'deliveries',
-    'contractors', 'consultants', 'project-health',
+    'contractors', 'consultants', 'project-health', 'daily-site-report',
   ].includes(type);
 }

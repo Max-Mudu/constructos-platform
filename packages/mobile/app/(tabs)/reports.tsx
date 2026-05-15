@@ -1,45 +1,71 @@
 /**
- * Reports screen — Phase 3
- * Available to company_admin, finance_officer, project_manager.
- * Allows viewing reports as in-app tables and downloading as PDF or CSV.
+ * Reports screen — Phase 3 + 1C (Daily Site Report)
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert, Linking,
+  ActivityIndicator, Alert, Linking, TextInput,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import { useAuthStore } from '../../src/store/auth.store';
 import { reportsApi, ReportType, ReportFormat, ReportData } from '../../src/api/reports';
+import { projectsApi } from '../../src/api/projects';
+import { Project, JobSite } from '../../src/types';
 import { Screen } from '../../src/components/Screen';
 import { Card } from '../../src/components/Card';
 
 // ─── Report catalogue (RBAC per role) ─────────────────────────────────────────
 
 interface ReportMeta {
-  type:        ReportType;
-  title:       string;
-  description: string;
-  roles:       string[];
+  type:          ReportType;
+  title:         string;
+  description:   string;
+  roles:         string[];
+  needsFilters?: boolean;
 }
 
 const REPORTS: ReportMeta[] = [
-  { type: 'labour',         title: 'Labour Report',        description: 'Hours, wages and worker activity',      roles: ['company_admin', 'finance_officer', 'project_manager', 'site_supervisor'] },
-  { type: 'deliveries',     title: 'Deliveries Report',    description: 'Material deliveries and status',        roles: ['company_admin', 'finance_officer', 'project_manager', 'site_supervisor'] },
-  { type: 'invoices',       title: 'Invoices Report',      description: 'All invoices and payment status',       roles: ['company_admin', 'finance_officer', 'project_manager']                    },
-  { type: 'budget',         title: 'Budget Report',        description: 'Budget vs actuals by project',          roles: ['company_admin', 'finance_officer', 'project_manager']                    },
-  { type: 'contractors',    title: 'Contractors Report',   description: 'Contractor schedules and progress',     roles: ['company_admin', 'project_manager', 'site_supervisor']                    },
-  { type: 'consultants',    title: 'Consultants Report',   description: 'Consultant costs and instructions',     roles: ['company_admin', 'finance_officer', 'project_manager']                    },
-  { type: 'project-health', title: 'Project Health',       description: 'Overall project health dashboard',      roles: ['company_admin', 'finance_officer', 'project_manager']                    },
+  { type: 'labour',         title: 'Labour Report',       description: 'Hours, wages and worker activity',                                           roles: ['company_admin', 'finance_officer', 'project_manager', 'site_supervisor'] },
+  { type: 'deliveries',     title: 'Deliveries Report',   description: 'Material deliveries and status',                                             roles: ['company_admin', 'finance_officer', 'project_manager', 'site_supervisor'] },
+  { type: 'invoices',       title: 'Invoices Report',     description: 'All invoices and payment status',                                            roles: ['company_admin', 'finance_officer', 'project_manager']                    },
+  { type: 'budget',         title: 'Budget Report',       description: 'Budget vs actuals by project',                                               roles: ['company_admin', 'finance_officer', 'project_manager']                    },
+  { type: 'contractors',    title: 'Contractors Report',  description: 'Contractor schedules and progress',                                          roles: ['company_admin', 'project_manager', 'site_supervisor']                    },
+  { type: 'consultants',    title: 'Consultants Report',  description: 'Consultant costs and instructions',                                          roles: ['company_admin', 'finance_officer', 'project_manager']                    },
+  { type: 'project-health', title: 'Project Health',      description: 'Overall project health dashboard',                                           roles: ['company_admin', 'finance_officer', 'project_manager']                    },
+  {
+    type:         'daily-site-report',
+    title:        'Daily Site Report',
+    description:  'Attendance, deliveries, materials, instructions and schedule for one site',
+    roles:        ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer'],
+    needsFilters: true,
+  },
 ];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function todayLocal(): string {
+  const now = new Date();
+  const y   = now.getFullYear();
+  const m   = String(now.getMonth() + 1).padStart(2, '0');
+  const d   = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
 
 // ─── In-app report viewer ─────────────────────────────────────────────────────
 
-function ReportViewer({ report, onClose }: { report: ReportData; onClose: () => void }) {
+function ReportViewer({
+  report,
+  onClose,
+  backLabel = '← Reports',
+}: {
+  report:     ReportData;
+  onClose:    () => void;
+  backLabel?: string;
+}) {
   return (
     <ScrollView contentContainerStyle={styles.viewerScroll} showsVerticalScrollIndicator={false}>
       <TouchableOpacity onPress={onClose} style={styles.backBtn}>
-        <Text style={styles.backText}>{'← Reports'}</Text>
+        <Text style={styles.backText}>{backLabel}</Text>
       </TouchableOpacity>
 
       <Text style={styles.reportTitle}>{report.title}</Text>
@@ -63,7 +89,6 @@ function ReportViewer({ report, onClose }: { report: ReportData; onClose: () => 
       {/* Data table */}
       {report.columns.length > 0 && report.rows.length > 0 && (
         <Card style={styles.tableCard}>
-          {/* Header */}
           <View style={styles.tableHeader}>
             {report.columns.map((col, i) => (
               <Text key={i} style={[styles.tableHeaderCell, { flex: i === 0 ? 2 : 1 }]}>
@@ -71,7 +96,6 @@ function ReportViewer({ report, onClose }: { report: ReportData; onClose: () => 
               </Text>
             ))}
           </View>
-          {/* Rows */}
           {report.rows.slice(0, 50).map((row, ri) => (
             <View key={ri} style={[styles.tableRow, ri % 2 === 0 && styles.tableRowAlt]}>
               {row.map((cell, ci) => (
@@ -100,37 +124,149 @@ function ReportViewer({ report, onClose }: { report: ReportData; onClose: () => 
   );
 }
 
-// ─── Report card ──────────────────────────────────────────────────────────────
+// ─── Daily Site Report — form + viewer ───────────────────────────────────────
 
-function ReportCard({
-  meta,
-  onView,
-  onDownload,
-}: {
-  meta:        ReportMeta;
-  onView:      () => void;
-  onDownload:  (format: 'pdf' | 'csv') => void;
-}) {
+function DailySiteReportView({ onBack }: { onBack: () => void }) {
+  const [projects,        setProjects]        = useState<Project[]>([]);
+  const [sites,           setSites]           = useState<JobSite[]>([]);
+  const [projectId,       setProjectId]       = useState('');
+  const [siteId,          setSiteId]          = useState('');
+  const [date,            setDate]            = useState(todayLocal);
+  const [loadingProjects, setLoadingProjects] = useState(true);
+  const [loadingReport,   setLoadingReport]   = useState(false);
+  const [report,          setReport]          = useState<ReportData | null>(null);
+
+  useEffect(() => {
+    void projectsApi.list()
+      .then(setProjects)
+      .catch(() => Alert.alert('Error', 'Failed to load projects.'))
+      .finally(() => setLoadingProjects(false));
+  }, []);
+
+  useEffect(() => {
+    if (!projectId) { setSites([]); setSiteId(''); return; }
+    setSiteId('');
+    setSites([]);
+    void projectsApi.listSites(projectId)
+      .then(setSites)
+      .catch(() => Alert.alert('Error', 'Failed to load sites.'));
+  }, [projectId]);
+
+  async function generate() {
+    if (!projectId || !siteId || !date) return;
+    setLoadingReport(true);
+    try {
+      const data = await reportsApi.getJson('daily-site-report', {
+        projectId,
+        siteId,
+        startDate: date,
+      });
+      setReport(data);
+    } catch {
+      Alert.alert('Error', 'Failed to generate report. Check that the date is valid (YYYY-MM-DD).');
+    } finally {
+      setLoadingReport(false);
+    }
+  }
+
+  const canGenerate = !!projectId && !!siteId && date.length === 10;
+
+  if (report) {
+    return (
+      <ReportViewer
+        report={report}
+        onClose={() => setReport(null)}
+        backLabel="← Daily Site Report"
+      />
+    );
+  }
+
   return (
-    <Card style={styles.reportCard}>
-      <View style={styles.reportCardTop}>
-        <View style={styles.reportCardText}>
-          <Text style={styles.reportCardTitle}>{meta.title}</Text>
-          <Text style={styles.reportCardDesc}>{meta.description}</Text>
+    <ScrollView contentContainerStyle={styles.viewerScroll} showsVerticalScrollIndicator={false}>
+      <TouchableOpacity onPress={onBack} style={styles.backBtn}>
+        <Text style={styles.backText}>{'← Reports'}</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.reportTitle}>Daily Site Report</Text>
+      <Text style={styles.reportSubtitle}>
+        Attendance, deliveries, materials, instructions and schedule for one site
+      </Text>
+
+      {/* ── Project ─────────────────────────────────────────────────────── */}
+      <Text style={dsr.sectionLabel}>Project</Text>
+      {loadingProjects ? (
+        <ActivityIndicator color="#3b82f6" style={dsr.spinner} />
+      ) : projects.length === 0 ? (
+        <Text style={dsr.noItems}>No projects available.</Text>
+      ) : (
+        <View style={dsr.chipRow}>
+          {projects.map((p) => (
+            <TouchableOpacity
+              key={p.id}
+              style={[dsr.chip, projectId === p.id && dsr.chipSelected]}
+              onPress={() => setProjectId(p.id)}
+            >
+              <Text style={[dsr.chipText, projectId === p.id && dsr.chipTextSelected]}>
+                {p.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
-      </View>
-      <View style={styles.reportCardActions}>
-        <TouchableOpacity style={styles.actionBtn} onPress={onView}>
-          <Text style={styles.actionBtnText}>View</Text>
+      )}
+
+      {/* ── Site ─────────────────────────────────────────────────────────── */}
+      {projectId !== '' && (
+        <>
+          <Text style={dsr.sectionLabel}>Site</Text>
+          {sites.length === 0 ? (
+            <Text style={dsr.noItems}>No sites for this project.</Text>
+          ) : (
+            <View style={dsr.chipRow}>
+              {sites.map((s) => (
+                <TouchableOpacity
+                  key={s.id}
+                  style={[dsr.chip, siteId === s.id && dsr.chipSelected]}
+                  onPress={() => setSiteId(s.id)}
+                >
+                  <Text style={[dsr.chipText, siteId === s.id && dsr.chipTextSelected]}>
+                    {s.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </>
+      )}
+
+      {/* ── Date ─────────────────────────────────────────────────────────── */}
+      <Text style={dsr.sectionLabel}>Date</Text>
+      <TextInput
+        style={dsr.dateInput}
+        value={date}
+        onChangeText={setDate}
+        placeholder="YYYY-MM-DD"
+        placeholderTextColor="#64748b"
+        maxLength={10}
+      />
+
+      {/* ── Prompt / Generate ─────────────────────────────────────────────── */}
+      {!canGenerate ? (
+        <Text style={dsr.prompt}>
+          Select project, site and date to generate the report.
+        </Text>
+      ) : (
+        <TouchableOpacity
+          style={[dsr.generateBtn, loadingReport && dsr.generateBtnBusy]}
+          onPress={() => void generate()}
+          disabled={loadingReport}
+        >
+          {loadingReport
+            ? <ActivityIndicator color="#fff" />
+            : <Text style={dsr.generateBtnText}>Generate Report</Text>
+          }
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => onDownload('pdf')}>
-          <Text style={styles.actionBtnText}>PDF</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.actionBtn} onPress={() => onDownload('csv')}>
-          <Text style={styles.actionBtnText}>CSV</Text>
-        </TouchableOpacity>
-      </View>
-    </Card>
+      )}
+    </ScrollView>
   );
 }
 
@@ -139,11 +275,11 @@ function ReportCard({
 export default function ReportsScreen() {
   const user = useAuthStore((s) => s.user)!;
 
-  const [loading,       setLoading]       = useState<ReportType | null>(null);
-  const [downloading,   setDownloading]   = useState<string | null>(null);
-  const [reportData,    setReportData]    = useState<ReportData | null>(null);
+  const [view,        setView]        = useState<'list' | 'daily-site-form'>('list');
+  const [loading,     setLoading]     = useState<ReportType | null>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  const [reportData,  setReportData]  = useState<ReportData | null>(null);
 
-  // Filter reports by role
   const visibleReports = REPORTS.filter((r) => r.roles.includes(user.role));
 
   async function handleView(type: ReportType) {
@@ -163,18 +299,10 @@ export default function ReportsScreen() {
     setDownloading(key);
     try {
       const localUri = await reportsApi.downloadFile(type, format);
-
-      // Open the downloaded file
-      // On Android: get a shareable content URI
-      if (localUri.startsWith('file://') || localUri.startsWith('/')) {
-        // Try to get a content URI for Android, fall back to file URI
-        try {
-          const contentUri = await FileSystem.getContentUriAsync(localUri);
-          await Linking.openURL(contentUri);
-        } catch {
-          await Linking.openURL(localUri);
-        }
-      } else {
+      try {
+        const contentUri = await FileSystem.getContentUriAsync(localUri);
+        await Linking.openURL(contentUri);
+      } catch {
         await Linking.openURL(localUri);
       }
     } catch (err) {
@@ -185,7 +313,16 @@ export default function ReportsScreen() {
     }
   }
 
-  // Show in-app report viewer
+  // ── Daily Site Report form ───────────────────────────────────────────────
+  if (view === 'daily-site-form') {
+    return (
+      <Screen>
+        <DailySiteReportView onBack={() => setView('list')} />
+      </Screen>
+    );
+  }
+
+  // ── Standard report viewer ───────────────────────────────────────────────
   if (reportData) {
     return (
       <Screen>
@@ -194,6 +331,7 @@ export default function ReportsScreen() {
     );
   }
 
+  // ── Report catalogue ─────────────────────────────────────────────────────
   return (
     <Screen>
       <View style={styles.header}>
@@ -203,10 +341,10 @@ export default function ReportsScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {visibleReports.map((meta) => {
-          const isViewing    = loading === meta.type;
+          const isViewing     = loading === meta.type;
           const isDownloadPDF = downloading === `${meta.type}-pdf`;
           const isDownloadCSV = downloading === `${meta.type}-csv`;
-          const isBusy       = isViewing || isDownloadPDF || isDownloadCSV;
+          const isBusy        = isViewing || isDownloadPDF || isDownloadCSV;
 
           return (
             <Card key={meta.type} style={styles.reportCard}>
@@ -219,34 +357,41 @@ export default function ReportsScreen() {
               <View style={styles.reportCardActions}>
                 <TouchableOpacity
                   style={[styles.actionBtn, isBusy && styles.actionBtnDisabled]}
-                  onPress={() => void handleView(meta.type)}
-                  disabled={isBusy}
+                  onPress={meta.needsFilters
+                    ? () => setView('daily-site-form')
+                    : () => void handleView(meta.type)
+                  }
+                  disabled={isBusy && !meta.needsFilters}
                 >
                   {isViewing
                     ? <ActivityIndicator size="small" color="#3b82f6" />
                     : <Text style={styles.actionBtnText}>View</Text>
                   }
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionBtn, isBusy && styles.actionBtnDisabled]}
-                  onPress={() => void handleDownload(meta.type, 'pdf')}
-                  disabled={isBusy}
-                >
-                  {isDownloadPDF
-                    ? <ActivityIndicator size="small" color="#3b82f6" />
-                    : <Text style={styles.actionBtnText}>PDF</Text>
-                  }
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionBtn, isBusy && styles.actionBtnDisabled]}
-                  onPress={() => void handleDownload(meta.type, 'csv')}
-                  disabled={isBusy}
-                >
-                  {isDownloadCSV
-                    ? <ActivityIndicator size="small" color="#3b82f6" />
-                    : <Text style={styles.actionBtnText}>CSV</Text>
-                  }
-                </TouchableOpacity>
+                {!meta.needsFilters && (
+                  <>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, isBusy && styles.actionBtnDisabled]}
+                      onPress={() => void handleDownload(meta.type, 'pdf')}
+                      disabled={isBusy}
+                    >
+                      {isDownloadPDF
+                        ? <ActivityIndicator size="small" color="#3b82f6" />
+                        : <Text style={styles.actionBtnText}>PDF</Text>
+                      }
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, isBusy && styles.actionBtnDisabled]}
+                      onPress={() => void handleDownload(meta.type, 'csv')}
+                      disabled={isBusy}
+                    >
+                      {isDownloadCSV
+                        ? <ActivityIndicator size="small" color="#3b82f6" />
+                        : <Text style={styles.actionBtnText}>CSV</Text>
+                      }
+                    </TouchableOpacity>
+                  </>
+                )}
               </View>
             </Card>
           );
@@ -279,7 +424,6 @@ const styles = StyleSheet.create({
   actionBtnDisabled: { opacity: 0.5 },
   actionBtnText:     { color: '#3b82f6', fontSize: 13, fontWeight: '700' },
 
-  // Viewer
   viewerScroll:   { padding: 16, paddingBottom: 40 },
   backBtn:        { marginBottom: 16 },
   backText:       { color: '#3b82f6', fontSize: 14, fontWeight: '600' },
@@ -292,13 +436,29 @@ const styles = StyleSheet.create({
   summaryValue:{ color: '#f1f5f9', fontSize: 18, fontWeight: '700', marginBottom: 2 },
   summaryLabel:{ color: '#94a3b8', fontSize: 10, fontWeight: '600', textAlign: 'center', textTransform: 'uppercase' },
 
-  tableCard:        { marginBottom: 16, padding: 0, overflow: 'hidden' },
-  tableHeader:      { flexDirection: 'row', backgroundColor: '#0f172a', paddingHorizontal: 12, paddingVertical: 8 },
-  tableHeaderCell:  { color: '#64748b', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
-  tableRow:         { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 8 },
-  tableRowAlt:      { backgroundColor: '#0f172a' },
-  tableCell:        { color: '#cbd5e1', fontSize: 11 },
-  tableTruncated:   { color: '#64748b', fontSize: 11, textAlign: 'center', padding: 10 },
+  tableCard:       { marginBottom: 16, padding: 0, overflow: 'hidden' },
+  tableHeader:     { flexDirection: 'row', backgroundColor: '#0f172a', paddingHorizontal: 12, paddingVertical: 8 },
+  tableHeaderCell: { color: '#64748b', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
+  tableRow:        { flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 8 },
+  tableRowAlt:     { backgroundColor: '#0f172a' },
+  tableCell:       { color: '#cbd5e1', fontSize: 11 },
+  tableTruncated:  { color: '#64748b', fontSize: 11, textAlign: 'center', padding: 10 },
 
   emptyText: { color: '#64748b', fontSize: 14, textAlign: 'center', marginTop: 32 },
+});
+
+const dsr = StyleSheet.create({
+  sectionLabel:     { color: '#64748b', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 20, marginBottom: 8 },
+  chipRow:          { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  chip:             { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#334155', backgroundColor: '#1e293b' },
+  chipSelected:     { borderColor: '#3b82f6', backgroundColor: '#172554' },
+  chipText:         { color: '#94a3b8', fontSize: 13, fontWeight: '600' },
+  chipTextSelected: { color: '#93c5fd' },
+  dateInput:        { backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 12, color: '#f1f5f9', fontSize: 14 },
+  generateBtn:      { backgroundColor: '#3b82f6', borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 24 },
+  generateBtnBusy:  { opacity: 0.7 },
+  generateBtnText:  { color: '#fff', fontSize: 15, fontWeight: '700' },
+  prompt:           { color: '#64748b', fontSize: 13, textAlign: 'center', marginTop: 28 },
+  noItems:          { color: '#64748b', fontSize: 13, marginTop: 4 },
+  spinner:          { marginVertical: 12 },
 });

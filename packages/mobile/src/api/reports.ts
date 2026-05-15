@@ -9,7 +9,8 @@ export type ReportType =
   | 'deliveries'
   | 'contractors'
   | 'consultants'
-  | 'project-health';
+  | 'project-health'
+  | 'daily-site-report';
 
 export type ReportFormat = 'json' | 'csv' | 'pdf';
 
