@@ -38,6 +38,14 @@ const TRANSACTION_SELECT = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function computeIsLowStock(
+  currentQuantity:   Prisma.Decimal,
+  lowStockThreshold: Prisma.Decimal | null,
+): boolean {
+  if (lowStockThreshold === null) return false;
+  return currentQuantity.lte(lowStockThreshold);
+}
+
 async function checkSiteAccess(
   siteId:    string,
   projectId: string,
@@ -124,11 +132,15 @@ export async function listInventory(
 ) {
   await checkSiteAccess(siteId, projectId, actor);
 
-  return prisma.siteInventory.findMany({
+  const items = await prisma.siteInventory.findMany({
     where:   { siteId, companyId: actor.companyId },
     select:  INVENTORY_ITEM_SELECT,
     orderBy: { materialName: 'asc' },
   });
+  return items.map((item) => ({
+    ...item,
+    isLowStock: computeIsLowStock(item.currentQuantity, item.lowStockThreshold),
+  }));
 }
 
 export async function getInventoryItem(
@@ -152,7 +164,11 @@ export async function getInventoryItem(
     take:    50,
   });
 
-  return { ...item, transactions };
+  return {
+    ...item,
+    isLowStock: computeIsLowStock(item.currentQuantity, item.lowStockThreshold),
+    transactions,
+  };
 }
 
 // ─── Usage deduction ──────────────────────────────────────────────────────────
@@ -209,5 +225,16 @@ export async function recordUsage(
     return decremented;
   });
 
-  return updated;
+  const isLow = computeIsLowStock(updated.currentQuantity, updated.lowStockThreshold);
+  if (isLow) {
+    console.log(
+      '[inventory-alert] low stock —',
+      'material:', updated.materialName,
+      '| currentQuantity:', String(updated.currentQuantity),
+      '| threshold:', String(updated.lowStockThreshold),
+      '| siteId:', siteId,
+    );
+  }
+
+  return { ...updated, isLowStock: isLow };
 }

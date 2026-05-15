@@ -6,6 +6,7 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   ScrollView, RefreshControl, ActivityIndicator,
+  Modal, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { inventoryApi } from '../../src/api/inventory';
 import { projectsApi } from '../../src/api/projects';
@@ -20,7 +21,13 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmt(n: number): string {
+function toNumber(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function fmt(value: unknown): string {
+  const n = toNumber(value);
   return Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/\.?0+$/, '');
 }
 
@@ -41,7 +48,7 @@ function fmtDateTime(s: string): string {
 }
 
 function isLowStock(item: SiteInventoryItem): boolean {
-  return item.lowStockThreshold !== null && item.currentQuantity <= item.lowStockThreshold;
+  return item.lowStockThreshold !== null && toNumber(item.currentQuantity) <= toNumber(item.lowStockThreshold);
 }
 
 const TX_LABELS: Record<InventoryTxType, string> = {
@@ -92,6 +99,132 @@ function TxRow({ tx }: { tx: InventoryTransaction }) {
   );
 }
 
+// ─── Record Usage Modal ───────────────────────────────────────────────────────
+
+function RecordUsageModal({
+  visible, item, projectId, siteId, onClose, onSaved,
+}: {
+  visible:   boolean;
+  item:      SiteInventoryItem;
+  projectId: string;
+  siteId:    string;
+  onClose:   () => void;
+  onSaved:   () => void;
+}) {
+  const [qty,    setQty]    = useState('');
+  const [note,   setNote]   = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error,  setError]  = useState<string | null>(null);
+
+  function reset() { setQty(''); setNote(''); setError(null); setSaving(false); }
+  function handleClose() { reset(); onClose(); }
+
+  async function save() {
+    setError(null);
+    const n = parseFloat(qty.trim());
+    if (!qty.trim() || isNaN(n) || n <= 0) {
+      setError('Enter a quantity greater than 0.');
+      return;
+    }
+    const available = Number(item.currentQuantity);
+    if (n > available) {
+      setError(`Insufficient stock — available: ${fmt(available)} ${item.unitOfMeasure}.`);
+      return;
+    }
+    setSaving(true);
+    try {
+      await inventoryApi.recordUsage(projectId, siteId, item.id, {
+        quantity: n,
+        note:     note.trim() || undefined,
+      });
+      reset();
+      onSaved();
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setError(msg ?? 'Failed to record usage. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={UM.root}>
+
+          {/* Header */}
+          <View style={UM.header}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={UM.title}>Record Usage</Text>
+              <Text style={UM.subtitle} numberOfLines={1}>{item.materialName}</Text>
+            </View>
+            <TouchableOpacity style={UM.closeBtn} onPress={handleClose} activeOpacity={0.7}>
+              <Text style={UM.closeBtnText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={UM.content} keyboardShouldPersistTaps="handled">
+
+            {/* Available stock */}
+            <View style={UM.stockInfo}>
+              <Text style={UM.stockInfoLabel}>Available</Text>
+              <Text style={UM.stockInfoValue}>
+                {fmt(Number(item.currentQuantity))} {item.unitOfMeasure}
+              </Text>
+            </View>
+
+            {/* Quantity */}
+            <Text style={UM.fieldLabel}>Quantity Used</Text>
+            <View style={UM.inputWrap}>
+              <TextInput
+                style={UM.input}
+                value={qty}
+                onChangeText={(t) => { setQty(t); setError(null); }}
+                placeholder={`Max ${fmt(Number(item.currentQuantity))}`}
+                placeholderTextColor="#1e3050"
+                keyboardType="decimal-pad"
+                returnKeyType="next"
+              />
+              <Text style={UM.inputUnit}>{item.unitOfMeasure}</Text>
+            </View>
+
+            {/* Note */}
+            <Text style={[UM.fieldLabel, { marginTop: 16 }]}>Reason / Note (optional)</Text>
+            <View style={[UM.inputWrap, { height: 80, alignItems: 'flex-start', paddingTop: 12 }]}>
+              <TextInput
+                style={[UM.input, { height: 56, textAlignVertical: 'top' }]}
+                value={note}
+                onChangeText={setNote}
+                placeholder="e.g. Foundation pour, Block A"
+                placeholderTextColor="#1e3050"
+                multiline
+              />
+            </View>
+
+            {error ? <Text style={UM.errorText}>{error}</Text> : null}
+
+            {/* Buttons */}
+            <View style={UM.btnRow}>
+              <TouchableOpacity style={UM.cancelBtn} onPress={handleClose} activeOpacity={0.75}>
+                <Text style={UM.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[UM.saveBtn, saving && UM.saveBtnLoading]}
+                onPress={() => void save()}
+                activeOpacity={0.85}
+                disabled={saving}
+              >
+                <Text style={UM.saveBtnText}>{saving ? 'Recording…' : 'Record Usage'}</Text>
+              </TouchableOpacity>
+            </View>
+
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 // ─── Inventory Detail View ────────────────────────────────────────────────────
 
 function InventoryDetailView({
@@ -105,9 +238,10 @@ function InventoryDetailView({
   siteId:    string;
   onBack:    () => void;
 }) {
-  const [detail,    setDetail]    = useState<SiteInventoryItemDetail | null>(null);
-  const [loading,   setLoading]   = useState(true);
+  const [detail,     setDetail]     = useState<SiteInventoryItemDetail | null>(null);
+  const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showModal,  setShowModal]  = useState(false);
 
   async function load() {
     try {
@@ -168,6 +302,11 @@ function InventoryDetailView({
             <Text style={DV.lowBannerText}>⚠  Stock below threshold</Text>
           </View>
         )}
+
+        {/* Record Usage */}
+        <TouchableOpacity style={DV.usageBtn} onPress={() => setShowModal(true)} activeOpacity={0.85}>
+          <Text style={DV.usageBtnText}>Record Usage</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Transactions */}
@@ -183,6 +322,15 @@ function InventoryDetailView({
       </View>
 
       <View style={{ height: 48 }} />
+
+      <RecordUsageModal
+        visible={showModal}
+        item={detail ?? initialItem}
+        projectId={projectId}
+        siteId={siteId}
+        onClose={() => setShowModal(false)}
+        onSaved={() => { setShowModal(false); void load(); }}
+      />
     </ScrollView>
   );
 }
@@ -241,7 +389,7 @@ export default function InventoryScreen() {
           item={selected}
           projectId={projectId}
           siteId={siteId}
-          onBack={() => setView('list')}
+          onBack={() => { setView('list'); void load(projectId, siteId); }}
         />
       </Screen>
     );
@@ -422,6 +570,9 @@ const DV = StyleSheet.create({
   lowBanner:     { marginTop: 12, backgroundColor: '#1c1000', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#92400e' },
   lowBannerText: { color: '#f59e0b', fontSize: 12, fontWeight: '700', textAlign: 'center' },
 
+  usageBtn:     { marginTop: 14, backgroundColor: '#1d4ed8', borderRadius: 12, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: '#2563eb' },
+  usageBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+
   section:      { marginHorizontal: 18, marginTop: 20 },
   sectionTitle: { color: '#3d6090', fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10 },
 
@@ -434,4 +585,44 @@ const DV = StyleSheet.create({
   txNote: { color: '#2d4f78', fontSize: 11, marginTop: 2, fontStyle: 'italic' },
   txDate: { color: '#1e3050', fontSize: 10, marginTop: 4 },
   txQty:  { fontSize: 14, fontWeight: '800', marginTop: 2 },
+});
+
+// ─── Usage Modal styles ───────────────────────────────────────────────────────
+
+const UM = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#060d1b' },
+
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#0e1f38',
+  },
+  title:        { color: '#e8f0fe', fontSize: 20, fontWeight: '800', letterSpacing: -0.3 },
+  subtitle:     { color: '#2d5070', fontSize: 12, fontWeight: '500', marginTop: 2 },
+  closeBtn:     { width: 34, height: 34, borderRadius: 17, backgroundColor: '#0a1628', borderWidth: 1, borderColor: '#142240', alignItems: 'center', justifyContent: 'center' },
+  closeBtnText: { color: '#3d6090', fontSize: 15, fontWeight: '600' },
+
+  content: { padding: 20, paddingBottom: 56 },
+
+  stockInfo:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#0a1628', borderRadius: 10, borderWidth: 1, borderColor: '#142238', padding: 14, marginBottom: 20 },
+  stockInfoLabel: { color: '#3d6090', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8 },
+  stockInfoValue: { color: '#3b82f6', fontSize: 20, fontWeight: '800' },
+
+  fieldLabel: { color: '#3d6090', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 },
+  inputWrap:  { flexDirection: 'row', alignItems: 'center', backgroundColor: '#060e1c', borderRadius: 12, borderWidth: 1, borderColor: '#112036', paddingHorizontal: 14, height: 52, gap: 10, marginBottom: 4 },
+  input:      { flex: 1, color: '#d0e0f5', fontSize: 15, padding: 0 },
+  inputUnit:  { color: '#2d4f78', fontSize: 14, fontWeight: '600' },
+
+  errorText: { color: '#ef4444', fontSize: 13, marginTop: 10, marginBottom: 2 },
+
+  btnRow:        { flexDirection: 'row', gap: 10, marginTop: 24 },
+  cancelBtn:     { flex: 1, height: 54, alignItems: 'center', justifyContent: 'center', borderRadius: 13, borderWidth: 1, borderColor: '#142240', backgroundColor: '#0a1628' },
+  cancelBtnText: { color: '#3d6090', fontSize: 15, fontWeight: '600' },
+  saveBtn:        { flex: 2, height: 54, alignItems: 'center', justifyContent: 'center', borderRadius: 13, borderWidth: 1, borderColor: '#2563eb', backgroundColor: '#1d4ed8' },
+  saveBtnLoading: { backgroundColor: '#1e3a70', borderColor: '#1e3a70' },
+  saveBtnText:    { color: '#fff', fontSize: 15, fontWeight: '700' },
 });

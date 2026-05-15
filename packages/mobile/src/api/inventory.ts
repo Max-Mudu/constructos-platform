@@ -20,4 +20,17 @@ export const inventoryApi = {
     );
     return res.data.item;
   },
+
+  recordUsage: async (
+    projectId:   string,
+    siteId:      string,
+    inventoryId: string,
+    body:        { quantity: number; note?: string },
+  ): Promise<SiteInventoryItem> => {
+    const res = await apiClient.post<{ item: SiteInventoryItem }>(
+      `/projects/${projectId}/sites/${siteId}/inventory/${inventoryId}/use`,
+      body,
+    );
+    return res.data.item;
+  },
 };
