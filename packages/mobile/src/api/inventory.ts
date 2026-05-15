@@ -33,4 +33,17 @@ export const inventoryApi = {
     );
     return res.data.item;
   },
+
+  updateThreshold: async (
+    projectId:   string,
+    siteId:      string,
+    inventoryId: string,
+    threshold:   number | null,
+  ): Promise<SiteInventoryItem> => {
+    const res = await apiClient.patch<{ item: SiteInventoryItem }>(
+      `/projects/${projectId}/sites/${siteId}/inventory/${inventoryId}`,
+      { lowStockThreshold: threshold },
+    );
+    return res.data.item;
+  },
 };

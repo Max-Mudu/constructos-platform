@@ -238,3 +238,36 @@ export async function recordUsage(
 
   return { ...updated, isLowStock: isLow };
 }
+
+// ─── Threshold management ─────────────────────────────────────────────────────
+
+export async function updateThreshold(
+  projectId:   string,
+  siteId:      string,
+  inventoryId: string,
+  threshold:   number | null,
+  actor:       RequestUser,
+) {
+  await checkSiteAccess(siteId, projectId, actor);
+
+  console.log('[inventory-threshold] update — inventoryId:', inventoryId, '| threshold:', threshold);
+
+  const existing = await prisma.siteInventory.findFirst({
+    where:  { id: inventoryId, siteId, companyId: actor.companyId },
+    select: { id: true },
+  });
+  if (!existing) throw new NotFoundError('Inventory item');
+
+  const updated = await prisma.siteInventory.update({
+    where:  { id: inventoryId },
+    data:   { lowStockThreshold: threshold !== null ? new Prisma.Decimal(threshold) : null },
+    select: INVENTORY_ITEM_SELECT,
+  });
+
+  console.log('[inventory-threshold] updated — newThreshold:', String(updated.lowStockThreshold));
+
+  return {
+    ...updated,
+    isLowStock: computeIsLowStock(updated.currentQuantity, updated.lowStockThreshold),
+  };
+}

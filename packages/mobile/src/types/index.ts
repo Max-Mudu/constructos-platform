@@ -329,6 +329,7 @@ export interface SiteInventoryItem {
   unitOfMeasure:     string;
   currentQuantity:   number;
   lowStockThreshold: number | null;
+  isLowStock?:       boolean;
   createdAt:         string;
   updatedAt:         string;
   site:              { id: string; name: string };

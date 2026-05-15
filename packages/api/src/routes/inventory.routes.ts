@@ -24,6 +24,10 @@ const useInventorySchema = z.object({
   note:     z.string().optional(),
 });
 
+const updateThresholdSchema = z.object({
+  lowStockThreshold: z.number().min(0, 'threshold must be 0 or greater').nullable(),
+});
+
 export async function inventoryRoutes(fastify: FastifyInstance): Promise<void> {
 
   // GET /projects/:projectId/sites/:siteId/inventory
@@ -57,6 +61,30 @@ export async function inventoryRoutes(fastify: FastifyInstance): Promise<void> {
         return reply.send({ item });
       } catch (err) {
         console.error('[inventory] get error:', err);
+        return handleError(err, reply);
+      }
+    },
+  );
+
+  // PATCH /projects/:projectId/sites/:siteId/inventory/:inventoryId
+  fastify.patch(
+    '/:inventoryId',
+    { preHandler: [authenticate, requireRole(...WRITE_ROLES), requireProjectAccess] },
+    async (request, reply) => {
+      try {
+        const { projectId, siteId, inventoryId } = request.params as {
+          projectId: string; siteId: string; inventoryId: string;
+        };
+        const parsed = updateThresholdSchema.safeParse(request.body);
+        if (!parsed.success) {
+          return reply.status(422).send({ error: parsed.error.errors[0]?.message ?? 'Invalid request body', code: 'VALIDATION_ERROR' });
+        }
+        const item = await inventoryService.updateThreshold(
+          projectId, siteId, inventoryId, parsed.data.lowStockThreshold, request.user,
+        );
+        return reply.send({ item });
+      } catch (err) {
+        console.error('[inventory-threshold] route error:', err);
         return handleError(err, reply);
       }
     },

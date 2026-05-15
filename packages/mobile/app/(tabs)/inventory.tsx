@@ -225,6 +225,153 @@ function RecordUsageModal({
   );
 }
 
+// ─── Set Threshold Modal ──────────────────────────────────────────────────────
+
+function SetThresholdModal({
+  visible, item, projectId, siteId, onClose, onSaved,
+}: {
+  visible:   boolean;
+  item:      SiteInventoryItem;
+  projectId: string;
+  siteId:    string;
+  onClose:   () => void;
+  onSaved:   () => void;
+}) {
+  const existing = item.lowStockThreshold !== null ? String(toNumber(item.lowStockThreshold)) : '';
+  const [input,    setInput]    = useState(existing);
+  const [saving,   setSaving]   = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [error,    setError]    = useState<string | null>(null);
+
+  useEffect(() => {
+    if (visible) {
+      setInput(item.lowStockThreshold !== null ? String(toNumber(item.lowStockThreshold)) : '');
+      setError(null);
+    }
+  }, [visible, item.lowStockThreshold]);
+
+  function handleClose() { setError(null); onClose(); }
+
+  async function save() {
+    setError(null);
+    const n = parseFloat(input.trim());
+    if (!input.trim() || isNaN(n)) { setError('Enter a valid number.'); return; }
+    if (n < 0) { setError('Threshold must be 0 or greater.'); return; }
+    setSaving(true);
+    try {
+      await inventoryApi.updateThreshold(projectId, siteId, item.id, n);
+      onSaved();
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setError(msg ?? 'Failed to update threshold.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clear() {
+    setError(null);
+    setClearing(true);
+    try {
+      await inventoryApi.updateThreshold(projectId, siteId, item.id, null);
+      onSaved();
+    } catch (e: unknown) {
+      const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setError(msg ?? 'Failed to clear threshold.');
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  const hasThreshold = item.lowStockThreshold !== null;
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={UM.root}>
+
+          {/* Header */}
+          <View style={UM.header}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={UM.title}>Set Low Stock Limit</Text>
+              <Text style={UM.subtitle} numberOfLines={1}>{item.materialName}</Text>
+            </View>
+            <TouchableOpacity style={UM.closeBtn} onPress={handleClose} activeOpacity={0.7}>
+              <Text style={UM.closeBtnText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={UM.content} keyboardShouldPersistTaps="handled">
+
+            {/* Info row */}
+            <View style={ST.infoRow}>
+              <View style={ST.infoCell}>
+                <Text style={ST.infoCellLabel}>In Stock</Text>
+                <Text style={ST.infoCellValue}>{fmt(item.currentQuantity)} {item.unitOfMeasure}</Text>
+              </View>
+              <View style={ST.infoDivider} />
+              <View style={ST.infoCell}>
+                <Text style={ST.infoCellLabel}>Current Limit</Text>
+                <Text style={[ST.infoCellValue, !hasThreshold && { color: '#2d4f78' }]}>
+                  {hasThreshold ? `${fmt(item.lowStockThreshold!)} ${item.unitOfMeasure}` : 'Not set'}
+                </Text>
+              </View>
+            </View>
+
+            {/* Threshold input */}
+            <Text style={UM.fieldLabel}>New Low Stock Limit</Text>
+            <View style={UM.inputWrap}>
+              <TextInput
+                style={UM.input}
+                value={input}
+                onChangeText={(t) => { setInput(t); setError(null); }}
+                placeholder="e.g. 10"
+                placeholderTextColor="#1e3050"
+                keyboardType="decimal-pad"
+                returnKeyType="done"
+              />
+              <Text style={UM.inputUnit}>{item.unitOfMeasure}</Text>
+            </View>
+            <Text style={ST.hint}>
+              A warning will appear when stock falls to or below this level.
+            </Text>
+
+            {error ? <Text style={UM.errorText}>{error}</Text> : null}
+
+            {/* Save button */}
+            <TouchableOpacity
+              style={[UM.saveBtn, { marginTop: 20 }, saving && UM.saveBtnLoading]}
+              onPress={() => void save()}
+              activeOpacity={0.85}
+              disabled={saving || clearing}
+            >
+              <Text style={UM.saveBtnText}>{saving ? 'Saving…' : 'Save Limit'}</Text>
+            </TouchableOpacity>
+
+            {/* Clear button — only if threshold is currently set */}
+            {hasThreshold && (
+              <TouchableOpacity
+                style={[ST.clearBtn, clearing && ST.clearBtnLoading]}
+                onPress={() => void clear()}
+                activeOpacity={0.75}
+                disabled={saving || clearing}
+              >
+                <Text style={ST.clearBtnText}>{clearing ? 'Clearing…' : 'Clear Threshold'}</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Cancel */}
+            <TouchableOpacity style={[UM.cancelBtn, { marginTop: 10 }]} onPress={handleClose} activeOpacity={0.75}>
+              <Text style={UM.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 // ─── Inventory Detail View ────────────────────────────────────────────────────
 
 function InventoryDetailView({
@@ -241,7 +388,8 @@ function InventoryDetailView({
   const [detail,     setDetail]     = useState<SiteInventoryItemDetail | null>(null);
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [showModal,  setShowModal]  = useState(false);
+  const [showModal,          setShowModal]          = useState(false);
+  const [showThresholdModal, setShowThresholdModal] = useState(false);
 
   async function load() {
     try {
@@ -259,7 +407,8 @@ function InventoryDetailView({
 
   useEffect(() => { void load(); }, []);
 
-  const low = isLowStock(initialItem);
+  const activeItem = detail ?? initialItem;
+  const low = activeItem.isLowStock ?? isLowStock(activeItem);
 
   return (
     <ScrollView
@@ -280,17 +429,17 @@ function InventoryDetailView({
         <Text style={DV.materialTitle} numberOfLines={2}>{initialItem.materialName}</Text>
         <Text style={DV.siteName}>{initialItem.site.name}</Text>
         <View style={DV.stockRow}>
-          <View style={DV.stockCard}>
-            <Text style={DV.stockValue}>
-              {fmt(detail?.currentQuantity ?? initialItem.currentQuantity)}
+          <View style={[DV.stockCard, low && DV.stockCardLow]}>
+            <Text style={[DV.stockValue, low && { color: '#f59e0b' }]}>
+              {fmt(activeItem.currentQuantity)}
             </Text>
             <Text style={DV.stockUnit}>{initialItem.unitOfMeasure}</Text>
             <Text style={DV.stockLabel}>In Stock</Text>
           </View>
-          {initialItem.lowStockThreshold !== null && (
+          {activeItem.lowStockThreshold !== null && (
             <View style={DV.stockCard}>
               <Text style={[DV.stockValue, { color: '#f59e0b' }]}>
-                {fmt(initialItem.lowStockThreshold)}
+                {fmt(activeItem.lowStockThreshold)}
               </Text>
               <Text style={DV.stockUnit}>{initialItem.unitOfMeasure}</Text>
               <Text style={DV.stockLabel}>Low Stock Threshold</Text>
@@ -299,13 +448,26 @@ function InventoryDetailView({
         </View>
         {low && (
           <View style={DV.lowBanner}>
-            <Text style={DV.lowBannerText}>⚠  Stock below threshold</Text>
+            <Text style={DV.lowBannerText}>⚠  Low stock — reorder soon</Text>
+            <Text style={DV.lowBannerSub}>
+              {fmt(activeItem.currentQuantity)} {initialItem.unitOfMeasure} remaining
+              {activeItem.lowStockThreshold !== null
+                ? `  ·  threshold ${fmt(activeItem.lowStockThreshold)} ${initialItem.unitOfMeasure}`
+                : ''}
+            </Text>
           </View>
         )}
 
         {/* Record Usage */}
         <TouchableOpacity style={DV.usageBtn} onPress={() => setShowModal(true)} activeOpacity={0.85}>
           <Text style={DV.usageBtnText}>Record Usage</Text>
+        </TouchableOpacity>
+
+        {/* Set Low Stock Limit */}
+        <TouchableOpacity style={DV.thresholdBtn} onPress={() => setShowThresholdModal(true)} activeOpacity={0.8}>
+          <Text style={DV.thresholdBtnText}>
+            {activeItem.lowStockThreshold !== null ? 'Edit Low Stock Limit' : 'Set Low Stock Limit'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -330,6 +492,15 @@ function InventoryDetailView({
         siteId={siteId}
         onClose={() => setShowModal(false)}
         onSaved={() => { setShowModal(false); void load(); }}
+      />
+
+      <SetThresholdModal
+        visible={showThresholdModal}
+        item={detail ?? initialItem}
+        projectId={projectId}
+        siteId={siteId}
+        onClose={() => setShowThresholdModal(false)}
+        onSaved={() => { setShowThresholdModal(false); void load(); }}
       />
     </ScrollView>
   );
@@ -395,7 +566,7 @@ export default function InventoryScreen() {
     );
   }
 
-  const lowItems = items.filter(isLowStock);
+  const lowItems = items.filter((i) => i.isLowStock ?? isLowStock(i));
 
   return (
     <Screen>
@@ -480,10 +651,10 @@ export default function InventoryScreen() {
               <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3b82f6" />
             }
             renderItem={({ item }) => {
-              const low = isLowStock(item);
+              const low = item.isLowStock ?? isLowStock(item);
               return (
                 <TouchableOpacity onPress={() => { setSelected(item); setView('detail'); }} activeOpacity={0.75}>
-                  <Card style={styles.itemCard}>
+                  <Card style={[styles.itemCard, low ? styles.itemCardLow : null]}>
                     <View style={styles.itemRow}>
                       <Text style={styles.materialName} numberOfLines={1}>{item.materialName}</Text>
                       {low && (
@@ -534,7 +705,8 @@ const styles = StyleSheet.create({
 
   listArea:     { flex: 1, overflow: 'hidden' },
   list:         { padding: 16, paddingBottom: 32 },
-  itemCard:     { marginBottom: 8 },
+  itemCard:    { marginBottom: 8 },
+  itemCardLow: { borderWidth: 1, borderColor: '#92400e' },
   itemRow:      { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   materialName: { color: '#f1f5f9', fontSize: 15, fontWeight: '600', flex: 1, marginRight: 8 },
 
@@ -569,9 +741,15 @@ const DV = StyleSheet.create({
 
   lowBanner:     { marginTop: 12, backgroundColor: '#1c1000', borderRadius: 8, padding: 10, borderWidth: 1, borderColor: '#92400e' },
   lowBannerText: { color: '#f59e0b', fontSize: 12, fontWeight: '700', textAlign: 'center' },
+  lowBannerSub:  { color: '#b45309', fontSize: 11, textAlign: 'center', marginTop: 3 },
+
+  stockCardLow: { borderWidth: 1, borderColor: '#92400e' },
 
   usageBtn:     { marginTop: 14, backgroundColor: '#1d4ed8', borderRadius: 12, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: '#2563eb' },
   usageBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+
+  thresholdBtn:     { marginTop: 8, borderRadius: 12, paddingVertical: 11, alignItems: 'center', borderWidth: 1, borderColor: '#1e3a6e', backgroundColor: '#0a1628' },
+  thresholdBtnText: { color: '#3b82f6', fontSize: 14, fontWeight: '600' },
 
   section:      { marginHorizontal: 18, marginTop: 20 },
   sectionTitle: { color: '#3d6090', fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 10 },
@@ -585,6 +763,22 @@ const DV = StyleSheet.create({
   txNote: { color: '#2d4f78', fontSize: 11, marginTop: 2, fontStyle: 'italic' },
   txDate: { color: '#1e3050', fontSize: 10, marginTop: 4 },
   txQty:  { fontSize: 14, fontWeight: '800', marginTop: 2 },
+});
+
+// ─── Set Threshold Modal styles ───────────────────────────────────────────────
+
+const ST = StyleSheet.create({
+  infoRow:     { flexDirection: 'row', backgroundColor: '#0a1628', borderRadius: 10, borderWidth: 1, borderColor: '#142238', marginBottom: 20, overflow: 'hidden' },
+  infoCell:    { flex: 1, padding: 14, alignItems: 'center' },
+  infoDivider: { width: 1, backgroundColor: '#142238' },
+  infoCellLabel: { color: '#3d6090', fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 4 },
+  infoCellValue: { color: '#3b82f6', fontSize: 16, fontWeight: '800' },
+
+  hint: { color: '#2d4f78', fontSize: 11, marginTop: 6, marginBottom: 4, lineHeight: 16 },
+
+  clearBtn:        { marginTop: 10, borderRadius: 12, paddingVertical: 13, alignItems: 'center', borderWidth: 1, borderColor: '#7f1d1d', backgroundColor: '#150a0a' },
+  clearBtnLoading: { borderColor: '#3d0f0f', backgroundColor: '#0d0606' },
+  clearBtnText:    { color: '#ef4444', fontSize: 15, fontWeight: '600' },
 });
 
 // ─── Usage Modal styles ───────────────────────────────────────────────────────
