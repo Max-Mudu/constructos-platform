@@ -89,6 +89,19 @@ export interface DashboardStats {
     attendanceRateToday:  number;
     zeroWorkforceToday:   boolean;
   };
+  procurementAlerts: {
+    pendingDeliveriesCount:  number;
+    rejectedLast30dCount:    number;
+    damagedLast30dCount:     number;
+    lowStockNoDeliveryCount: number;
+    lowStockSeverityItems: Array<{
+      materialName:      string;
+      currentQuantity:   number;
+      lowStockThreshold: number;
+      unitOfMeasure:     string;
+      siteName:          string;
+    }>;
+  };
   /** Only present for company_admin / finance_officer with canViewFinance */
   finance?: {
     totalInflows:     number;
@@ -125,8 +138,10 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
   const todayStart   = startOfDay(now);
   const tomorrowStart = new Date(todayStart);
   tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-  const weekStart  = startOfWeek(now);
-  const monthStart = startOfMonth(now);
+  const weekStart     = startOfWeek(now);
+  const monthStart    = startOfMonth(now);
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
   // ── Projects ──────────────────────────────────────────────────────────────
   const [projectRows, recentProjects] = await Promise.all([
@@ -221,6 +236,24 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     prisma.deliveryRecord.count({ where: { companyId } }),
   ]);
 
+  // ── Procurement alerts ────────────────────────────────────────────────────
+  const [rejectedLast30d, damagedLast30d, pendingDeliveryList] = await Promise.all([
+    prisma.deliveryRecord.count({
+      where: { companyId, acceptanceStatus: 'rejected', deliveryDate: { gte: thirtyDaysAgo } },
+    }),
+    prisma.deliveryRecord.count({
+      where: {
+        companyId,
+        conditionOnArrival: { in: ['damaged', 'partial', 'incorrect'] },
+        deliveryDate: { gte: thirtyDaysAgo },
+      },
+    }),
+    prisma.deliveryRecord.findMany({
+      where:  { companyId, inspectionStatus: 'pending' },
+      select: { siteId: true, itemDescription: true },
+    }),
+  ]);
+
   // ── Contractors ───────────────────────────────────────────────────────────
   const [contractorTotal, activeScheduleCount] = await Promise.all([
     prisma.contractor.count({ where: { companyId, isActive: true } }),
@@ -247,6 +280,7 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     where:  { companyId, lowStockThreshold: { not: null } },
     select: {
       id:                true,
+      siteId:            true,
       materialName:      true,
       currentQuantity:   true,
       unitOfMeasure:     true,
@@ -264,6 +298,29 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
       currentQuantity:   Number(i.currentQuantity),
       unitOfMeasure:     i.unitOfMeasure,
       lowStockThreshold: Number(i.lowStockThreshold),
+      siteName:          i.site.name,
+    }));
+
+  const allLowStockItems = inventoryWithThreshold.filter((i) => i.currentQuantity.lte(i.lowStockThreshold!));
+  const pendingDeliverySet = new Set(
+    pendingDeliveryList.map((d) => `${d.siteId}:${d.itemDescription.toLowerCase().trim()}`),
+  );
+  const lowStockNoDeliveryCount = allLowStockItems.filter(
+    (i) => !pendingDeliverySet.has(`${i.siteId}:${i.materialName.toLowerCase().trim()}`),
+  ).length;
+  const lowStockSeverityItems = allLowStockItems
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(a.currentQuantity) / Number(a.lowStockThreshold) -
+        Number(b.currentQuantity) / Number(b.lowStockThreshold),
+    )
+    .slice(0, 5)
+    .map((i) => ({
+      materialName:      i.materialName,
+      currentQuantity:   Number(i.currentQuantity),
+      lowStockThreshold: Number(i.lowStockThreshold),
+      unitOfMeasure:     i.unitOfMeasure,
       siteName:          i.site.name,
     }));
 
@@ -402,6 +459,13 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
       overtimeEntriesToday,
       attendanceRateToday,
       zeroWorkforceToday,
+    },
+    procurementAlerts: {
+      pendingDeliveriesCount:  pendingInspections,
+      rejectedLast30dCount:    rejectedLast30d,
+      damagedLast30dCount:     damagedLast30d,
+      lowStockNoDeliveryCount,
+      lowStockSeverityItems,
     },
     finance,
   };

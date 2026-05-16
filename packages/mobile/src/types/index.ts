@@ -199,6 +199,19 @@ export interface DashboardStats {
     attendanceRateToday:  number;
     zeroWorkforceToday:   boolean;
   };
+  procurementAlerts?: {
+    pendingDeliveriesCount:  number;
+    rejectedLast30dCount:    number;
+    damagedLast30dCount:     number;
+    lowStockNoDeliveryCount: number;
+    lowStockSeverityItems: Array<{
+      materialName:      string;
+      currentQuantity:   number;
+      lowStockThreshold: number;
+      unitOfMeasure:     string;
+      siteName:          string;
+    }>;
+  };
   finance?:    { totalInflows: number; inflowsThisMonth: number; netPosition: number };
 }
 

@@ -13,7 +13,7 @@ const createEntrySchema = z.object({
   date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD'),
   hoursWorked: z.number().positive().max(24),
   dailyRate:   z.number().positive(),
-  currency:    z.string().length(3).default('USD'),
+  currency:    z.string().length(3).default('KES'),
   notes:       z.string().max(2000).optional(),
 });
 

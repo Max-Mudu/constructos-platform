@@ -257,6 +257,76 @@ function LabourAlertsCard({
   );
 }
 
+// ─── ProcurementAlertsCard ────────────────────────────────────────────────────
+
+function ProcurementAlertsCard({
+  data, onPress,
+}: {
+  data:    NonNullable<DashboardStats['procurementAlerts']>;
+  onPress: () => void;
+}) {
+  const totalAlerts =
+    data.pendingDeliveriesCount +
+    data.rejectedLast30dCount   +
+    data.damagedLast30dCount    +
+    data.lowStockNoDeliveryCount;
+
+  return (
+    <TouchableOpacity style={D.prcCard} onPress={onPress} activeOpacity={0.78}>
+      <View style={D.prcHead}>
+        <View style={D.prcTitleRow}>
+          <Text style={D.prcIcon}>📦</Text>
+          <Text style={D.prcTitle}>Procurement Alerts</Text>
+        </View>
+        <Text style={D.prcSub}>
+          {totalAlerts} issue{totalAlerts !== 1 ? 's' : ''} need attention
+        </Text>
+      </View>
+      <View style={D.prcDivider} />
+      <View style={D.prcGrid}>
+        {data.pendingDeliveriesCount > 0 ? (
+          <View style={D.prcPill}>
+            <Text style={[D.prcPillVal, D.prcAmber]}>{data.pendingDeliveriesCount}</Text>
+            <Text style={D.prcPillLbl}>Pending</Text>
+          </View>
+        ) : null}
+        {data.rejectedLast30dCount > 0 ? (
+          <View style={D.prcPill}>
+            <Text style={[D.prcPillVal, D.prcRed]}>{data.rejectedLast30dCount}</Text>
+            <Text style={D.prcPillLbl}>Rejected</Text>
+          </View>
+        ) : null}
+        {data.damagedLast30dCount > 0 ? (
+          <View style={D.prcPill}>
+            <Text style={[D.prcPillVal, D.prcRed]}>{data.damagedLast30dCount}</Text>
+            <Text style={D.prcPillLbl}>Damaged</Text>
+          </View>
+        ) : null}
+        {data.lowStockNoDeliveryCount > 0 ? (
+          <View style={D.prcPill}>
+            <Text style={[D.prcPillVal, D.prcRed]}>{data.lowStockNoDeliveryCount}</Text>
+            <Text style={D.prcPillLbl}>No Reorder</Text>
+          </View>
+        ) : null}
+      </View>
+      {data.lowStockSeverityItems.length > 0 ? (
+        <>
+          <View style={D.prcDivider} />
+          {data.lowStockSeverityItems.slice(0, 3).map((item, idx) => (
+            <View key={idx} style={D.prcSeverityRow}>
+              <Text style={D.prcSeverityMaterial} numberOfLines={1}>{item.materialName}</Text>
+              <Text style={D.prcSeverityQty} numberOfLines={1}>
+                {item.currentQuantity} {item.unitOfMeasure} / limit {item.lowStockThreshold}
+              </Text>
+            </View>
+          ))}
+        </>
+      ) : null}
+      <Text style={D.prcTap}>Tap to view deliveries ›</Text>
+    </TouchableOpacity>
+  );
+}
+
 // ─── SectionHeader ────────────────────────────────────────────────────────────
 
 function SectionHeader({ title, action, onAction }: {
@@ -408,6 +478,14 @@ export default function DashboardScreen() {
     labourSummary.zeroWorkforceToday
   ));
 
+  const procurementSummary   = stats.procurementAlerts;
+  const hasProcurementAlerts = !!(procurementSummary && (
+    procurementSummary.pendingDeliveriesCount  > 0 ||
+    procurementSummary.rejectedLast30dCount    > 0 ||
+    procurementSummary.damagedLast30dCount     > 0 ||
+    procurementSummary.lowStockNoDeliveryCount > 0
+  ));
+
   const currentProject = recentProjects[0];
 
   return (
@@ -554,6 +632,14 @@ export default function DashboardScreen() {
           <LabourAlertsCard
             data={labourSummary}
             onPress={() => router.push('/(tabs)/attendance')}
+          />
+        ) : null}
+
+        {/* ── PROCUREMENT ALERTS ────────────────────────────────────── */}
+        {hasProcurementAlerts && procurementSummary ? (
+          <ProcurementAlertsCard
+            data={procurementSummary}
+            onPress={() => router.push('/(tabs)/deliveries')}
           />
         ) : null}
 
@@ -915,6 +1001,50 @@ const D = StyleSheet.create({
   schRed:   { color: '#f87171' },
   schAmber: { color: '#fbbf24' },
   schTap:   { color: '#1e3a5f', fontSize: 11, textAlign: 'center', padding: 10, fontWeight: '600' },
+
+  // ── Procurement Alerts Card ───────────────────────────────────────
+  prcCard: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    backgroundColor: '#060d1b',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+    overflow: 'hidden',
+  },
+  prcHead:     { padding: 14, paddingBottom: 10 },
+  prcTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 3 },
+  prcIcon:     { fontSize: 13 },
+  prcTitle:    { color: '#93c5fd', fontSize: 14, fontWeight: '800' },
+  prcSub:      { color: '#1e4070', fontSize: 12, fontWeight: '500' },
+  prcDivider:  { height: 1, backgroundColor: '#0d1e35' },
+  prcGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: 14,
+    paddingBottom: 6,
+  },
+  prcPill:    { alignItems: 'center', minWidth: 60, paddingHorizontal: 4 },
+  prcPillVal: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3 },
+  prcPillLbl: {
+    color: '#2a4a70', fontSize: 9, fontWeight: '700',
+    textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 2,
+  },
+  prcRed:   { color: '#f87171' },
+  prcAmber: { color: '#fbbf24' },
+  prcSeverityRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#0d1e35',
+  },
+  prcSeverityMaterial: { color: '#4a7ab5', fontSize: 12, fontWeight: '600', flex: 1, marginRight: 8 },
+  prcSeverityQty:      { color: '#1e4070', fontSize: 11 },
+  prcTap: { color: '#1e3a5f', fontSize: 11, textAlign: 'center', padding: 10, fontWeight: '600' },
 
   // ── Labour Alerts Card ────────────────────────────────────────────
   labCard: {

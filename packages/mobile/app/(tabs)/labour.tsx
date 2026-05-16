@@ -40,7 +40,7 @@ import {
 const PAGE_SIZE = 25;
 
 type DateFilter = 'all' | 'today' | 'week' | 'month';
-type DisplayAttendanceStatus = AttendanceStatus | 'checked_out';
+type DisplayAttendanceStatus = AttendanceStatus | 'checked_out' | 'no_checkin';
 
 function normalizeDate(value: string) {
   return value.split('T')[0] ?? value;
@@ -51,19 +51,20 @@ function makeAttendanceKey(projectId: string, siteId: string, workerId: string, 
 }
 
 function getDisplayStatus(record?: AttendanceRecord): DisplayAttendanceStatus {
-  if (!record) return 'absent';
+  if (!record) return 'no_checkin';
   if (record.checkOutTime) return 'checked_out';
   return record.status;
 }
 
 function StatusBadge({ status }: { status: DisplayAttendanceStatus }) {
   const config: Record<DisplayAttendanceStatus, { color: string; label: string }> = {
-    present: { color: '#22c55e', label: 'Present' },
-    absent: { color: '#ef4444', label: 'Absent' },
-    late: { color: '#f59e0b', label: 'Late' },
-    half_day: { color: '#3b82f6', label: 'Half Day' },
-    excused: { color: '#8b5cf6', label: 'Excused' },
-    checked_out: { color: '#64748b', label: 'Checked Out' },
+    present:    { color: '#22c55e', label: 'Present' },
+    absent:     { color: '#ef4444', label: 'Attendance: Absent' },
+    late:       { color: '#f59e0b', label: 'Late' },
+    half_day:   { color: '#3b82f6', label: 'Half Day' },
+    excused:    { color: '#8b5cf6', label: 'Excused' },
+    checked_out:{ color: '#64748b', label: 'Checked Out' },
+    no_checkin: { color: '#334155', label: 'No Check-in' },
   };
 
   const s = config[status];
@@ -459,8 +460,7 @@ export default function LabourScreen() {
 
   const absentCount = uniqueWorkerEntries.filter((entry) => {
     const record = getRecordForEntry(entry, attendanceMap);
-    const status = getDisplayStatus(record);
-    return status === 'absent';
+    return record?.status === 'absent';
   }).length;
 
   const lateCount = uniqueWorkerEntries.filter((entry) => {

@@ -162,7 +162,7 @@ export async function createLabourEntry(
       date:           new Date(input.date),
       hoursWorked:    input.hoursWorked,
       dailyRate:      input.dailyRate,
-      currency:       input.currency ?? 'USD',
+      currency:       input.currency ?? 'KES',
       notes:          input.notes,
     },
     select: ENTRY_SELECT,
