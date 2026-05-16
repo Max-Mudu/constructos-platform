@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { scheduleApi, ApiError } from '@/lib/api';
@@ -29,6 +29,43 @@ const STATUS_CONFIG: Record<ScheduleTaskStatus, { label: string; variant: 'activ
   blocked:     { label: 'Blocked',     variant: 'destructive', icon: <Ban            className="h-3.5 w-3.5" /> },
   completed:   { label: 'Completed',   variant: 'secondary',   icon: <CheckCircle2   className="h-3.5 w-3.5" /> },
 };
+
+// ─── Risk helpers ──────────────────────────────────────────────────────────────
+
+type TaskRisk = 'overdue' | 'blocked' | 'delayed' | 'behindPlan' | 'completed' | null;
+
+function getTaskRisk(task: ScheduleTask, today: string): TaskRisk {
+  if (task.status === 'completed') return 'completed';
+  const end = task.plannedEndDate ? task.plannedEndDate.split('T')[0]! : null;
+  if (end && end < today) return 'overdue';
+  if (task.status === 'blocked') return 'blocked';
+  if (task.status === 'delayed') return 'delayed';
+  if (
+    task.actualProgress !== null && task.plannedProgress !== null &&
+    parseFloat(task.actualProgress) < parseFloat(task.plannedProgress) - 10
+  ) return 'behindPlan';
+  return null;
+}
+
+const RISK_ROW_CLASSES: Record<string, string> = {
+  overdue:    'border-l-2 !border-l-red-500 bg-red-950/20',
+  blocked:    'border-l-2 !border-l-red-500 bg-red-950/20',
+  delayed:    'border-l-2 !border-l-amber-500 bg-amber-950/20',
+  behindPlan: 'border-l-2 !border-l-amber-500 bg-amber-950/20',
+  completed:  'opacity-60',
+};
+
+function RiskChip({ label, count, color }: { label: string; count: number; color: 'red' | 'amber' }) {
+  const cls = color === 'red'
+    ? 'bg-red-950/40 border border-red-500/40 text-red-400'
+    : 'bg-amber-950/40 border border-amber-500/40 text-amber-400';
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold ${cls}`}>
+      <span className="text-sm font-extrabold">{count}</span>
+      {label}
+    </span>
+  );
+}
 
 function ProgressBar({ value }: { value: number }) {
   return (
@@ -79,6 +116,18 @@ export default function SchedulesPage() {
   const avgProgress = withProgress.length > 0
     ? Math.round(withProgress.reduce((s, t) => s + parseFloat(t.actualProgress ?? '0'), 0) / withProgress.length)
     : 0;
+
+  const today = useMemo(() => new Date().toISOString().split('T')[0]!, []);
+
+  const riskSummary = useMemo(() => ({
+    overdue:    tasks.filter((t) => t.status !== 'completed' && t.plannedEndDate && t.plannedEndDate.split('T')[0]! < today).length,
+    dueToday:   tasks.filter((t) => t.status !== 'completed' && t.plannedEndDate && t.plannedEndDate.split('T')[0]! === today).length,
+    blocked:    tasks.filter((t) => t.status === 'blocked').length,
+    delayed:    tasks.filter((t) => t.status === 'delayed').length,
+    behindPlan: tasks.filter((t) => t.actualProgress !== null && t.plannedProgress !== null && parseFloat(t.actualProgress) < parseFloat(t.plannedProgress) - 10).length,
+  }), [tasks, today]);
+
+  const hasRisk = riskSummary.overdue > 0 || riskSummary.dueToday > 0 || riskSummary.blocked > 0 || riskSummary.delayed > 0 || riskSummary.behindPlan > 0;
 
   return (
     <div className="animate-fade-in">
@@ -139,6 +188,17 @@ export default function SchedulesPage() {
           />
         ) : (
           <div className="space-y-6">
+            {/* Risk strip */}
+            {hasRisk && (
+              <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-card/60 px-4 py-3">
+                {riskSummary.overdue    > 0 && <RiskChip label="Overdue"     count={riskSummary.overdue}    color="red"   />}
+                {riskSummary.blocked    > 0 && <RiskChip label="Blocked"     count={riskSummary.blocked}    color="red"   />}
+                {riskSummary.dueToday   > 0 && <RiskChip label="Due Today"   count={riskSummary.dueToday}   color="amber" />}
+                {riskSummary.delayed    > 0 && <RiskChip label="Delayed"     count={riskSummary.delayed}    color="amber" />}
+                {riskSummary.behindPlan > 0 && <RiskChip label="Behind Plan" count={riskSummary.behindPlan} color="amber" />}
+              </div>
+            )}
+
             {/* Work Package Filter */}
             {packages.length > 0 && (
               <div className="flex flex-wrap gap-2">
@@ -197,14 +257,14 @@ export default function SchedulesPage() {
                           <p className="text-sm text-muted-foreground py-2">No tasks in this package.</p>
                         ) : (
                           <div className="space-y-2">
-                            {pkgTasks.map((task) => <TaskRow key={task.id} task={task} projectId={projectId} siteId={siteId} />)}
+                            {pkgTasks.map((task) => <TaskRow key={task.id} task={task} projectId={projectId} siteId={siteId} today={today} />)}
                           </div>
                         )}
                         {!packageFilter && unassigned.length > 0 && pkg === packages[packages.length - 1] && (
                           <>
                             <Separator className="my-3" />
                             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Unassigned Tasks</p>
-                            {unassigned.map((task) => <TaskRow key={task.id} task={task} projectId={projectId} siteId={siteId} />)}
+                            {unassigned.map((task) => <TaskRow key={task.id} task={task} projectId={projectId} siteId={siteId} today={today} />)}
                           </>
                         )}
                       </CardContent>
@@ -213,7 +273,7 @@ export default function SchedulesPage() {
                 })
             ) : (
               <div className="space-y-2">
-                {filteredTasks.map((task) => <TaskRow key={task.id} task={task} projectId={projectId} siteId={siteId} />)}
+                {filteredTasks.map((task) => <TaskRow key={task.id} task={task} projectId={projectId} siteId={siteId} today={today} />)}
               </div>
             )}
 
@@ -232,13 +292,15 @@ export default function SchedulesPage() {
   );
 }
 
-function TaskRow({ task, projectId, siteId }: { task: ScheduleTask; projectId: string; siteId: string }) {
-  const cfg     = STATUS_CONFIG[task.status];
+function TaskRow({ task, projectId, siteId, today }: { task: ScheduleTask; projectId: string; siteId: string; today: string }) {
+  const cfg      = STATUS_CONFIG[task.status];
   const progress = task.actualProgress ? parseFloat(task.actualProgress) : 0;
+  const risk     = getTaskRisk(task, today);
+  const riskCls  = risk ? (RISK_ROW_CLASSES[risk] ?? '') : '';
 
   return (
     <Link href={`/projects/${projectId}/sites/${siteId}/schedules/${task.id}`}>
-      <div className="group flex items-center justify-between rounded-lg border border-border bg-navy-base px-3 py-3 transition-colors hover:bg-navy-elevated cursor-pointer">
+      <div className={`group flex items-center justify-between rounded-lg border border-border bg-navy-base px-3 py-3 transition-colors hover:bg-navy-elevated cursor-pointer ${riskCls}`}>
         <div className="min-w-0 flex-1 mr-3">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">
