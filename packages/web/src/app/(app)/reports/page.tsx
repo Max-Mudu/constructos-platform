@@ -206,6 +206,10 @@ function DailySiteReportViewer({ data }: { data: ReportData }) {
   const tasksInProgress      = num('Tasks In Progress');
   const tasksCompleted       = num('Tasks Completed');
   const tasksDelayed         = num('Tasks Delayed');
+  const tasksDueToday        = num('Tasks Due Today');
+  const tasksOverdue         = num('Tasks Overdue');
+  const tasksBlocked         = num('Tasks Blocked');
+  const tasksBehindPlan      = num('Tasks Behind Plan');
 
   return (
     <div className="space-y-6">
@@ -296,6 +300,28 @@ function DailySiteReportViewer({ data }: { data: ReportData }) {
           value={tasksDelayed}
           color={tasksDelayed > 0 ? 'red' : 'green'}
           note={tasksDelayed > 0 ? 'Past planned end date' : undefined}
+        />
+        <DSRCard
+          label="Due Today"
+          value={tasksDueToday}
+          color={tasksDueToday > 0 ? 'amber' : 'green'}
+        />
+        <DSRCard
+          label="Overdue"
+          value={tasksOverdue}
+          color={tasksOverdue > 0 ? 'red' : 'green'}
+        />
+        <DSRCard
+          label="Blocked"
+          value={tasksBlocked}
+          color={tasksBlocked > 0 ? 'red' : 'green'}
+          note={tasksBlocked > 0 ? 'Investigate blockers' : undefined}
+        />
+        <DSRCard
+          label="Behind Plan"
+          value={tasksBehindPlan}
+          color={tasksBehindPlan > 0 ? 'amber' : 'green'}
+          note={tasksBehindPlan > 0 ? 'Progress 10+ pts below planned' : undefined}
         />
       </DSRSection>
     </div>

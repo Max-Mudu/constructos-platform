@@ -242,6 +242,10 @@ function DailySiteReportViewer({
   const tasksInProgress      = num('Tasks In Progress');
   const tasksCompleted       = num('Tasks Completed');
   const tasksDelayed         = num('Tasks Delayed');
+  const tasksDueToday        = num('Tasks Due Today');
+  const tasksOverdue         = num('Tasks Overdue');
+  const tasksBlocked         = num('Tasks Blocked');
+  const tasksBehindPlan      = num('Tasks Behind Plan');
 
   return (
     <ScrollView contentContainerStyle={styles.viewerScroll} showsVerticalScrollIndicator={false}>
@@ -361,6 +365,32 @@ function DailySiteReportViewer({
           value={String(tasksDelayed)}
           color={tasksDelayed > 0 ? 'red' : 'green'}
           note={tasksDelayed > 0 ? 'Past planned end date' : undefined}
+          onPress={nav('schedule')}
+        />
+        <DSRCard
+          label="Due Today"
+          value={String(tasksDueToday)}
+          color={tasksDueToday > 0 ? 'amber' : 'green'}
+          onPress={nav('schedule')}
+        />
+        <DSRCard
+          label="Overdue"
+          value={String(tasksOverdue)}
+          color={tasksOverdue > 0 ? 'red' : 'green'}
+          onPress={nav('schedule')}
+        />
+        <DSRCard
+          label="Blocked"
+          value={String(tasksBlocked)}
+          color={tasksBlocked > 0 ? 'red' : 'green'}
+          note={tasksBlocked > 0 ? 'Investigate blockers' : undefined}
+          onPress={nav('schedule')}
+        />
+        <DSRCard
+          label="Behind Plan"
+          value={String(tasksBehindPlan)}
+          color={tasksBehindPlan > 0 ? 'amber' : 'green'}
+          note={tasksBehindPlan > 0 ? 'Progress 10+ pts below planned' : undefined}
           onPress={nav('schedule')}
         />
       </DSRSection>

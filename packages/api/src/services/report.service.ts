@@ -617,7 +617,7 @@ export async function dailySiteReport(
     }),
     prisma.scheduleTask.findMany({
       where:  { companyId, projectId, siteId },
-      select: { status: true, plannedEndDate: true },
+      select: { status: true, plannedEndDate: true, actualProgress: true, plannedProgress: true },
     }),
   ]);
 
@@ -644,10 +644,20 @@ export async function dailySiteReport(
   ).length;
 
   // ── Schedule tasks ───────────────────────────────────────────────────────
-  const tasksInProgress = scheduleTasks.filter((t) => t.status === 'in_progress').length;
-  const tasksCompleted  = scheduleTasks.filter((t) => t.status === 'completed').length;
-  const tasksDelayed    = scheduleTasks.filter(
+  const tasksInProgress  = scheduleTasks.filter((t) => t.status === 'in_progress').length;
+  const tasksCompleted   = scheduleTasks.filter((t) => t.status === 'completed').length;
+  const tasksDelayed     = scheduleTasks.filter(
     (t) => t.status !== 'completed' && t.plannedEndDate !== null && t.plannedEndDate < dayStart,
+  ).length;
+  const tasksDueToday    = scheduleTasks.filter(
+    (t) => t.status !== 'completed' && t.plannedEndDate !== null &&
+           t.plannedEndDate >= dayStart && t.plannedEndDate < dayEnd,
+  ).length;
+  const tasksOverdue     = tasksDelayed; // same computation — date-based overdue
+  const tasksBlocked     = scheduleTasks.filter((t) => t.status === 'blocked').length;
+  const tasksBehindPlan  = scheduleTasks.filter(
+    (t) => t.actualProgress !== null && t.plannedProgress !== null &&
+           Number(t.actualProgress) < Number(t.plannedProgress) - 10,
   ).length;
 
   const summary = [
@@ -664,6 +674,10 @@ export async function dailySiteReport(
     { label: 'Tasks In Progress',             value: String(tasksInProgress) },
     { label: 'Tasks Completed',               value: String(tasksCompleted) },
     { label: 'Tasks Delayed',                 value: String(tasksDelayed) },
+    { label: 'Tasks Due Today',               value: String(tasksDueToday) },
+    { label: 'Tasks Overdue',                 value: String(tasksOverdue) },
+    { label: 'Tasks Blocked',                 value: String(tasksBlocked) },
+    { label: 'Tasks Behind Plan',             value: String(tasksBehindPlan) },
   ];
 
   const rows: string[][] = [
@@ -680,6 +694,10 @@ export async function dailySiteReport(
     ['Tasks In Progress',           String(tasksInProgress),         ''],
     ['Tasks Completed',             String(tasksCompleted),          ''],
     ['Tasks Delayed',               String(tasksDelayed),            tasksDelayed > 0 ? 'Past planned end date' : ''],
+    ['Tasks Due Today',             String(tasksDueToday),           tasksDueToday > 0 ? 'Due by end of day' : ''],
+    ['Tasks Overdue',               String(tasksOverdue),            tasksOverdue > 0 ? 'Past planned end date' : ''],
+    ['Tasks Blocked',               String(tasksBlocked),            tasksBlocked > 0 ? 'Investigate blockers' : ''],
+    ['Tasks Behind Plan',           String(tasksBehindPlan),         tasksBehindPlan > 0 ? 'Actual progress 10+ points below planned' : ''],
   ];
 
   return {
