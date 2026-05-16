@@ -192,6 +192,13 @@ export interface DashboardStats {
     delayedTasks:    number;
     behindPlanTasks: number;
   };
+  labourAlerts?: {
+    absentToday:          number;
+    lateToday:            number;
+    overtimeEntriesToday: number;
+    attendanceRateToday:  number;
+    zeroWorkforceToday:   boolean;
+  };
   finance?:    { totalInflows: number; inflowsThisMonth: number; netPosition: number };
 }
 

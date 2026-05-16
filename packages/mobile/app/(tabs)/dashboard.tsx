@@ -202,6 +202,61 @@ function ScheduleRiskCard({
   );
 }
 
+// ─── LabourAlertsCard ─────────────────────────────────────────────────────────
+
+function LabourAlertsCard({
+  data, onPress,
+}: {
+  data:    NonNullable<DashboardStats['labourAlerts']>;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity style={D.labCard} onPress={onPress} activeOpacity={0.78}>
+      <View style={D.labHead}>
+        <View style={D.labTitleRow}>
+          <Text style={D.labIcon}>👷</Text>
+          <Text style={D.labTitle}>Labour Alerts</Text>
+        </View>
+        <Text style={D.labSub}>Workforce issues today</Text>
+      </View>
+      <View style={D.labDivider} />
+      <View style={D.labGrid}>
+        {data.zeroWorkforceToday ? (
+          <View style={D.labPill}>
+            <Text style={[D.labPillVal, D.labRed]}>!</Text>
+            <Text style={D.labPillLbl}>No Workers</Text>
+          </View>
+        ) : null}
+        {data.attendanceRateToday < 70 && !data.zeroWorkforceToday ? (
+          <View style={D.labPill}>
+            <Text style={[D.labPillVal, D.labRed]}>{data.attendanceRateToday}%</Text>
+            <Text style={D.labPillLbl}>Attendance</Text>
+          </View>
+        ) : null}
+        {data.absentToday > 0 ? (
+          <View style={D.labPill}>
+            <Text style={[D.labPillVal, D.labAmber]}>{data.absentToday}</Text>
+            <Text style={D.labPillLbl}>Absent</Text>
+          </View>
+        ) : null}
+        {data.lateToday > 0 ? (
+          <View style={D.labPill}>
+            <Text style={[D.labPillVal, D.labAmber]}>{data.lateToday}</Text>
+            <Text style={D.labPillLbl}>Late</Text>
+          </View>
+        ) : null}
+        {data.overtimeEntriesToday > 0 ? (
+          <View style={D.labPill}>
+            <Text style={[D.labPillVal, D.labAmber]}>{data.overtimeEntriesToday}</Text>
+            <Text style={D.labPillLbl}>Overtime</Text>
+          </View>
+        ) : null}
+      </View>
+      <Text style={D.labTap}>Tap to view attendance ›</Text>
+    </TouchableOpacity>
+  );
+}
+
 // ─── SectionHeader ────────────────────────────────────────────────────────────
 
 function SectionHeader({ title, action, onAction }: {
@@ -344,6 +399,15 @@ export default function DashboardScreen() {
     (scheduleSummary?.behindPlanTasks ?? 0);
   const hasScheduleRisk = scheduleRiskTotal > 0;
 
+  const labourSummary   = stats.labourAlerts;
+  const hasLabourAlerts = !!(labourSummary && (
+    labourSummary.absentToday          > 0 ||
+    labourSummary.lateToday            > 0 ||
+    labourSummary.overtimeEntriesToday > 0 ||
+    labourSummary.attendanceRateToday  < 70 ||
+    labourSummary.zeroWorkforceToday
+  ));
+
   const currentProject = recentProjects[0];
 
   return (
@@ -482,6 +546,14 @@ export default function DashboardScreen() {
           <ScheduleRiskCard
             data={scheduleSummary}
             onPress={() => router.push('/(tabs)/schedule')}
+          />
+        ) : null}
+
+        {/* ── LABOUR ALERTS ─────────────────────────────────────────── */}
+        {hasLabourAlerts && labourSummary ? (
+          <LabourAlertsCard
+            data={labourSummary}
+            onPress={() => router.push('/(tabs)/attendance')}
           />
         ) : null}
 
@@ -843,4 +915,37 @@ const D = StyleSheet.create({
   schRed:   { color: '#f87171' },
   schAmber: { color: '#fbbf24' },
   schTap:   { color: '#1e3a5f', fontSize: 11, textAlign: 'center', padding: 10, fontWeight: '600' },
+
+  // ── Labour Alerts Card ────────────────────────────────────────────
+  labCard: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    backgroundColor: '#060d1b',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+    overflow: 'hidden',
+  },
+  labHead:     { padding: 14, paddingBottom: 10 },
+  labTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 3 },
+  labIcon:     { fontSize: 13 },
+  labTitle:    { color: '#93c5fd', fontSize: 14, fontWeight: '800' },
+  labSub:      { color: '#1e4070', fontSize: 12, fontWeight: '500' },
+  labDivider:  { height: 1, backgroundColor: '#0d1e35' },
+  labGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: 14,
+    paddingBottom: 6,
+  },
+  labPill:    { alignItems: 'center', minWidth: 60, paddingHorizontal: 4 },
+  labPillVal: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3 },
+  labPillLbl: {
+    color: '#2a4a70', fontSize: 9, fontWeight: '700',
+    textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 2,
+  },
+  labRed:   { color: '#f87171' },
+  labAmber: { color: '#fbbf24' },
+  labTap:   { color: '#1e3a5f', fontSize: 11, textAlign: 'center', padding: 10, fontWeight: '600' },
 });

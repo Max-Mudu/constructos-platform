@@ -82,6 +82,13 @@ export interface DashboardStats {
     delayedTasks:    number;
     behindPlanTasks: number;
   };
+  labourAlerts: {
+    absentToday:          number;
+    lateToday:            number;
+    overtimeEntriesToday: number;
+    attendanceRateToday:  number;
+    zeroWorkforceToday:   boolean;
+  };
   /** Only present for company_admin / finance_officer with canViewFinance */
   finance?: {
     totalInflows:     number;
@@ -261,7 +268,7 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     }));
 
   // ── Schedule risk ─────────────────────────────────────────────────────────
-  const [overdueTasks, dueTodayTasks, blockedTasks, delayedTasks, taskProgressRows] = await Promise.all([
+  const [overdueTasks, dueTodayTasks, blockedTasks, delayedTasks, taskProgressRows, overtimeEntriesToday] = await Promise.all([
     prisma.scheduleTask.count({
       where: { companyId, status: { not: 'completed' }, plannedEndDate: { lt: todayStart } },
     }),
@@ -278,10 +285,19 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
       where:  { companyId, actualProgress: { not: null }, plannedProgress: { not: null } },
       select: { actualProgress: true, plannedProgress: true },
     }),
+    prisma.labourEntry.count({
+      where: { companyId, date: { gte: todayStart, lt: tomorrowStart }, hoursWorked: { gt: 8 } },
+    }),
   ]);
   const behindPlanTasks = taskProgressRows.filter(
     (t) => Number(t.actualProgress) < Number(t.plannedProgress) - 10,
   ).length;
+
+  // ── Labour alerts ──────────────────────────────────────────────────────────
+  const absentToday        = todayAttendance.find((r) => r.status === 'absent')?._count._all ?? 0;
+  const lateToday          = todayAttendance.find((r) => r.status === 'late')?._count._all   ?? 0;
+  const attendanceRateToday = todayRate;
+  const zeroWorkforceToday  = todayPresent === 0 && todayTotal > 0;
 
   // ── Finance (gated) ───────────────────────────────────────────────────────
   let finance: DashboardStats['finance'];
@@ -379,6 +395,13 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
       blockedTasks,
       delayedTasks,
       behindPlanTasks,
+    },
+    labourAlerts: {
+      absentToday,
+      lateToday,
+      overtimeEntriesToday,
+      attendanceRateToday,
+      zeroWorkforceToday,
     },
     finance,
   };
