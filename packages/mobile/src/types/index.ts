@@ -185,6 +185,13 @@ export interface DashboardStats {
       siteName:          string;
     }>;
   };
+  schedule?: {
+    overdueTasks:    number;
+    dueTodayTasks:   number;
+    blockedTasks:    number;
+    delayedTasks:    number;
+    behindPlanTasks: number;
+  };
   finance?:    { totalInflows: number; inflowsThisMonth: number; netPosition: number };
 }
 

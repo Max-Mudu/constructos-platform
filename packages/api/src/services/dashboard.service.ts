@@ -75,6 +75,13 @@ export interface DashboardStats {
       siteName:          string;
     }>;
   };
+  schedule: {
+    overdueTasks:    number;
+    dueTodayTasks:   number;
+    blockedTasks:    number;
+    delayedTasks:    number;
+    behindPlanTasks: number;
+  };
   /** Only present for company_admin / finance_officer with canViewFinance */
   finance?: {
     totalInflows:     number;
@@ -107,8 +114,10 @@ function startOfMonth(d: Date): Date {
 
 export async function getDashboardStats(actor: RequestUser): Promise<DashboardStats> {
   const { companyId } = actor;
-  const now       = new Date();
-  const todayStart = startOfDay(now);
+  const now          = new Date();
+  const todayStart   = startOfDay(now);
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
   const weekStart  = startOfWeek(now);
   const monthStart = startOfMonth(now);
 
@@ -251,6 +260,29 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
       siteName:          i.site.name,
     }));
 
+  // ── Schedule risk ─────────────────────────────────────────────────────────
+  const [overdueTasks, dueTodayTasks, blockedTasks, delayedTasks, taskProgressRows] = await Promise.all([
+    prisma.scheduleTask.count({
+      where: { companyId, status: { not: 'completed' }, plannedEndDate: { lt: todayStart } },
+    }),
+    prisma.scheduleTask.count({
+      where: { companyId, status: { not: 'completed' }, plannedEndDate: { gte: todayStart, lt: tomorrowStart } },
+    }),
+    prisma.scheduleTask.count({
+      where: { companyId, status: 'blocked' },
+    }),
+    prisma.scheduleTask.count({
+      where: { companyId, status: 'delayed' },
+    }),
+    prisma.scheduleTask.findMany({
+      where:  { companyId, actualProgress: { not: null }, plannedProgress: { not: null } },
+      select: { actualProgress: true, plannedProgress: true },
+    }),
+  ]);
+  const behindPlanTasks = taskProgressRows.filter(
+    (t) => Number(t.actualProgress) < Number(t.plannedProgress) - 10,
+  ).length;
+
   // ── Finance (gated) ───────────────────────────────────────────────────────
   let finance: DashboardStats['finance'];
   if (
@@ -340,6 +372,13 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     lowStockInventory: {
       count: lowStockRows.length,
       items: lowStockRows,
+    },
+    schedule: {
+      overdueTasks,
+      dueTodayTasks,
+      blockedTasks,
+      delayedTasks,
+      behindPlanTasks,
     },
     finance,
   };

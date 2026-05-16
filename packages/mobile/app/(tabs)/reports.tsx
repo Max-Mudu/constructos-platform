@@ -6,6 +6,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   ActivityIndicator, Alert, Linking, TextInput,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import * as FileSystem from 'expo-file-system';
 import { useAuthStore } from '../../src/store/auth.store';
 import { reportsApi, ReportType, ReportFormat, ReportData } from '../../src/api/reports';
@@ -124,6 +125,249 @@ function ReportViewer({
   );
 }
 
+// ─── Daily Site Report — specialized operational viewer ──────────────────────
+
+type DSRCardColor = 'green' | 'amber' | 'red' | 'blue';
+
+const DSR_PALETTE: Record<DSRCardColor, { border: string; bg: string; value: string }> = {
+  green: { border: '#22c55e', bg: '#052e16', value: '#4ade80' },
+  amber: { border: '#f59e0b', bg: '#431407', value: '#fbbf24' },
+  red:   { border: '#ef4444', bg: '#450a0a', value: '#f87171' },
+  blue:  { border: '#3b82f6', bg: '#172554', value: '#93c5fd' },
+};
+
+// Complete verbatim copy of every role's tab list from (tabs)/_layout.tsx.
+// If the layout changes, update this block to match.
+const ROLE_TABS: Record<string, string[]> = {
+  company_admin:   ['dashboard', 'projects', 'inventory', 'schedule', 'invoices', 'reports', 'notifications', 'profile'],
+  project_manager: ['dashboard', 'projects', 'labour', 'deliveries', 'inventory', 'schedule', 'reports', 'notifications', 'profile'],
+  site_supervisor: ['index', 'labour', 'deliveries', 'inventory', 'attendance', 'schedule', 'profile'],
+  finance_officer: ['dashboard', 'deliveries', 'inventory', 'invoices', 'reports', 'notifications', 'profile'],
+  consultant:      ['dashboard', 'projects', 'instructions', 'notifications', 'profile'],
+  worker:          ['index', 'attendance', 'schedule', 'notifications', 'profile'],
+  contractor:      ['dashboard', 'projects', 'schedule', 'attendance', 'notifications', 'profile'],
+  viewer:          ['dashboard', 'projects', 'schedule', 'attendance', 'notifications', 'profile'],
+};
+
+function canNav(role: string, tab: string): boolean {
+  return (ROLE_TABS[role] ?? []).includes(tab);
+}
+
+function DSRCard({
+  label,
+  value,
+  color,
+  note,
+  onPress,
+}: {
+  label:    string;
+  value:    string;
+  color:    DSRCardColor;
+  note?:    string;
+  onPress?: () => void;
+}) {
+  const c = DSR_PALETTE[color];
+  const body = (
+    <>
+      <Text style={[dsr2.cardValue, { color: c.value }]}>{value}</Text>
+      <Text style={dsr2.cardLabel}>{label}</Text>
+      {!!note && <Text style={dsr2.cardNote}>{note}</Text>}
+      {!!onPress && <Text style={dsr2.cardTap}>Tap to view →</Text>}
+    </>
+  );
+  if (onPress) {
+    return (
+      <TouchableOpacity
+        style={[dsr2.card, { borderColor: c.border, backgroundColor: c.bg }]}
+        onPress={onPress}
+        activeOpacity={0.72}
+      >
+        {body}
+      </TouchableOpacity>
+    );
+  }
+  return (
+    <View style={[dsr2.card, { borderColor: c.border, backgroundColor: c.bg }]}>
+      {body}
+    </View>
+  );
+}
+
+function DSRSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <View style={dsr2.section}>
+      <Text style={dsr2.sectionTitle}>{title}</Text>
+      <View style={dsr2.cardGrid}>{children}</View>
+    </View>
+  );
+}
+
+function DailySiteReportViewer({
+  report,
+  onClose,
+}: {
+  report:  ReportData;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const user   = useAuthStore((s) => s.user);
+  const role   = user?.role ?? null;
+
+  const num = (label: string): number => {
+    const item = report.summary.find((s) => s.label === label);
+    return item ? Number(item.value) : 0;
+  };
+  const str = (label: string): string =>
+    report.summary.find((s) => s.label === label)?.value ?? '0';
+  const rowNote = (metric: string): string =>
+    report.rows.find((r) => r[0] === metric)?.[2] ?? '';
+
+  const nav = (tab: string) => {
+    const ok = role !== null && canNav(role, tab);
+    return ok
+      ? () => router.push(`/(tabs)/${tab}` as Parameters<typeof router.push>[0])
+      : undefined;
+  };
+
+  const workersOnSite        = num('Workers On Site');
+  const workersAbsent        = num('Workers Absent');
+  const workersLate          = num('Workers Late');
+  const labourHours          = str('Labour Hours Today');
+  const delivReceived        = num('Deliveries Received Today');
+  const delivPending         = num('Deliveries Pending');
+  const matTransactions      = num('Material Usage Transactions');
+  const lowStock             = num('Low-Stock Items');
+  const openInstructions     = num('Open Instructions');
+  const criticalInstructions = num('Critical Instructions');
+  const tasksInProgress      = num('Tasks In Progress');
+  const tasksCompleted       = num('Tasks Completed');
+  const tasksDelayed         = num('Tasks Delayed');
+
+  return (
+    <ScrollView contentContainerStyle={styles.viewerScroll} showsVerticalScrollIndicator={false}>
+      <TouchableOpacity onPress={onClose} style={styles.backBtn}>
+        <Text style={styles.backText}>{'← Daily Site Report'}</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.reportTitle}>{report.title}</Text>
+      <Text style={styles.reportSubtitle}>{report.subtitle}</Text>
+      <Text style={styles.reportMeta}>
+        Generated {new Date(report.generatedAt).toLocaleString()}
+      </Text>
+
+      {/* ── Attendance ─────────────────────────────────────────────────────── */}
+      <DSRSection title="Attendance">
+        <DSRCard
+          label="On Site"
+          value={String(workersOnSite)}
+          color={workersOnSite > 0 ? 'green' : 'blue'}
+          note={rowNote('Workers On Site') || undefined}
+          onPress={nav('attendance')}
+        />
+        <DSRCard
+          label="Absent"
+          value={String(workersAbsent)}
+          color={workersAbsent > 0 ? 'red' : 'green'}
+          note={rowNote('Workers Absent') || undefined}
+          onPress={nav('attendance')}
+        />
+        <DSRCard
+          label="Late"
+          value={String(workersLate)}
+          color={workersLate > 0 ? 'amber' : 'green'}
+          onPress={nav('attendance')}
+        />
+      </DSRSection>
+
+      {/* ── Labour ─────────────────────────────────────────────────────────── */}
+      <DSRSection title="Labour">
+        <DSRCard
+          label="Hours Today"
+          value={labourHours}
+          color="blue"
+          onPress={nav('labour')}
+        />
+      </DSRSection>
+
+      {/* ── Deliveries ─────────────────────────────────────────────────────── */}
+      <DSRSection title="Deliveries">
+        <DSRCard
+          label="Received Today"
+          value={String(delivReceived)}
+          color="blue"
+          onPress={nav('deliveries')}
+        />
+        <DSRCard
+          label="Pending"
+          value={String(delivPending)}
+          color={delivPending > 0 ? 'amber' : 'green'}
+          note={delivPending > 0 ? rowNote('Deliveries Pending') || undefined : undefined}
+          onPress={nav('deliveries')}
+        />
+      </DSRSection>
+
+      {/* ── Materials ──────────────────────────────────────────────────────── */}
+      <DSRSection title="Materials">
+        <DSRCard
+          label="Usage Transactions"
+          value={String(matTransactions)}
+          color="blue"
+          note={rowNote('Material Usage Transactions') || undefined}
+          onPress={nav('inventory')}
+        />
+        <DSRCard
+          label="Low Stock Items"
+          value={String(lowStock)}
+          color={lowStock > 0 ? 'amber' : 'green'}
+          note={lowStock > 0 ? 'Check inventory' : undefined}
+          onPress={nav('inventory')}
+        />
+      </DSRSection>
+
+      {/* ── Instructions — non-clickable for all DSR roles ──────────────────
+           The instructions tab is only visible to the consultant role, which
+           cannot access the daily-site-report. No safe direct route exists. */}
+      <DSRSection title="Instructions">
+        <DSRCard
+          label="Open"
+          value={String(openInstructions)}
+          color={openInstructions > 0 ? 'amber' : 'green'}
+          note="Open from site details"
+        />
+        <DSRCard
+          label="Critical"
+          value={String(criticalInstructions)}
+          color={criticalInstructions > 0 ? 'red' : 'green'}
+          note={criticalInstructions > 0 ? 'Requires immediate attention' : 'Open from site details'}
+        />
+      </DSRSection>
+
+      {/* ── Schedule ───────────────────────────────────────────────────────── */}
+      <DSRSection title="Schedule">
+        <DSRCard
+          label="In Progress"
+          value={String(tasksInProgress)}
+          color="blue"
+          onPress={nav('schedule')}
+        />
+        <DSRCard
+          label="Completed"
+          value={String(tasksCompleted)}
+          color={tasksCompleted > 0 ? 'green' : 'blue'}
+          onPress={nav('schedule')}
+        />
+        <DSRCard
+          label="Delayed"
+          value={String(tasksDelayed)}
+          color={tasksDelayed > 0 ? 'red' : 'green'}
+          note={tasksDelayed > 0 ? 'Past planned end date' : undefined}
+          onPress={nav('schedule')}
+        />
+      </DSRSection>
+    </ScrollView>
+  );
+}
+
 // ─── Daily Site Report — form + viewer ───────────────────────────────────────
 
 function DailySiteReportView({ onBack }: { onBack: () => void }) {
@@ -172,13 +416,7 @@ function DailySiteReportView({ onBack }: { onBack: () => void }) {
   const canGenerate = !!projectId && !!siteId && date.length === 10;
 
   if (report) {
-    return (
-      <ReportViewer
-        report={report}
-        onClose={() => setReport(null)}
-        backLabel="← Daily Site Report"
-      />
-    );
+    return <DailySiteReportViewer report={report} onClose={() => setReport(null)} />;
   }
 
   return (
@@ -461,4 +699,15 @@ const dsr = StyleSheet.create({
   prompt:           { color: '#64748b', fontSize: 13, textAlign: 'center', marginTop: 28 },
   noItems:          { color: '#64748b', fontSize: 13, marginTop: 4 },
   spinner:          { marginVertical: 12 },
+});
+
+const dsr2 = StyleSheet.create({
+  section:      { marginBottom: 20 },
+  sectionTitle: { color: '#64748b', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
+  cardGrid:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  card:         { flex: 1, minWidth: 100, borderRadius: 10, padding: 12, borderWidth: 1.5, alignItems: 'center' },
+  cardValue:    { fontSize: 26, fontWeight: '800', marginBottom: 2 },
+  cardLabel:    { color: '#94a3b8', fontSize: 10, fontWeight: '600', textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.5 },
+  cardNote:     { color: '#64748b', fontSize: 9, textAlign: 'center', marginTop: 4 },
+  cardTap:      { color: '#3b82f6', fontSize: 9, fontWeight: '600', textAlign: 'center', marginTop: 6, letterSpacing: 0.3 },
 });

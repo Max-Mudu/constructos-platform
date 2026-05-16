@@ -142,6 +142,66 @@ function LowStockCard({
   );
 }
 
+// ─── ScheduleRiskCard ─────────────────────────────────────────────────────────
+
+function ScheduleRiskCard({
+  data, onPress,
+}: {
+  data:    NonNullable<DashboardStats['schedule']>;
+  onPress: () => void;
+}) {
+  const total =
+    data.overdueTasks + data.dueTodayTasks +
+    data.blockedTasks + data.delayedTasks + data.behindPlanTasks;
+  return (
+    <TouchableOpacity style={D.schCard} onPress={onPress} activeOpacity={0.78}>
+      <View style={D.schHead}>
+        <View style={D.schTitleRow}>
+          <Text style={D.schIcon}>⏱</Text>
+          <Text style={D.schTitle}>Schedule Risk</Text>
+        </View>
+        <Text style={D.schSub}>
+          {total} issue{total !== 1 ? 's' : ''} need attention
+        </Text>
+      </View>
+      <View style={D.schDivider} />
+      <View style={D.schGrid}>
+        {data.overdueTasks > 0 ? (
+          <View style={D.schPill}>
+            <Text style={[D.schPillVal, D.schRed]}>{data.overdueTasks}</Text>
+            <Text style={D.schPillLbl}>Overdue</Text>
+          </View>
+        ) : null}
+        {data.blockedTasks > 0 ? (
+          <View style={D.schPill}>
+            <Text style={[D.schPillVal, D.schRed]}>{data.blockedTasks}</Text>
+            <Text style={D.schPillLbl}>Blocked</Text>
+          </View>
+        ) : null}
+        {data.dueTodayTasks > 0 ? (
+          <View style={D.schPill}>
+            <Text style={[D.schPillVal, D.schAmber]}>{data.dueTodayTasks}</Text>
+            <Text style={D.schPillLbl}>Due Today</Text>
+          </View>
+        ) : null}
+        {data.delayedTasks > 0 ? (
+          <View style={D.schPill}>
+            <Text style={[D.schPillVal, D.schAmber]}>{data.delayedTasks}</Text>
+            <Text style={D.schPillLbl}>Delayed</Text>
+          </View>
+        ) : null}
+        {data.behindPlanTasks > 0 ? (
+          <View style={D.schPill}>
+            <Text style={[D.schPillVal, D.schAmber]}>{data.behindPlanTasks}</Text>
+            <Text style={D.schPillLbl}>Behind Plan</Text>
+          </View>
+        ) : null}
+      </View>
+      <Text style={D.schTap}>Tap to view schedule ›</Text>
+    </TouchableOpacity>
+  );
+}
+
 // ─── SectionHeader ────────────────────────────────────────────────────────────
 
 function SectionHeader({ title, action, onAction }: {
@@ -275,6 +335,15 @@ export default function DashboardScreen() {
   const lowStockItems = stats.lowStockInventory?.items ?? [];
   const lowStockCount = stats.lowStockInventory?.count ?? 0;
 
+  const scheduleSummary  = stats.schedule;
+  const scheduleRiskTotal =
+    (scheduleSummary?.overdueTasks    ?? 0) +
+    (scheduleSummary?.dueTodayTasks   ?? 0) +
+    (scheduleSummary?.blockedTasks    ?? 0) +
+    (scheduleSummary?.delayedTasks    ?? 0) +
+    (scheduleSummary?.behindPlanTasks ?? 0);
+  const hasScheduleRisk = scheduleRiskTotal > 0;
+
   const currentProject = recentProjects[0];
 
   return (
@@ -405,6 +474,14 @@ export default function DashboardScreen() {
             count={lowStockCount}
             items={lowStockItems}
             onPress={() => router.push('/(tabs)/inventory')}
+          />
+        ) : null}
+
+        {/* ── SCHEDULE RISK ─────────────────────────────────────────── */}
+        {hasScheduleRisk && scheduleSummary ? (
+          <ScheduleRiskCard
+            data={scheduleSummary}
+            onPress={() => router.push('/(tabs)/schedule')}
           />
         ) : null}
 
@@ -733,4 +810,37 @@ const D = StyleSheet.create({
   lowStockQty:      { color: '#f59e0b', fontSize: 14, fontWeight: '700' },
   lowStockLimit:    { color: '#78350f', fontSize: 10, marginTop: 1 },
   lowStockTap:      { color: '#92400e', fontSize: 11, textAlign: 'center', padding: 10, fontWeight: '600' },
+
+  // ── Schedule Risk Card ────────────────────────────────────────────
+  schCard: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    backgroundColor: '#060d1b',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+    overflow: 'hidden',
+  },
+  schHead:     { padding: 14, paddingBottom: 10 },
+  schTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 3 },
+  schIcon:     { fontSize: 13 },
+  schTitle:    { color: '#93c5fd', fontSize: 14, fontWeight: '800' },
+  schSub:      { color: '#1e4070', fontSize: 12, fontWeight: '500' },
+  schDivider:  { height: 1, backgroundColor: '#0d1e35' },
+  schGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: 14,
+    paddingBottom: 6,
+  },
+  schPill:    { alignItems: 'center', minWidth: 60, paddingHorizontal: 4 },
+  schPillVal: { fontSize: 22, fontWeight: '800', letterSpacing: -0.3 },
+  schPillLbl: {
+    color: '#2a4a70', fontSize: 9, fontWeight: '700',
+    textTransform: 'uppercase', letterSpacing: 0.6, marginTop: 2,
+  },
+  schRed:   { color: '#f87171' },
+  schAmber: { color: '#fbbf24' },
+  schTap:   { color: '#1e3a5f', fontSize: 11, textAlign: 'center', padding: 10, fontWeight: '600' },
 });
