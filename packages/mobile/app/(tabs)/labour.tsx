@@ -470,6 +470,15 @@ export default function LabourScreen() {
 
   const totalCount = uniqueWorkerEntries.length;
 
+  // ── Labour intelligence ────────────────────────────────────────────────────
+  const totalHours    = entries.reduce((s, e) => s + Number(e.hoursWorked), 0);
+  const overtimeCount = entries.filter((e) => Number(e.hoursWorked) > 8).length;
+  const totalCost     = entries.reduce((s, e) => s + Number(e.dailyRate), 0);
+  const currencies    = [...new Set(entries.map((e) => e.currency))];
+  const costDisplay   = totalCost > 0
+    ? (currencies.length === 1 ? `${currencies[0]!} ${totalCost.toFixed(0)}` : totalCost.toFixed(0))
+    : '—';
+
   return (
     <Screen>
       <View style={styles.header}>
@@ -538,6 +547,26 @@ export default function LabourScreen() {
         ))}
       </ScrollView>
 
+      {/* ── Labour summary strip ──────────────────────────────────── */}
+      {entries.length > 0 && (
+        <View style={styles.labourSummaryRow}>
+          <View style={styles.labourStatCard}>
+            <Text style={styles.labourStatValue}>{totalHours.toFixed(1)}h</Text>
+            <Text style={styles.labourStatLabel}>Total Hours</Text>
+          </View>
+          <View style={[styles.labourStatCard, overtimeCount > 0 ? styles.labourStatCardOT : null]}>
+            <Text style={[styles.labourStatValue, overtimeCount > 0 ? styles.labourStatValueOT : null]}>
+              {overtimeCount}
+            </Text>
+            <Text style={styles.labourStatLabel}>Overtime</Text>
+          </View>
+          <View style={styles.labourStatCard}>
+            <Text style={styles.labourStatValue} numberOfLines={1}>{costDisplay}</Text>
+            <Text style={styles.labourStatLabel}>Est. Cost</Text>
+          </View>
+        </View>
+      )}
+
       <View style={styles.summaryRow}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Total</Text>
@@ -584,13 +613,14 @@ export default function LabourScreen() {
           data={entries}
           keyExtractor={(e) => e.id}
           renderItem={({ item }) => {
-            const record = getRecordForEntry(item, attendanceMap);
-            const status = getDisplayStatus(record);
-            const checkIn = formatTime(record?.checkInTime);
-            const checkOut = formatTime(record?.checkOutTime);
+            const record     = getRecordForEntry(item, attendanceMap);
+            const status     = getDisplayStatus(record);
+            const checkIn    = formatTime(record?.checkInTime);
+            const checkOut   = formatTime(record?.checkOutTime);
+            const isOvertime = Number(item.hoursWorked) > 8;
 
             return (
-              <Card style={styles.entryCard}>
+              <Card style={isOvertime ? [styles.entryCard, styles.entryCardOvertime] : styles.entryCard}>
                 <View style={styles.entryRow}>
                   <View style={styles.entryNameWrap}>
                     <Text style={styles.entryName}>
@@ -598,7 +628,14 @@ export default function LabourScreen() {
                     </Text>
                   </View>
 
-                  <StatusBadge status={status} />
+                  <View style={styles.entryBadgeRow}>
+                    {isOvertime && (
+                      <View style={styles.overtimeBadge}>
+                        <Text style={styles.overtimeBadgeText}>Overtime</Text>
+                      </View>
+                    )}
+                    <StatusBadge status={status} />
+                  </View>
                 </View>
 
                 <Text style={styles.entryMeta}>
@@ -920,5 +957,75 @@ const styles = StyleSheet.create({
     color: '#475569',
     fontSize: 14,
     marginBottom: 8,
+  },
+
+  // ── Labour summary strip ───────────────────────────────────────────
+  labourSummaryRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    marginBottom: 8,
+  },
+  labourStatCard: {
+    flex: 1,
+    backgroundColor: '#0a1628',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#1e3a5f',
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
+  labourStatCardOT: {
+    borderColor: '#92400e',
+    backgroundColor: '#1a0e00',
+  },
+  labourStatValue: {
+    color: '#c8d8f0',
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+    marginBottom: 2,
+  },
+  labourStatValueOT: {
+    color: '#f59e0b',
+  },
+  labourStatLabel: {
+    color: '#3d6090',
+    fontSize: 9,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+
+  // ── Overtime card accent ───────────────────────────────────────────
+  entryCardOvertime: {
+    borderLeftWidth: 3,
+    borderLeftColor: '#f59e0b',
+    backgroundColor: '#110a00',
+  },
+
+  // ── Badge row (holds overtime + status badges) ────────────────────
+  entryBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+
+  // ── Overtime badge ─────────────────────────────────────────────────
+  overtimeBadge: {
+    backgroundColor: '#451a03',
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#92400e',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  overtimeBadgeText: {
+    color: '#f59e0b',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
 });

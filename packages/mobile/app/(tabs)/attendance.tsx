@@ -569,10 +569,14 @@ function SupervisorAttendance() {
   }
 
   // Summary stats
-  const totalCrew = records.length;
-  const present   = records.filter((r) => r.status === 'present').length;
-  const late      = records.filter((r) => r.status === 'late').length;
-  const absent    = records.filter((r) => r.status === 'absent').length;
+  const totalCrew     = records.length;
+  const strictPresent = records.filter((r) => r.status === 'present').length;
+  const halfDay       = records.filter((r) => r.status === 'half_day').length;
+  const late          = records.filter((r) => r.status === 'late').length;
+  const absent        = records.filter((r) => r.status === 'absent').length;
+  const onSite        = strictPresent + late + halfDay;
+  const attendanceRate = totalCrew > 0 ? Math.round((onSite / totalCrew) * 100) : 0;
+  const rateColor      = attendanceRate < 70 ? '#ef4444' : attendanceRate <= 85 ? '#f59e0b' : '#22c55e';
 
   if (loading) {
     return (
@@ -621,12 +625,12 @@ function SupervisorAttendance() {
               </TouchableOpacity>
             ) : null}
 
-            {/* 2×2 summary grid */}
+            {/* Attendance summary strip */}
             <View style={S.summaryGrid}>
-              <SummaryCard label="Total Crew" value={totalCrew} color="#60a5fa" />
-              <SummaryCard label="Present"    value={present}   color="#22c55e" />
-              <SummaryCard label="Late"       value={late}      color="#f59e0b" />
-              <SummaryCard label="Absent"     value={absent}    color="#ef4444" />
+              <SummaryCard label="Rate"    value={`${attendanceRate}%`} color={rateColor} />
+              <SummaryCard label="Present" value={onSite}               color="#60a5fa" />
+              <SummaryCard label="Late"    value={late}                  color={late   > 0 ? '#f59e0b' : '#22c55e'} />
+              <SummaryCard label="Absent"  value={absent}               color={absent > 0 ? '#f59e0b' : '#22c55e'} />
             </View>
 
             {records.length > 0 ? (
@@ -644,9 +648,10 @@ function SupervisorAttendance() {
           const initials      = `${item.worker.firstName.charAt(0)}${item.worker.lastName.charAt(0)}`.toUpperCase();
           const cfg           = STATUS_COLORS[item.status];
           const isCheckingOut = checkingOutId === item.id;
+          const accent        = getCardAccent(item.status);
 
           return (
-            <View style={S.card}>
+            <View style={accent ? [S.card, accent] : S.card}>
               {/* Top row: avatar + name/trade + status badge */}
               <View style={S.cardTop}>
                 <View style={S.avatar}>
@@ -718,13 +723,22 @@ function SupervisorAttendance() {
 
 // ─── Summary card ─────────────────────────────────────────────────────────────
 
-function SummaryCard({ label, value, color }: { label: string; value: number; color: string }) {
+function SummaryCard({ label, value, color }: { label: string; value: string | number; color: string }) {
   return (
     <View style={SC.card}>
       <Text style={[SC.value, { color }]}>{value}</Text>
       <Text style={SC.label}>{label}</Text>
     </View>
   );
+}
+
+// ─── Per-card accent based on status ─────────────────────────────────────────
+
+function getCardAccent(status: AttendanceStatus): object | null {
+  if (status === 'absent')  return { borderLeftWidth: 3, borderLeftColor: '#ef4444', backgroundColor: '#0f0608' };
+  if (status === 'late')    return { borderLeftWidth: 3, borderLeftColor: '#f59e0b', backgroundColor: '#0f0900' };
+  if (status === 'excused') return { opacity: 0.5 };
+  return null;
 }
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
@@ -864,7 +878,7 @@ const S = StyleSheet.create({
   appBarDate:  { color: '#2d5070', fontSize: 12, fontWeight: '500', marginTop: 2 },
 
   listContent: { paddingBottom: 48 },
-  listHeader:  { paddingHorizontal: 16, paddingTop: 16, gap: 14 },
+  listHeader:  { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8, gap: 14 },
 
   contextRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   contextPill: {
@@ -894,13 +908,13 @@ const S = StyleSheet.create({
   summaryGrid: { flexDirection: 'row', gap: 10 },
 
   crewLabel: {
-    color: '#3d6090',
-    fontSize: 11,
+    color: '#6a90b8',
+    fontSize: 13,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    marginBottom: -6,
-    marginTop: 4,
+    marginTop: 6,
+    marginBottom: 2,
   },
 
   card: {

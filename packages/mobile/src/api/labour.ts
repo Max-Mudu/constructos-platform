@@ -34,7 +34,11 @@ export const labourApi = {
     currency?:   string;
     notes?:      string;
   }): Promise<LabourEntry> => {
-    const res = await apiClient.post<{ entry: LabourEntry }>('/labour', data);
+    const { projectId, siteId, ...body } = data;
+    const res = await apiClient.post<{ entry: LabourEntry }>(
+      `/projects/${projectId}/sites/${siteId}/labour`,
+      body,
+    );
     return res.data.entry;
   },
 };
