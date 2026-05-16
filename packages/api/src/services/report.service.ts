@@ -625,6 +625,39 @@ export async function dailySiteReport(
     }),
   ]);
 
+  // ── Procurement risk (site-scoped) ────────────────────────────────────────
+  const thirtyDaysBeforeReport = new Date(dayStart);
+  thirtyDaysBeforeReport.setDate(thirtyDaysBeforeReport.getDate() - 30);
+
+  const [
+    pendingDeliveriesForSite,
+    rejectedDeliveriesForSite,
+    damagedDeliveriesForSite,
+    pendingDeliveryItems,
+  ] = await Promise.all([
+    prisma.deliveryRecord.count({
+      where: { companyId, projectId, siteId, inspectionStatus: 'pending' },
+    }),
+    prisma.deliveryRecord.count({
+      where: {
+        companyId, projectId, siteId,
+        acceptanceStatus: 'rejected',
+        deliveryDate: { gte: thirtyDaysBeforeReport },
+      },
+    }),
+    prisma.deliveryRecord.count({
+      where: {
+        companyId, projectId, siteId,
+        conditionOnArrival: { in: ['damaged', 'partial', 'incorrect'] },
+        deliveryDate: { gte: thirtyDaysBeforeReport },
+      },
+    }),
+    prisma.deliveryRecord.findMany({
+      where:  { companyId, projectId, siteId, inspectionStatus: 'pending' },
+      select: { itemDescription: true },
+    }),
+  ]);
+
   // ── Attendance breakdown ─────────────────────────────────────────────────
   const byStatus: Record<string, number> = {};
   for (const r of attendanceRows) byStatus[r.status] = r._count._all;
@@ -650,6 +683,15 @@ export async function dailySiteReport(
   // ── Low stock ────────────────────────────────────────────────────────────
   const lowStockCount = lowStockCandidates.filter(
     (i) => Number(i.currentQuantity) <= Number(i.lowStockThreshold!),
+  ).length;
+
+  const pendingItemSet = new Set(
+    pendingDeliveryItems.map((d) => d.itemDescription.toLowerCase().trim()),
+  );
+  const materialsWithNoDeliveryCount = lowStockCandidates.filter(
+    (i) =>
+      Number(i.currentQuantity) <= Number(i.lowStockThreshold!) &&
+      !pendingItemSet.has(i.materialName.toLowerCase().trim()),
   ).length;
 
   // ── Schedule tasks ───────────────────────────────────────────────────────
@@ -681,6 +723,10 @@ export async function dailySiteReport(
     { label: 'Deliveries Pending',            value: String(pendingDeliveriesCount) },
     { label: 'Material Usage Transactions',   value: String(materialsCount) },
     { label: 'Low-Stock Items',               value: String(lowStockCount) },
+    { label: 'Pending Deliveries For Site',   value: String(pendingDeliveriesForSite) },
+    { label: 'Rejected Deliveries For Site',  value: String(rejectedDeliveriesForSite) },
+    { label: 'Damaged Deliveries For Site',   value: String(damagedDeliveriesForSite) },
+    { label: 'Materials With No Delivery',    value: String(materialsWithNoDeliveryCount) },
     { label: 'Open Instructions',             value: String(openInstructionsCount) },
     { label: 'Critical Instructions',         value: String(criticalInstructionsCount) },
     { label: 'Tasks In Progress',             value: String(tasksInProgress) },
@@ -702,9 +748,13 @@ export async function dailySiteReport(
     ['Late Workers Today',          String(lateWorkersToday),        ''],
     ['Deliveries Received Today',   String(deliveriesReceivedCount), ''],
     ['Deliveries Pending',          String(pendingDeliveriesCount),  'Pending inspection or acceptance'],
-    ['Material Usage Transactions', String(materialsCount),          `Total qty consumed: ${fmt(materialsQtyTotal, 3)}`],
-    ['Low-Stock Items',             String(lowStockCount),           lowStockCount > 0 ? 'Check inventory' : ''],
-    ['Open Instructions',           String(openInstructionsCount),   ''],
+    ['Material Usage Transactions', String(materialsCount),                `Total qty consumed: ${fmt(materialsQtyTotal, 3)}`],
+    ['Low-Stock Items',             String(lowStockCount),                lowStockCount > 0 ? 'Check inventory' : ''],
+    ['Pending Deliveries For Site', String(pendingDeliveriesForSite),     pendingDeliveriesForSite > 0 ? 'Awaiting inspection' : ''],
+    ['Rejected Deliveries For Site',String(rejectedDeliveriesForSite),    rejectedDeliveriesForSite > 0 ? 'Last 30 days' : ''],
+    ['Damaged Deliveries For Site', String(damagedDeliveriesForSite),     damagedDeliveriesForSite > 0 ? 'Damaged / partial / incorrect, last 30 days' : ''],
+    ['Materials With No Delivery',  String(materialsWithNoDeliveryCount), materialsWithNoDeliveryCount > 0 ? 'Low stock — no pending delivery' : ''],
+    ['Open Instructions',           String(openInstructionsCount),        ''],
     ['Critical Instructions',       String(criticalInstructionsCount), criticalInstructionsCount > 0 ? 'Requires immediate attention' : ''],
     ['Tasks In Progress',           String(tasksInProgress),         ''],
     ['Tasks Completed',             String(tasksCompleted),          ''],

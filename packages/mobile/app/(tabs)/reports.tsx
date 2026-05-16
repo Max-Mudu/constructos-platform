@@ -238,9 +238,13 @@ function DailySiteReportViewer({
   const lateWorkersToday     = num('Late Workers Today');
   const delivReceived        = num('Deliveries Received Today');
   const delivPending         = num('Deliveries Pending');
-  const matTransactions      = num('Material Usage Transactions');
-  const lowStock             = num('Low-Stock Items');
-  const openInstructions     = num('Open Instructions');
+  const matTransactions           = num('Material Usage Transactions');
+  const lowStock                  = num('Low-Stock Items');
+  const pendingDeliveriesForSite  = num('Pending Deliveries For Site');
+  const rejectedDeliveriesForSite = num('Rejected Deliveries For Site');
+  const damagedDeliveriesForSite  = num('Damaged Deliveries For Site');
+  const materialsNoDelivery       = num('Materials With No Delivery');
+  const openInstructions          = num('Open Instructions');
   const criticalInstructions = num('Critical Instructions');
   const tasksInProgress      = num('Tasks In Progress');
   const tasksCompleted       = num('Tasks Completed');
@@ -346,6 +350,37 @@ function DailySiteReportViewer({
           value={String(lowStock)}
           color={lowStock > 0 ? 'amber' : 'green'}
           note={lowStock > 0 ? 'Check inventory' : undefined}
+          onPress={nav('inventory')}
+        />
+      </DSRSection>
+
+      {/* ── Procurement ────────────────────────────────────────────────────── */}
+      <DSRSection title="Procurement">
+        <DSRCard
+          label="Pending Deliveries"
+          value={String(pendingDeliveriesForSite)}
+          color={pendingDeliveriesForSite > 0 ? 'amber' : 'green'}
+          note={pendingDeliveriesForSite > 0 ? 'Awaiting inspection' : undefined}
+          onPress={nav('deliveries')}
+        />
+        <DSRCard
+          label="Rejected (30d)"
+          value={String(rejectedDeliveriesForSite)}
+          color={rejectedDeliveriesForSite > 0 ? 'red' : 'green'}
+          onPress={nav('deliveries')}
+        />
+        <DSRCard
+          label="Damaged (30d)"
+          value={String(damagedDeliveriesForSite)}
+          color={damagedDeliveriesForSite > 0 ? 'red' : 'green'}
+          note={damagedDeliveriesForSite > 0 ? 'Damaged / partial / incorrect' : undefined}
+          onPress={nav('deliveries')}
+        />
+        <DSRCard
+          label="No Reorder"
+          value={String(materialsNoDelivery)}
+          color={materialsNoDelivery > 0 ? 'red' : 'green'}
+          note={materialsNoDelivery > 0 ? 'Low stock — no pending delivery' : undefined}
           onPress={nav('inventory')}
         />
       </DSRSection>
