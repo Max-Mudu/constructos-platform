@@ -129,11 +129,11 @@ function ReportViewer({
 
 type DSRCardColor = 'green' | 'amber' | 'red' | 'blue';
 
-const DSR_PALETTE: Record<DSRCardColor, { border: string; bg: string; value: string }> = {
-  green: { border: '#22c55e', bg: '#052e16', value: '#4ade80' },
-  amber: { border: '#f59e0b', bg: '#431407', value: '#fbbf24' },
-  red:   { border: '#ef4444', bg: '#450a0a', value: '#f87171' },
-  blue:  { border: '#3b82f6', bg: '#172554', value: '#93c5fd' },
+const DSR_PALETTE: Record<DSRCardColor, { border: string; bg: string; textColor: string }> = {
+  green: { border: '#22c55e', bg: '#052e16', textColor: '#4ade80' },
+  amber: { border: '#f59e0b', bg: '#431407', textColor: '#fbbf24' },
+  red:   { border: '#ef4444', bg: '#450a0a', textColor: '#f87171' },
+  blue:  { border: '#3b82f6', bg: '#172554', textColor: '#93c5fd' },
 };
 
 // Complete verbatim copy of every role's tab list from (tabs)/_layout.tsx.
@@ -169,7 +169,7 @@ function DSRCard({
   const c = DSR_PALETTE[color];
   const body = (
     <>
-      <Text style={[dsr2.cardValue, { color: c.value }]}>{value}</Text>
+      <Text style={[dsr2.cardValue, { color: c.textColor }]}>{value}</Text>
       <Text style={dsr2.cardLabel}>{label}</Text>
       {!!note && <Text style={dsr2.cardNote}>{note}</Text>}
       {!!onPress && <Text style={dsr2.cardTap}>Tap to view →</Text>}

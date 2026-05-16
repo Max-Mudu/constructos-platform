@@ -923,7 +923,7 @@ export async function getScheduleSummary(
   const [tasks, packages] = await Promise.all([
     prisma.scheduleTask.findMany({
       where,
-      select: { status: true, actualProgress: true, plannedProgress: true },
+      select: { status: true, actualProgress: true, plannedProgress: true, plannedEndDate: true },
     }),
     prisma.workPackage.findMany({
       where,
@@ -945,8 +945,30 @@ export async function getScheduleSummary(
       )
     : 0;
 
+  const now           = new Date();
+  const todayStart    = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+
+  const overdueTasks    = tasks.filter(
+    (t) => t.status !== 'completed' && t.plannedEndDate !== null && t.plannedEndDate < todayStart,
+  ).length;
+  const dueTodayTasks   = tasks.filter(
+    (t) => t.status !== 'completed' && t.plannedEndDate !== null &&
+           t.plannedEndDate >= todayStart && t.plannedEndDate < tomorrowStart,
+  ).length;
+  const blockedTasks    = blocked;
+  const delayedTasks    = delayed;
+  const behindPlanTasks = tasks.filter(
+    (t) => t.actualProgress !== null && t.plannedProgress !== null &&
+           Number(t.actualProgress) < Number(t.plannedProgress) - 10,
+  ).length;
+
   return {
-    tasks:    { total, notStarted, inProgress, delayed, blocked, completed, avgProgress },
+    tasks: {
+      total, notStarted, inProgress, delayed, blocked, completed, avgProgress,
+      overdueTasks, dueTodayTasks, blockedTasks, delayedTasks, behindPlanTasks,
+    },
     packages: { total: packages.length },
   };
 }

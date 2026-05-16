@@ -497,6 +497,45 @@ function CreateTaskModal({
   );
 }
 
+// ─── Risk helpers ─────────────────────────────────────────────────────────────
+
+function getTaskAccent(task: ScheduleTaskWithContext, today: string): {
+  borderLeftColor: string;
+  backgroundColor?: string;
+  opacity?: number;
+} {
+  if (task.status === 'completed') {
+    return { borderLeftColor: '#14532d', opacity: 0.55 };
+  }
+  const end      = normalizeDate(task.plannedEndDate);
+  const isOverdue = end !== null && end < today;
+  if (isOverdue || task.status === 'blocked') {
+    return { borderLeftColor: '#ef4444', backgroundColor: '#0f0608' };
+  }
+  if (task.status === 'delayed') {
+    return { borderLeftColor: '#f59e0b', backgroundColor: '#100900' };
+  }
+  if (
+    task.actualProgress !== null && task.plannedProgress !== null &&
+    task.actualProgress < task.plannedProgress - 10
+  ) {
+    return { borderLeftColor: '#f59e0b', backgroundColor: '#100900' };
+  }
+  return { borderLeftColor: getStatusConfig(task.status).color };
+}
+
+function RiskChip({ label, count, color }: { label: string; count: number; color: 'red' | 'amber' }) {
+  const c = color === 'red'
+    ? { bg: '#1a0606', border: '#450a0a', text: '#f87171' }
+    : { bg: '#1a1200', border: '#422006', text: '#fbbf24' };
+  return (
+    <View style={[A.riskChip, { backgroundColor: c.bg, borderColor: c.border }]}>
+      <Text style={[A.riskChipCount, { color: c.text }]}>{count}</Text>
+      <Text style={[A.riskChipLabel, { color: c.text }]}>{label}</Text>
+    </View>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ScheduleScreen() {
@@ -602,6 +641,18 @@ export default function ScheduleScreen() {
       .slice(0, 3);
   }, [tasks, todayStr]);
 
+  const riskSummary = useMemo(() => {
+    const today = todayStr;
+    return {
+      overdue:    tasks.filter((t) => t.status !== 'completed' && normalizeDate(t.plannedEndDate) !== null && (normalizeDate(t.plannedEndDate) as string) < today).length,
+      dueToday:   tasks.filter((t) => t.status !== 'completed' && normalizeDate(t.plannedEndDate) === today).length,
+      blocked:    tasks.filter((t) => t.status === 'blocked').length,
+      delayed:    tasks.filter((t) => t.status === 'delayed').length,
+      behindPlan: tasks.filter((t) => t.actualProgress !== null && t.plannedProgress !== null && t.actualProgress < t.plannedProgress - 10).length,
+    };
+  }, [tasks, todayStr]);
+  const hasRisk = riskSummary.overdue > 0 || riskSummary.dueToday > 0 || riskSummary.blocked > 0 || riskSummary.delayed > 0 || riskSummary.behindPlan > 0;
+
   // Date range label (week)
   const weekStart = weekDays[0];
   const weekEnd   = weekDays[6];
@@ -693,6 +744,19 @@ export default function ScheduleScreen() {
         })}
       </ScrollView>
 
+      {/* ── Risk strip ───────────────────────────────────────── */}
+      {hasRisk ? (
+        <View style={A.riskStrip}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={A.riskRow}>
+            {riskSummary.overdue    > 0 ? <RiskChip label="Overdue"     count={riskSummary.overdue}    color="red"   /> : null}
+            {riskSummary.blocked    > 0 ? <RiskChip label="Blocked"     count={riskSummary.blocked}    color="red"   /> : null}
+            {riskSummary.dueToday   > 0 ? <RiskChip label="Due Today"   count={riskSummary.dueToday}   color="amber" /> : null}
+            {riskSummary.delayed    > 0 ? <RiskChip label="Delayed"     count={riskSummary.delayed}    color="amber" /> : null}
+            {riskSummary.behindPlan > 0 ? <RiskChip label="Behind Plan" count={riskSummary.behindPlan} color="amber" /> : null}
+          </ScrollView>
+        </View>
+      ) : null}
+
       {/* ── Task list ─────────────────────────────────────────── */}
       <FlatList
         data={visibleTasks}
@@ -734,12 +798,13 @@ export default function ScheduleScreen() {
         }
         renderItem={({ item }) => {
           const cfg      = getStatusConfig(item.status);
+          const accent   = getTaskAccent(item, todayStr);
           const progress = item.actualProgress ?? 0;
           const start    = normalizeDate(item.plannedStartDate);
           const end      = normalizeDate(item.plannedEndDate);
 
           const card = (
-            <View style={[A.taskCard, { borderLeftColor: cfg.color }]}>
+            <View style={[A.taskCard, accent]}>
               {/* Top row */}
               <View style={A.taskTop}>
                 <View style={A.taskTitleBlock}>
@@ -973,6 +1038,13 @@ const A = StyleSheet.create({
 
   delayText: { color: '#f59e0b', fontSize: 12, fontWeight: '500' },
   tapHint:   { color: '#1e3a5f', fontSize: 11, textAlign: 'right' },
+
+  // Risk strip
+  riskStrip: { borderBottomWidth: 1, borderBottomColor: '#0e1f38', backgroundColor: '#060d1b', paddingVertical: 8 },
+  riskRow:   { paddingHorizontal: 16, gap: 8, alignItems: 'center' },
+  riskChip:  { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, borderWidth: 1 },
+  riskChipCount: { fontSize: 14, fontWeight: '800' },
+  riskChipLabel: { fontSize: 11, fontWeight: '600' },
 
   // Empty
   empty:      { alignItems: 'center', paddingTop: 56, gap: 8 },
