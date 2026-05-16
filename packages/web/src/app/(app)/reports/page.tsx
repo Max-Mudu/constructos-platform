@@ -196,7 +196,10 @@ function DailySiteReportViewer({ data }: { data: ReportData }) {
   const workersOnSite        = num('Workers On Site');
   const workersAbsent        = num('Workers Absent');
   const workersLate          = num('Workers Late');
+  const attendanceRateToday  = num('Attendance Rate Today');
   const labourHours          = str('Labour Hours Today');
+  const overtimeEntriesToday = num('Overtime Entries Today');
+  const lateWorkersToday     = num('Late Workers Today');
   const delivReceived        = num('Deliveries Received Today');
   const delivPending         = num('Deliveries Pending');
   const matTransactions      = num('Material Usage Transactions');
@@ -242,6 +245,22 @@ function DailySiteReportViewer({ data }: { data: ReportData }) {
       {/* ── Labour ──────────────────────────────────────────────────────── */}
       <DSRSection title="Labour">
         <DSRCard label="Hours Today" value={labourHours} color="blue" />
+        <DSRCard
+          label="Attendance Rate"
+          value={`${attendanceRateToday}%`}
+          color={attendanceRateToday < 70 ? 'red' : attendanceRateToday <= 85 ? 'amber' : 'green'}
+        />
+        <DSRCard
+          label="Overtime Entries"
+          value={overtimeEntriesToday}
+          color={overtimeEntriesToday > 0 ? 'amber' : 'green'}
+          note={overtimeEntriesToday > 0 ? 'Hours worked > 8' : undefined}
+        />
+        <DSRCard
+          label="Late Workers"
+          value={lateWorkersToday}
+          color={lateWorkersToday > 0 ? 'amber' : 'green'}
+        />
       </DSRSection>
 
       {/* ── Deliveries ──────────────────────────────────────────────────── */}

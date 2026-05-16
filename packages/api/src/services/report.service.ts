@@ -565,6 +565,7 @@ export async function dailySiteReport(
   const [
     attendanceRows,
     labourAgg,
+    overtimeEntriesToday,
     deliveriesReceivedCount,
     pendingDeliveriesCount,
     materialUsageAgg,
@@ -581,6 +582,9 @@ export async function dailySiteReport(
     prisma.labourEntry.aggregate({
       where: { companyId, projectId, siteId, date: { gte: dayStart, lt: dayEnd } },
       _sum:  { hoursWorked: true },
+    }),
+    prisma.labourEntry.count({
+      where: { companyId, projectId, siteId, date: { gte: dayStart, lt: dayEnd }, hoursWorked: { gt: 8 } },
     }),
     prisma.deliveryRecord.count({
       where: { companyId, projectId, siteId, deliveryDate: { gte: dayStart, lt: dayEnd } },
@@ -630,6 +634,11 @@ export async function dailySiteReport(
   const workersAbsent  = byStatus['absent']   ?? 0;
   const workersExcused = byStatus['excused']  ?? 0;
   const workersOnSite  = workersPresent + workersLate + workersHalfDay;
+  const totalMarked    = workersOnSite + workersAbsent + workersExcused;
+  const attendanceRateToday = totalMarked > 0
+    ? Math.round((workersOnSite / totalMarked) * 100)
+    : 0;
+  const lateWorkersToday = workersLate;
 
   // ── Labour ───────────────────────────────────────────────────────────────
   const labourHoursToday = Number(labourAgg._sum.hoursWorked ?? 0);
@@ -664,7 +673,10 @@ export async function dailySiteReport(
     { label: 'Workers On Site',               value: String(workersOnSite) },
     { label: 'Workers Absent',                value: String(workersAbsent) },
     { label: 'Workers Late',                  value: String(workersLate) },
+    { label: 'Attendance Rate Today',         value: String(attendanceRateToday) },
     { label: 'Labour Hours Today',            value: fmt(labourHoursToday, 1) },
+    { label: 'Overtime Entries Today',        value: String(overtimeEntriesToday) },
+    { label: 'Late Workers Today',            value: String(lateWorkersToday) },
     { label: 'Deliveries Received Today',     value: String(deliveriesReceivedCount) },
     { label: 'Deliveries Pending',            value: String(pendingDeliveriesCount) },
     { label: 'Material Usage Transactions',   value: String(materialsCount) },
@@ -684,7 +696,10 @@ export async function dailySiteReport(
     ['Workers On Site',             String(workersOnSite),           `Late: ${workersLate}, Half-day: ${workersHalfDay}`],
     ['Workers Absent',              String(workersAbsent),           workersExcused > 0 ? `Excused: ${workersExcused}` : ''],
     ['Workers Late',                String(workersLate),             ''],
+    ['Attendance Rate Today',       `${attendanceRateToday}%`,       totalMarked > 0 ? `${workersOnSite} of ${totalMarked} marked` : 'No records'],
     ['Labour Hours Today',          fmt(labourHoursToday, 1),        ''],
+    ['Overtime Entries Today',      String(overtimeEntriesToday),    overtimeEntriesToday > 0 ? 'Hours worked > 8' : ''],
+    ['Late Workers Today',          String(lateWorkersToday),        ''],
     ['Deliveries Received Today',   String(deliveriesReceivedCount), ''],
     ['Deliveries Pending',          String(pendingDeliveriesCount),  'Pending inspection or acceptance'],
     ['Material Usage Transactions', String(materialsCount),          `Total qty consumed: ${fmt(materialsQtyTotal, 3)}`],
