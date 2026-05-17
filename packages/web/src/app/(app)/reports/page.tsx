@@ -290,6 +290,43 @@ function ScheduleExecList({ data }: { data: ReportData }) {
   );
 }
 
+function MaterialUsageList({ data }: { data: ReportData }) {
+  const usages = data.rows.filter((r) => r[0]?.startsWith('Usage: '));
+  if (usages.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+        Material Usage Today
+      </p>
+      <div className="space-y-1.5">
+        {usages.map((r, i) => {
+          const material = (r[0] ?? '').slice(7);
+          const qty      = r[1] ?? '';
+          const reason   = r[2] ?? '';
+          const area     = r[3] ?? '';
+          const user     = r[4] ?? '';
+          const note     = r[5] ?? '';
+          return (
+            <div key={i} className="rounded-md border border-border/50 bg-muted/20 px-3 py-2">
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-xs font-semibold text-foreground truncate mr-2">{material}</span>
+                <span className="text-[11px] font-bold text-green-400 shrink-0">{qty}</span>
+              </div>
+              {(reason || area) && (
+                <p className="text-[10px] text-muted-foreground/70">
+                  {reason}{reason && area ? ` · ${area}` : area}
+                </p>
+              )}
+              {user && <p className="text-[10px] text-muted-foreground/60">{user}</p>}
+              {note && <p className="text-[10px] text-muted-foreground/70 italic line-clamp-1">{note}</p>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function DailySiteReportViewer({ data }: { data: ReportData }) {
   const num = (label: string): number => {
     const item = data.summary.find((s) => s.label === label);
@@ -404,6 +441,8 @@ function DailySiteReportViewer({ data }: { data: ReportData }) {
           note={lowStock > 0 ? 'Check inventory' : undefined}
         />
       </DSRSection>
+
+      <MaterialUsageList data={data} />
 
       {/* ── Procurement ─────────────────────────────────────────────────── */}
       <DSRSection title="Procurement">

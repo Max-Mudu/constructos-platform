@@ -301,6 +301,36 @@ function ScheduleExecList({ rows }: { rows: ReportData['rows'] }) {
   );
 }
 
+function MaterialUsageList({ rows }: { rows: ReportData['rows'] }) {
+  const usages = rows.filter((r) => r[0]?.startsWith('Usage: '));
+  if (usages.length === 0) return null;
+  return (
+    <View style={dsr2.execSection}>
+      <Text style={dsr2.execHeader}>Material Usage Today</Text>
+      {usages.map((r, i) => {
+        const material = (r[0] ?? '').slice(7);
+        const qty      = r[1] ?? '';
+        const reason   = r[2] ?? '';
+        const area     = r[3] ?? '';
+        const user     = r[4] ?? '';
+        const note     = r[5] ?? '';
+        return (
+          <View key={i} style={dsr2.usageRow}>
+            <View style={dsr2.usageRowTop}>
+              <Text style={dsr2.usageMaterial} numberOfLines={1}>{material}</Text>
+              <Text style={dsr2.usageQty}>{qty}</Text>
+            </View>
+            {!!reason && <Text style={dsr2.usageMeta}>{reason}{area ? ` · ${area}` : ''}</Text>}
+            {!reason && !!area && <Text style={dsr2.usageMeta}>{area}</Text>}
+            {!!user   && <Text style={dsr2.usageUser}>{user}</Text>}
+            {!!note   && <Text style={dsr2.usageNote} numberOfLines={1}>{note}</Text>}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 function DailySiteReportViewer({
   report,
   onClose,
@@ -456,6 +486,8 @@ function DailySiteReportViewer({
           onPress={nav('inventory')}
         />
       </DSRSection>
+
+      <MaterialUsageList rows={report.rows} />
 
       {/* ── Procurement ────────────────────────────────────────────────────── */}
       <DSRSection title="Procurement">
@@ -944,4 +976,12 @@ const dsr2 = StyleSheet.create({
   actTask:   { color: '#f1f5f9', fontSize: 11, fontWeight: '600', marginBottom: 1 },
   actUser:   { color: '#64748b', fontSize: 10, marginBottom: 2 },
   actPreview:{ color: '#94a3b8', fontSize: 10, fontStyle: 'italic' },
+
+  usageRow:    { borderRadius: 6, borderWidth: 1, borderColor: '#1e293b', backgroundColor: '#0a1628', padding: 8, marginBottom: 6 },
+  usageRowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
+  usageMaterial:{ color: '#f1f5f9', fontSize: 11, fontWeight: '600', flex: 1, marginRight: 8 },
+  usageQty:    { color: '#4ade80', fontSize: 11, fontWeight: '700', flexShrink: 0 },
+  usageMeta:   { color: '#94a3b8', fontSize: 10, marginBottom: 1 },
+  usageUser:   { color: '#64748b', fontSize: 10, marginBottom: 1 },
+  usageNote:   { color: '#94a3b8', fontSize: 10, fontStyle: 'italic' },
 });

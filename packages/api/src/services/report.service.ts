@@ -574,6 +574,7 @@ export async function dailySiteReport(
     criticalInstructionsCount,
     scheduleTasks,
     scheduleActivities,
+    usageTransactions,
   ] = await Promise.all([
     prisma.attendanceRecord.groupBy({
       by:    ['status'],
@@ -646,6 +647,25 @@ export async function dailySiteReport(
         createdAt: true,
         task: { select: { title: true } },
         user: { select: { firstName: true, lastName: true } },
+      },
+    }),
+    prisma.inventoryTransaction.findMany({
+      where: {
+        companyId,
+        siteId,
+        type:      'usage_out',
+        createdAt: { gte: dayStart, lt: dayEnd },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        quantity:      true,
+        unitOfMeasure: true,
+        usageReason:   true,
+        workArea:      true,
+        note:          true,
+        createdAt:     true,
+        inventory:     { select: { materialName: true } },
+        performedBy:   { select: { firstName: true, lastName: true } },
       },
     }),
   ]);
@@ -843,6 +863,16 @@ export async function dailySiteReport(
     (a.newValue ?? '').slice(0, 80),
   ]);
   if (activityDetailRows.length > 0) rows.push(...activityDetailRows);
+
+  const usageDetailRows = usageTransactions.map((tx) => [
+    `Usage: ${tx.inventory.materialName}`,
+    `${Math.abs(Number(tx.quantity))} ${tx.unitOfMeasure}`,
+    tx.usageReason ?? '',
+    tx.workArea    ?? '',
+    tx.performedBy ? `${tx.performedBy.firstName} ${tx.performedBy.lastName}` : '',
+    tx.note        ?? '',
+  ]);
+  if (usageDetailRows.length > 0) rows.push(...usageDetailRows);
 
   return {
     title:       'Daily Site Report',
