@@ -47,6 +47,18 @@ function fmtDateTime(s: string): string {
   } catch { return s; }
 }
 
+function fmtRelative(iso: string): string {
+  const diffMs  = Date.now() - new Date(iso).getTime();
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin <  1)  return 'just now';
+  if (diffMin < 60)  return `${diffMin} min ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr  < 24)  return `${diffHr} hr ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  if (diffDay <  7)  return `${diffDay} day${diffDay > 1 ? 's' : ''} ago`;
+  return fmtDate(iso);
+}
+
 function isLowStock(item: SiteInventoryItem): boolean {
   return item.lowStockThreshold !== null && toNumber(item.currentQuantity) <= toNumber(item.lowStockThreshold);
 }
@@ -76,8 +88,47 @@ function txSign(type: InventoryTxType): string {
 // ─── Transaction Row ──────────────────────────────────────────────────────────
 
 function TxRow({ tx }: { tx: InventoryTransaction }) {
-  const color = TX_COLORS[tx.type];
-  const sign  = txSign(tx.type);
+  const color    = TX_COLORS[tx.type];
+  const sign     = txSign(tx.type);
+  const absQty   = Math.abs(Number(tx.quantity));
+
+  if (tx.type === 'usage_out') {
+    const userName = tx.performedBy
+      ? `${tx.performedBy.firstName} ${tx.performedBy.lastName}`
+      : null;
+    return (
+      <View style={DV.txCard}>
+        {/* Type badge + quantity */}
+        <View style={DV.txCardTop}>
+          <View style={[DV.txBadge, { borderColor: color + '55', backgroundColor: color + '18' }]}>
+            <Text style={[DV.txBadgeText, { color }]}>Usage Out</Text>
+          </View>
+          <Text style={[DV.txUsageQty, { color }]}>
+            {sign}{fmt(absQty)} {tx.unitOfMeasure}
+          </Text>
+        </View>
+        {/* Usage reason */}
+        {!!tx.usageReason && (
+          <Text style={DV.txReason} numberOfLines={2}>{tx.usageReason}</Text>
+        )}
+        {/* Work area */}
+        {!!tx.workArea && (
+          <Text style={DV.txArea}>Area: {tx.workArea}</Text>
+        )}
+        {/* Notes preview */}
+        {!!tx.note && (
+          <Text style={DV.txNotePreview} numberOfLines={1}>{tx.note}</Text>
+        )}
+        {/* Footer: user · relative time */}
+        <View style={DV.txCardFooter}>
+          <Text style={DV.txUser}>{userName ?? '—'}</Text>
+          <Text style={DV.txRelTime}>{fmtRelative(tx.createdAt)}</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // ── All other transaction types: compact original layout ──────────────────
   return (
     <View style={DV.txRow}>
       <View style={DV.txLeft}>
@@ -89,13 +140,11 @@ function TxRow({ tx }: { tx: InventoryTransaction }) {
               ? `${tx.performedBy.firstName} ${tx.performedBy.lastName}`
               : '—'}
         </Text>
-        {tx.usageReason ? <Text style={DV.txNote}>{tx.usageReason}</Text> : null}
-        {tx.workArea    ? <Text style={DV.txMeta}>Area: {tx.workArea}</Text> : null}
-        {tx.note        ? <Text style={DV.txNote}>{tx.note}</Text> : null}
+        {!!tx.note && <Text style={DV.txNote}>{tx.note}</Text>}
         <Text style={DV.txDate}>{fmtDateTime(tx.createdAt)}</Text>
       </View>
       <Text style={[DV.txQty, { color }]}>
-        {sign}{fmt(tx.quantity)} {tx.unitOfMeasure}
+        {sign}{fmt(absQty)} {tx.unitOfMeasure}
       </Text>
     </View>
   );
@@ -791,6 +840,7 @@ const DV = StyleSheet.create({
 
   emptyTx: { color: '#2d4f78', fontSize: 13, marginTop: 8 },
 
+  // ── compact row (non-usage types) ──
   txRow:  { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#0d1e35', gap: 12 },
   txLeft: { flex: 1 },
   txType: { fontSize: 13, fontWeight: '700' },
@@ -798,6 +848,19 @@ const DV = StyleSheet.create({
   txNote: { color: '#2d4f78', fontSize: 11, marginTop: 2, fontStyle: 'italic' },
   txDate: { color: '#1e3050', fontSize: 10, marginTop: 4 },
   txQty:  { fontSize: 14, fontWeight: '800', marginTop: 2 },
+
+  // ── usage_out card ──
+  txCard:       { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#0d1e35' },
+  txCardTop:    { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  txBadge:      { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 5, borderWidth: 1 },
+  txBadgeText:  { fontSize: 9, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 },
+  txUsageQty:   { fontSize: 18, fontWeight: '800' },
+  txReason:     { color: '#cbd5e1', fontSize: 13, fontWeight: '600', marginBottom: 3 },
+  txArea:       { color: '#4a7ab5', fontSize: 11, marginBottom: 2 },
+  txNotePreview:{ color: '#3d6090', fontSize: 11, fontStyle: 'italic', marginBottom: 4 },
+  txCardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  txUser:       { color: '#3d6090', fontSize: 11 },
+  txRelTime:    { color: '#2d4f78', fontSize: 10 },
 });
 
 // ─── Set Threshold Modal styles ───────────────────────────────────────────────
