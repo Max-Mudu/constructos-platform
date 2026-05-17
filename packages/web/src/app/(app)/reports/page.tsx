@@ -183,6 +183,72 @@ function DSRSection({ title, children }: { title: string; children: ReactNode })
   );
 }
 
+const EXEC_STATUS_STYLE: Record<string, { badge: string; reason: string }> = {
+  delayed:     { badge: 'bg-amber-950/40 border-amber-500/40 text-amber-400',  reason: 'text-amber-400'  },
+  blocked:     { badge: 'bg-red-950/40 border-red-500/40 text-red-400',        reason: 'text-red-400'    },
+  in_progress: { badge: 'bg-blue-950/40 border-blue-500/40 text-blue-400',     reason: 'text-blue-400'   },
+  completed:   { badge: 'bg-green-950/40 border-green-500/40 text-green-400',  reason: 'text-green-400'  },
+  not_started: { badge: 'bg-slate-900/40 border-slate-500/40 text-slate-400',  reason: 'text-slate-400'  },
+};
+
+function ScheduleExecList({ data }: { data: ReportData }) {
+  const tasks = data.rows.filter((r) => r[0]?.startsWith('Task: '));
+  if (tasks.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+        Schedule Details
+      </p>
+      <div className="space-y-2">
+        {tasks.map((r, i) => {
+          const title       = (r[0] ?? '').slice(6);
+          const status      = r[1] ?? '';
+          const actualPct   = r[2] ? `${r[2]}%` : null;
+          const plannedPct  = r[3] ? `${r[3]}%` : null;
+          const plannedEnd  = r[4] ?? '';
+          const actualStart = r[5] ?? '';
+          const actualEnd   = r[6] ?? '';
+          const reason      = r[7] ?? '';
+          const notes       = r[8] ?? '';
+          const s = EXEC_STATUS_STYLE[status] ?? EXEC_STATUS_STYLE['not_started']!;
+          const statusLabel = status.replace(/_/g, ' ');
+          return (
+            <div key={i} className="rounded-lg border border-border bg-card/50 px-3 py-2.5">
+              <div className="flex items-start gap-2 mb-1.5">
+                <span className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border ${s.badge}`}>
+                  {statusLabel}
+                </span>
+                <span className="text-sm font-medium text-foreground leading-tight">{title}</span>
+              </div>
+              {(actualPct !== null || plannedPct !== null) && (
+                <p className="text-xs text-muted-foreground">
+                  Progress: {actualPct ?? '—'} actual / {plannedPct ?? '—'} planned
+                </p>
+              )}
+              {(actualStart || actualEnd) && (
+                <p className="text-xs text-muted-foreground/60">
+                  Actual: {actualStart || '?'}{actualEnd ? ` – ${actualEnd}` : ''}
+                </p>
+              )}
+              {plannedEnd && (
+                <p className="text-xs text-muted-foreground/60">Due: {plannedEnd}</p>
+              )}
+              {reason && (
+                <p className={`text-xs mt-1 ${s.reason}`}>
+                  {status === 'blocked' ? 'Block' : 'Delay'}: {reason}
+                </p>
+              )}
+              {notes && (
+                <p className="text-[11px] text-muted-foreground/70 mt-1 italic line-clamp-2">{notes}</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function DailySiteReportViewer({ data }: { data: ReportData }) {
   const num = (label: string): number => {
     const item = data.summary.find((s) => s.label === label);
@@ -374,6 +440,8 @@ function DailySiteReportViewer({ data }: { data: ReportData }) {
           note={tasksBehindPlan > 0 ? 'Progress 10+ pts below planned' : undefined}
         />
       </DSRSection>
+
+      <ScheduleExecList data={data} />
     </div>
   );
 }

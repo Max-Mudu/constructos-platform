@@ -621,7 +621,17 @@ export async function dailySiteReport(
     }),
     prisma.scheduleTask.findMany({
       where:  { companyId, projectId, siteId },
-      select: { status: true, plannedEndDate: true, actualProgress: true, plannedProgress: true },
+      select: {
+        title:           true,
+        status:          true,
+        plannedEndDate:  true,
+        actualStartDate: true,
+        actualEndDate:   true,
+        plannedProgress: true,
+        actualProgress:  true,
+        delayReason:     true,
+        comments:        true,
+      },
     }),
   ]);
 
@@ -711,6 +721,37 @@ export async function dailySiteReport(
            Number(t.actualProgress) < Number(t.plannedProgress) - 10,
   ).length;
 
+  // ── Schedule execution detail rows (delayed/blocked first, then behind plan) ──
+  const taskDetailRows: string[][] = scheduleTasks
+    .filter((t) =>
+      t.actualStartDate !== null ||
+      t.actualEndDate   !== null ||
+      t.delayReason     !== null ||
+      t.comments        !== null,
+    )
+    .sort((a, b) => {
+      const pri = (t: typeof a): number => {
+        if (t.status === 'delayed' || t.status === 'blocked') return 0;
+        if (
+          t.actualProgress !== null && t.plannedProgress !== null &&
+          Number(t.actualProgress) < Number(t.plannedProgress) - 10
+        ) return 1;
+        return 2;
+      };
+      return pri(a) - pri(b);
+    })
+    .map((t) => [
+      `Task: ${t.title}`,
+      t.status,
+      t.actualProgress  !== null ? String(Math.round(Number(t.actualProgress)))  : '',
+      t.plannedProgress !== null ? String(Math.round(Number(t.plannedProgress))) : '',
+      fmtDate(t.plannedEndDate),
+      fmtDate(t.actualStartDate),
+      fmtDate(t.actualEndDate),
+      t.delayReason ?? '',
+      (t.comments ?? '').slice(0, 120),
+    ]);
+
   const summary = [
     { label: 'Workers On Site',               value: String(workersOnSite) },
     { label: 'Workers Absent',                value: String(workersAbsent) },
@@ -764,6 +805,8 @@ export async function dailySiteReport(
     ['Tasks Blocked',               String(tasksBlocked),            tasksBlocked > 0 ? 'Investigate blockers' : ''],
     ['Tasks Behind Plan',           String(tasksBehindPlan),         tasksBehindPlan > 0 ? 'Actual progress 10+ points below planned' : ''],
   ];
+
+  if (taskDetailRows.length > 0) rows.push(...taskDetailRows);
 
   return {
     title:       'Daily Site Report',

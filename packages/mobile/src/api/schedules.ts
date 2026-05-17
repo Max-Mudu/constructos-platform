@@ -15,6 +15,8 @@ export interface CreateTaskInput {
 export interface UpdateTaskInput {
   status?:          ScheduleTaskStatus;
   actualProgress?:  number | null;
+  actualStartDate?: string | null;
+  actualEndDate?:   string | null;
   delayReason?:     string | null;
   comments?:        string | null;
 }

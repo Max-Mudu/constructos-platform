@@ -139,16 +139,20 @@ function UpdateTaskModal({
   onClose:   () => void;
   onUpdated: () => void;
 }) {
-  const [status,       setStatus]       = useState<ScheduleTaskStatus>('not_started');
-  const [progressText, setProgressText] = useState('');
-  const [delayReason,  setDelayReason]  = useState('');
-  const [comments,     setComments]     = useState('');
-  const [saving,       setSaving]       = useState(false);
+  const [status,          setStatus]          = useState<ScheduleTaskStatus>('not_started');
+  const [progressText,    setProgressText]    = useState('');
+  const [actualStartDate, setActualStartDate] = useState('');
+  const [actualEndDate,   setActualEndDate]   = useState('');
+  const [delayReason,     setDelayReason]     = useState('');
+  const [comments,        setComments]        = useState('');
+  const [saving,          setSaving]          = useState(false);
 
   useEffect(() => {
     if (task) {
       setStatus(task.status);
       setProgressText(task.actualProgress != null ? String(task.actualProgress) : '');
+      setActualStartDate(normalizeDate(task.actualStartDate) ?? '');
+      setActualEndDate(normalizeDate(task.actualEndDate) ?? '');
       setDelayReason(task.delayReason ?? '');
       setComments(task.comments ?? '');
     }
@@ -176,8 +180,10 @@ function UpdateTaskModal({
       await schedulesApi.updateTask(task.projectId, task.siteId, task.id, {
         status,
         actualProgress,
-        delayReason: needsReason ? (delayReason.trim() || null) : null,
-        comments:    comments.trim() || null,
+        actualStartDate: actualStartDate.trim() || null,
+        actualEndDate:   actualEndDate.trim()   || null,
+        delayReason:     needsReason ? (delayReason.trim() || null) : null,
+        comments:        comments.trim() || null,
       });
       onUpdated();
       onClose();
@@ -295,6 +301,39 @@ function UpdateTaskModal({
             </View>
           ) : null}
 
+          {/* Execution dates */}
+          <View style={UM.section}>
+            <Text style={UM.sectionLabel}>Actual Start Date (YYYY-MM-DD)</Text>
+            <View style={UM.inputWrap}>
+              <TextInput
+                style={UM.input}
+                value={actualStartDate}
+                onChangeText={setActualStartDate}
+                placeholder="e.g. 2025-06-01"
+                placeholderTextColor="#1e3a5f"
+                keyboardType="numbers-and-punctuation"
+                autoCapitalize="none"
+              />
+            </View>
+          </View>
+
+          {(status === 'in_progress' || status === 'completed') ? (
+            <View style={UM.section}>
+              <Text style={UM.sectionLabel}>Actual End Date (YYYY-MM-DD)</Text>
+              <View style={UM.inputWrap}>
+                <TextInput
+                  style={UM.input}
+                  value={actualEndDate}
+                  onChangeText={setActualEndDate}
+                  placeholder="e.g. 2025-06-15"
+                  placeholderTextColor="#1e3a5f"
+                  keyboardType="numbers-and-punctuation"
+                  autoCapitalize="none"
+                />
+              </View>
+            </View>
+          ) : null}
+
           {/* Delay / block reason */}
           {showReason ? (
             <View style={UM.section}>
@@ -314,15 +353,15 @@ function UpdateTaskModal({
             </View>
           ) : null}
 
-          {/* Comments */}
+          {/* Execution Notes */}
           <View style={UM.section}>
-            <Text style={UM.sectionLabel}>Comments (optional)</Text>
+            <Text style={UM.sectionLabel}>Execution Notes (optional)</Text>
             <View style={[UM.inputWrap, UM.inputMulti]}>
               <TextInput
                 style={[UM.input, { height: 72, textAlignVertical: 'top' }]}
                 value={comments}
                 onChangeText={setComments}
-                placeholder="Any notes for the site team…"
+                placeholder="Site observations, materials used, issues…"
                 placeholderTextColor="#1e3a5f"
                 multiline
               />
@@ -797,11 +836,14 @@ export default function ScheduleScreen() {
           </View>
         }
         renderItem={({ item }) => {
-          const cfg      = getStatusConfig(item.status);
-          const accent   = getTaskAccent(item, todayStr);
-          const progress = item.actualProgress ?? 0;
-          const start    = normalizeDate(item.plannedStartDate);
-          const end      = normalizeDate(item.plannedEndDate);
+          const cfg         = getStatusConfig(item.status);
+          const accent      = getTaskAccent(item, todayStr);
+          const progress    = item.actualProgress ?? 0;
+          const start       = normalizeDate(item.plannedStartDate);
+          const end         = normalizeDate(item.plannedEndDate);
+          const actualStart = normalizeDate(item.actualStartDate);
+          const actualEnd   = normalizeDate(item.actualEndDate);
+          const hasActualDates = actualStart !== null || actualEnd !== null;
 
           const card = (
             <View style={[A.taskCard, accent]}>
@@ -855,9 +897,35 @@ export default function ScheduleScreen() {
                 </View>
               </View>
 
+              {/* Actual execution dates */}
+              {hasActualDates ? (
+                <View style={A.actualDateRow}>
+                  {actualStart ? (
+                    <View style={A.datePill}>
+                      <Text style={A.actualDateLabel}>ACT.START</Text>
+                      <Text style={A.actualDateValue}>{fmtDate(actualStart)}</Text>
+                    </View>
+                  ) : null}
+                  {actualStart && actualEnd ? <View style={A.dateDivider} /> : null}
+                  {actualEnd ? (
+                    <View style={A.datePill}>
+                      <Text style={A.actualDateLabel}>ACT.END</Text>
+                      <Text style={A.actualDateValue}>{fmtDate(actualEnd)}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
               {/* Delay/block reason */}
               {item.delayReason ? (
-                <Text style={A.delayText}>⚠ {item.delayReason}</Text>
+                <Text style={item.status === 'blocked' ? A.blockText : A.delayText}>
+                  {item.status === 'blocked' ? '🚫 Block: ' : '⚠ Delay: '}{item.delayReason}
+                </Text>
+              ) : null}
+
+              {/* Execution notes preview */}
+              {item.comments ? (
+                <Text style={A.execNotesText} numberOfLines={2}>{item.comments}</Text>
               ) : null}
 
               {/* Update hint */}
@@ -1036,8 +1104,15 @@ const A = StyleSheet.create({
   datePillValue: { color: '#c8d8f0', fontSize: 12, fontWeight: '600' },
   dateDivider:   { width: 1, height: 16, backgroundColor: '#0e1e36' },
 
-  delayText: { color: '#f59e0b', fontSize: 12, fontWeight: '500' },
-  tapHint:   { color: '#1e3a5f', fontSize: 11, textAlign: 'right' },
+  // Actual execution dates
+  actualDateRow:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  actualDateLabel: { color: '#16a34a', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  actualDateValue: { color: '#86efac', fontSize: 12, fontWeight: '600' },
+
+  delayText:    { color: '#f59e0b', fontSize: 12, fontWeight: '500' },
+  blockText:    { color: '#f87171', fontSize: 12, fontWeight: '500' },
+  execNotesText:{ color: '#475569', fontSize: 11, fontStyle: 'italic', lineHeight: 16 },
+  tapHint:      { color: '#1e3a5f', fontSize: 11, textAlign: 'right' },
 
   // Risk strip
   riskStrip: { borderBottomWidth: 1, borderBottomColor: '#0e1f38', backgroundColor: '#060d1b', paddingVertical: 8 },

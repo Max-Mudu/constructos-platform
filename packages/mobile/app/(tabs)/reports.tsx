@@ -202,6 +202,68 @@ function DSRSection({ title, children }: { title: string; children: React.ReactN
   );
 }
 
+const EXEC_STATUS: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  delayed:     { label: 'Delayed',     color: '#f59e0b', bg: '#1a1200', border: '#422006' },
+  blocked:     { label: 'Blocked',     color: '#ef4444', bg: '#1a0606', border: '#450a0a' },
+  in_progress: { label: 'In Progress', color: '#3b82f6', bg: '#0e1e36', border: '#1e3a6e' },
+  completed:   { label: 'Completed',   color: '#22c55e', bg: '#071a0e', border: '#14532d' },
+  not_started: { label: 'Not Started', color: '#64748b', bg: '#0a1628', border: '#142240' },
+};
+
+function ScheduleExecList({ rows }: { rows: ReportData['rows'] }) {
+  const tasks = rows.filter((r) => r[0]?.startsWith('Task: '));
+  if (tasks.length === 0) return null;
+  return (
+    <View style={dsr2.execSection}>
+      <Text style={dsr2.execHeader}>Schedule Details</Text>
+      {tasks.map((r, i) => {
+        const title       = (r[0] ?? '').slice(6);
+        const status      = r[1] ?? '';
+        const actualPct   = r[2] ? `${r[2]}%` : null;
+        const plannedPct  = r[3] ? `${r[3]}%` : null;
+        const plannedEnd  = r[4] ?? '';
+        const actualStart = r[5] ?? '';
+        const actualEnd   = r[6] ?? '';
+        const reason      = r[7] ?? '';
+        const notes       = r[8] ?? '';
+        const sc = EXEC_STATUS[status] ?? EXEC_STATUS['not_started']!;
+        const reasonColor = status === 'blocked' ? '#ef4444' : '#f59e0b';
+        return (
+          <View key={i} style={[dsr2.execCard, { borderColor: sc.border }]}>
+            <View style={dsr2.execCardTop}>
+              <View style={[dsr2.execBadge, { backgroundColor: sc.bg, borderColor: sc.border }]}>
+                <Text style={[dsr2.execBadgeText, { color: sc.color }]}>{sc.label}</Text>
+              </View>
+              <Text style={dsr2.execTitle} numberOfLines={2}>{title}</Text>
+            </View>
+            {(actualPct !== null || plannedPct !== null) && (
+              <Text style={dsr2.execProgress}>
+                Progress: {actualPct ?? '—'} actual / {plannedPct ?? '—'} planned
+              </Text>
+            )}
+            {(actualStart || actualEnd) && (
+              <Text style={dsr2.execDates}>
+                Actual: {actualStart || '?'}{actualEnd ? ` – ${actualEnd}` : ''}
+              </Text>
+            )}
+            {!!plannedEnd && (
+              <Text style={dsr2.execDates}>Due: {plannedEnd}</Text>
+            )}
+            {!!reason && (
+              <Text style={[dsr2.execReason, { color: reasonColor }]}>
+                {status === 'blocked' ? 'Block' : 'Delay'}: {reason}
+              </Text>
+            )}
+            {!!notes && (
+              <Text style={dsr2.execNotes} numberOfLines={2}>{notes}</Text>
+            )}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 function DailySiteReportViewer({
   report,
   onClose,
@@ -451,6 +513,8 @@ function DailySiteReportViewer({
           onPress={nav('schedule')}
         />
       </DSRSection>
+
+      <ScheduleExecList rows={report.rows} />
     </ScrollView>
   );
 }
@@ -797,4 +861,16 @@ const dsr2 = StyleSheet.create({
   cardLabel:    { color: '#94a3b8', fontSize: 10, fontWeight: '600', textAlign: 'center', textTransform: 'uppercase', letterSpacing: 0.5 },
   cardNote:     { color: '#64748b', fontSize: 9, textAlign: 'center', marginTop: 4 },
   cardTap:      { color: '#3b82f6', fontSize: 9, fontWeight: '600', textAlign: 'center', marginTop: 6, letterSpacing: 0.3 },
+
+  execSection:   { marginBottom: 20, marginTop: 4 },
+  execHeader:    { color: '#64748b', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8 },
+  execCard:      { borderRadius: 8, borderWidth: 1, borderColor: '#334155', backgroundColor: '#0f172a', padding: 10, marginBottom: 8 },
+  execCardTop:   { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 6 },
+  execBadge:     { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, borderWidth: 1, flexShrink: 0 },
+  execBadgeText: { fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  execTitle:     { flex: 1, color: '#f1f5f9', fontSize: 12, fontWeight: '600' },
+  execProgress:  { color: '#94a3b8', fontSize: 11, marginBottom: 2 },
+  execDates:     { color: '#64748b', fontSize: 10, marginBottom: 2 },
+  execReason:    { fontSize: 11, marginTop: 4 },
+  execNotes:     { color: '#94a3b8', fontSize: 10, marginTop: 4, fontStyle: 'italic' },
 });
