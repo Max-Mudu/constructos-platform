@@ -89,7 +89,9 @@ function TxRow({ tx }: { tx: InventoryTransaction }) {
               ? `${tx.performedBy.firstName} ${tx.performedBy.lastName}`
               : '—'}
         </Text>
-        {tx.note ? <Text style={DV.txNote}>{tx.note}</Text> : null}
+        {tx.usageReason ? <Text style={DV.txNote}>{tx.usageReason}</Text> : null}
+        {tx.workArea    ? <Text style={DV.txMeta}>Area: {tx.workArea}</Text> : null}
+        {tx.note        ? <Text style={DV.txNote}>{tx.note}</Text> : null}
         <Text style={DV.txDate}>{fmtDateTime(tx.createdAt)}</Text>
       </View>
       <Text style={[DV.txQty, { color }]}>
@@ -111,12 +113,17 @@ function RecordUsageModal({
   onClose:   () => void;
   onSaved:   () => void;
 }) {
-  const [qty,    setQty]    = useState('');
-  const [note,   setNote]   = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error,  setError]  = useState<string | null>(null);
+  const [qty,         setQty]         = useState('');
+  const [usageReason, setUsageReason] = useState('');
+  const [workArea,    setWorkArea]    = useState('');
+  const [note,        setNote]        = useState('');
+  const [saving,      setSaving]      = useState(false);
+  const [error,       setError]       = useState<string | null>(null);
 
-  function reset() { setQty(''); setNote(''); setError(null); setSaving(false); }
+  function reset() {
+    setQty(''); setUsageReason(''); setWorkArea(''); setNote('');
+    setError(null); setSaving(false);
+  }
   function handleClose() { reset(); onClose(); }
 
   async function save() {
@@ -134,8 +141,10 @@ function RecordUsageModal({
     setSaving(true);
     try {
       await inventoryApi.recordUsage(projectId, siteId, item.id, {
-        quantity: n,
-        note:     note.trim() || undefined,
+        quantity:     n,
+        usageReason:  usageReason.trim() || undefined,
+        workArea:     workArea.trim()    || undefined,
+        note:         note.trim()        || undefined,
       });
       reset();
       onSaved();
@@ -174,7 +183,7 @@ function RecordUsageModal({
             </View>
 
             {/* Quantity */}
-            <Text style={UM.fieldLabel}>Quantity Used</Text>
+            <Text style={UM.fieldLabel}>Quantity Used *</Text>
             <View style={UM.inputWrap}>
               <TextInput
                 style={UM.input}
@@ -188,14 +197,40 @@ function RecordUsageModal({
               <Text style={UM.inputUnit}>{item.unitOfMeasure}</Text>
             </View>
 
-            {/* Note */}
-            <Text style={[UM.fieldLabel, { marginTop: 16 }]}>Reason / Note (optional)</Text>
+            {/* Usage Reason */}
+            <Text style={[UM.fieldLabel, { marginTop: 16 }]}>Usage Reason (optional)</Text>
+            <View style={UM.inputWrap}>
+              <TextInput
+                style={UM.input}
+                value={usageReason}
+                onChangeText={setUsageReason}
+                placeholder="e.g. Foundation pour, Block A plastering"
+                placeholderTextColor="#1e3050"
+                returnKeyType="next"
+              />
+            </View>
+
+            {/* Work Area */}
+            <Text style={[UM.fieldLabel, { marginTop: 16 }]}>Work Area (optional)</Text>
+            <View style={UM.inputWrap}>
+              <TextInput
+                style={UM.input}
+                value={workArea}
+                onChangeText={setWorkArea}
+                placeholder="e.g. Block A, Foundation, Roof"
+                placeholderTextColor="#1e3050"
+                returnKeyType="next"
+              />
+            </View>
+
+            {/* Notes */}
+            <Text style={[UM.fieldLabel, { marginTop: 16 }]}>Notes (optional)</Text>
             <View style={[UM.inputWrap, { height: 80, alignItems: 'flex-start', paddingTop: 12 }]}>
               <TextInput
                 style={[UM.input, { height: 56, textAlignVertical: 'top' }]}
                 value={note}
                 onChangeText={setNote}
-                placeholder="e.g. Foundation pour, Block A"
+                placeholder="Any additional notes"
                 placeholderTextColor="#1e3050"
                 multiline
               />

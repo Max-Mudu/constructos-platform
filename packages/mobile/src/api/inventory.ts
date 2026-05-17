@@ -25,7 +25,13 @@ export const inventoryApi = {
     projectId:   string,
     siteId:      string,
     inventoryId: string,
-    body:        { quantity: number; note?: string },
+    body: {
+      quantity:        number;
+      note?:           string;
+      usageReason?:    string;
+      workArea?:       string;
+      scheduleTaskId?: string;
+    },
   ): Promise<SiteInventoryItem> => {
     const res = await apiClient.post<{ item: SiteInventoryItem }>(
       `/projects/${projectId}/sites/${siteId}/inventory/${inventoryId}/use`,

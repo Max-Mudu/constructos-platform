@@ -385,14 +385,17 @@ export interface SiteInventoryItem {
 }
 
 export interface InventoryTransaction {
-  id:            string;
-  type:          InventoryTxType;
-  quantity:      number;
-  unitOfMeasure: string;
-  note:          string | null;
-  createdAt:     string;
-  delivery:      { id: string; supplierName: string; deliveryDate: string } | null;
-  performedBy:   { id: string; firstName: string; lastName: string } | null;
+  id:             string;
+  type:           InventoryTxType;
+  quantity:       number;
+  unitOfMeasure:  string;
+  note:           string | null;
+  usageReason:    string | null;
+  workArea:       string | null;
+  scheduleTaskId: string | null;
+  createdAt:      string;
+  delivery:       { id: string; supplierName: string; deliveryDate: string } | null;
+  performedBy:    { id: string; firstName: string; lastName: string } | null;
 }
 
 export interface SiteInventoryItemDetail extends SiteInventoryItem {

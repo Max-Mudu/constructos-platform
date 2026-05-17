@@ -210,6 +210,43 @@ const EXEC_STATUS: Record<string, { label: string; color: string; bg: string; bo
   not_started: { label: 'Not Started', color: '#64748b', bg: '#0a1628', border: '#142240' },
 };
 
+const ACT_TYPE_LABELS: Record<string, string> = {
+  status_change:   'Status Change',
+  progress_update: 'Progress Update',
+  delay_reason:    'Delay Reason',
+  block_reason:    'Block Reason',
+  note_update:     'Note Added',
+};
+
+function ScheduleActivityList({ rows }: { rows: ReportData['rows'] }) {
+  const activities = rows.filter((r) => r[0]?.startsWith('Activity: '));
+  if (activities.length === 0) return null;
+  return (
+    <View style={dsr2.execSection}>
+      <Text style={dsr2.execHeader}>Schedule Activity Today</Text>
+      {activities.map((r, i) => {
+        const rawType   = (r[0] ?? '').slice(10);
+        const taskTitle = r[1] ?? '';
+        const userName  = r[2] ?? '';
+        const time      = r[3] ?? '';
+        const preview   = r[4] ?? '';
+        const typeLabel = ACT_TYPE_LABELS[rawType] ?? rawType.replace(/_/g, ' ');
+        return (
+          <View key={i} style={dsr2.actRow}>
+            <View style={dsr2.actRowTop}>
+              <Text style={dsr2.actType}>{typeLabel}</Text>
+              <Text style={dsr2.actTime}>{time}</Text>
+            </View>
+            <Text style={dsr2.actTask} numberOfLines={1}>{taskTitle}</Text>
+            {!!userName && <Text style={dsr2.actUser}>{userName}</Text>}
+            {!!preview  && <Text style={dsr2.actPreview} numberOfLines={2}>{preview}</Text>}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
 function ScheduleExecList({ rows }: { rows: ReportData['rows'] }) {
   const tasks = rows.filter((r) => r[0]?.startsWith('Task: '));
   if (tasks.length === 0) return null;
@@ -315,6 +352,10 @@ function DailySiteReportViewer({
   const tasksOverdue         = num('Tasks Overdue');
   const tasksBlocked         = num('Tasks Blocked');
   const tasksBehindPlan      = num('Tasks Behind Plan');
+  const scheduleUpdatesTotal = num('Schedule Updates Today');
+  const statusChangesToday   = num('Status Changes Today');
+  const progressUpdatesToday = num('Progress Updates Today');
+  const delayBlockNotes      = num('Delay/Block Notes Today');
 
   return (
     <ScrollView contentContainerStyle={styles.viewerScroll} showsVerticalScrollIndicator={false}>
@@ -512,8 +553,30 @@ function DailySiteReportViewer({
           note={tasksBehindPlan > 0 ? 'Progress 10+ pts below planned' : undefined}
           onPress={nav('schedule')}
         />
+        <DSRCard
+          label="Updates Today"
+          value={String(scheduleUpdatesTotal)}
+          color={scheduleUpdatesTotal > 0 ? 'blue' : 'green'}
+          onPress={nav('schedule')}
+        />
+        <DSRCard
+          label="Status Changes"
+          value={String(statusChangesToday)}
+          color={statusChangesToday > 0 ? 'amber' : 'green'}
+        />
+        <DSRCard
+          label="Progress Updates"
+          value={String(progressUpdatesToday)}
+          color={progressUpdatesToday > 0 ? 'blue' : 'green'}
+        />
+        <DSRCard
+          label="Delay/Block Notes"
+          value={String(delayBlockNotes)}
+          color={delayBlockNotes > 0 ? 'red' : 'green'}
+        />
       </DSRSection>
 
+      <ScheduleActivityList rows={report.rows} />
       <ScheduleExecList rows={report.rows} />
     </ScrollView>
   );
@@ -873,4 +936,12 @@ const dsr2 = StyleSheet.create({
   execDates:     { color: '#64748b', fontSize: 10, marginBottom: 2 },
   execReason:    { fontSize: 11, marginTop: 4 },
   execNotes:     { color: '#94a3b8', fontSize: 10, marginTop: 4, fontStyle: 'italic' },
+
+  actRow:    { borderRadius: 6, borderWidth: 1, borderColor: '#1e293b', backgroundColor: '#0a1628', padding: 8, marginBottom: 6 },
+  actRowTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 },
+  actType:   { color: '#93c5fd', fontSize: 10, fontWeight: '700' },
+  actTime:   { color: '#64748b', fontSize: 10 },
+  actTask:   { color: '#f1f5f9', fontSize: 11, fontWeight: '600', marginBottom: 1 },
+  actUser:   { color: '#64748b', fontSize: 10, marginBottom: 2 },
+  actPreview:{ color: '#94a3b8', fontSize: 10, fontStyle: 'italic' },
 });

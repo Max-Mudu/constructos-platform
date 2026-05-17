@@ -191,6 +191,47 @@ const EXEC_STATUS_STYLE: Record<string, { badge: string; reason: string }> = {
   not_started: { badge: 'bg-slate-900/40 border-slate-500/40 text-slate-400',  reason: 'text-slate-400'  },
 };
 
+const ACT_TYPE_LABELS: Record<string, string> = {
+  status_change:   'Status Change',
+  progress_update: 'Progress Update',
+  delay_reason:    'Delay Reason',
+  block_reason:    'Block Reason',
+  note_update:     'Note Added',
+};
+
+function ScheduleActivityList({ data }: { data: ReportData }) {
+  const activities = data.rows.filter((r) => r[0]?.startsWith('Activity: '));
+  if (activities.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/70">
+        Schedule Activity Today
+      </p>
+      <div className="space-y-1.5">
+        {activities.map((r, i) => {
+          const rawType   = (r[0] ?? '').slice(10);
+          const taskTitle = r[1] ?? '';
+          const userName  = r[2] ?? '';
+          const time      = r[3] ?? '';
+          const preview   = r[4] ?? '';
+          const typeLabel = ACT_TYPE_LABELS[rawType] ?? rawType.replace(/_/g, ' ');
+          return (
+            <div key={i} className="rounded-md border border-border/50 bg-muted/20 px-3 py-2">
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-[10px] font-bold text-blue-400">{typeLabel}</span>
+                <span className="text-[10px] text-muted-foreground/60">{time}</span>
+              </div>
+              <p className="text-xs font-medium text-foreground truncate">{taskTitle}</p>
+              {userName && <p className="text-[10px] text-muted-foreground/60">{userName}</p>}
+              {preview  && <p className="text-[10px] text-muted-foreground/70 italic line-clamp-1">{preview}</p>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ScheduleExecList({ data }: { data: ReportData }) {
   const tasks = data.rows.filter((r) => r[0]?.startsWith('Task: '));
   if (tasks.length === 0) return null;
@@ -283,6 +324,10 @@ function DailySiteReportViewer({ data }: { data: ReportData }) {
   const tasksOverdue         = num('Tasks Overdue');
   const tasksBlocked         = num('Tasks Blocked');
   const tasksBehindPlan      = num('Tasks Behind Plan');
+  const scheduleUpdatesTotal = num('Schedule Updates Today');
+  const statusChangesToday   = num('Status Changes Today');
+  const progressUpdatesToday = num('Progress Updates Today');
+  const delayBlockNotes      = num('Delay/Block Notes Today');
 
   return (
     <div className="space-y-6">
@@ -439,8 +484,29 @@ function DailySiteReportViewer({ data }: { data: ReportData }) {
           color={tasksBehindPlan > 0 ? 'amber' : 'green'}
           note={tasksBehindPlan > 0 ? 'Progress 10+ pts below planned' : undefined}
         />
+        <DSRCard
+          label="Updates Today"
+          value={scheduleUpdatesTotal}
+          color={scheduleUpdatesTotal > 0 ? 'blue' : 'green'}
+        />
+        <DSRCard
+          label="Status Changes"
+          value={statusChangesToday}
+          color={statusChangesToday > 0 ? 'amber' : 'green'}
+        />
+        <DSRCard
+          label="Progress Updates"
+          value={progressUpdatesToday}
+          color={progressUpdatesToday > 0 ? 'blue' : 'green'}
+        />
+        <DSRCard
+          label="Delay/Block Notes"
+          value={delayBlockNotes}
+          color={delayBlockNotes > 0 ? 'red' : 'green'}
+        />
       </DSRSection>
 
+      <ScheduleActivityList data={data} />
       <ScheduleExecList data={data} />
     </div>
   );

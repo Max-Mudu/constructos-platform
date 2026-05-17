@@ -1330,17 +1330,20 @@ model SiteInventory {
 }
 
 model InventoryTransaction {
-  id            String          @id @default(uuid())
-  companyId     String
-  siteId        String
-  inventoryId   String
-  deliveryId    String?
-  type          InventoryTxType
-  quantity      Decimal         @db.Decimal(12, 3)
-  unitOfMeasure String
-  note          String?
-  performedById String?
-  createdAt     DateTime        @default(now())
+  id             String          @id @default(uuid())
+  companyId      String
+  siteId         String
+  inventoryId    String
+  deliveryId     String?
+  type           InventoryTxType
+  quantity       Decimal         @db.Decimal(12, 3)
+  unitOfMeasure  String
+  note           String?
+  usageReason    String?
+  workArea       String?
+  scheduleTaskId String?
+  performedById  String?
+  createdAt      DateTime        @default(now())
 
   company     Company         @relation(fields: [companyId], references: [id])
   site        JobSite         @relation(fields: [siteId], references: [id])

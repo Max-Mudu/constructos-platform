@@ -20,8 +20,11 @@ const WRITE_ROLES = [
 ] as const;
 
 const useInventorySchema = z.object({
-  quantity: z.number().positive('quantity must be greater than 0'),
-  note:     z.string().optional(),
+  quantity:       z.number().positive('quantity must be greater than 0'),
+  note:           z.string().optional(),
+  usageReason:    z.string().optional(),
+  workArea:       z.string().optional(),
+  scheduleTaskId: z.string().uuid().optional(),
 });
 
 const updateThresholdSchema = z.object({
@@ -103,8 +106,10 @@ export async function inventoryRoutes(fastify: FastifyInstance): Promise<void> {
         if (!parsed.success) {
           return reply.status(422).send({ error: parsed.error.errors[0]?.message ?? 'Invalid request body', code: 'VALIDATION_ERROR' });
         }
-        const { quantity, note } = parsed.data;
-        const item = await inventoryService.recordUsage(projectId, siteId, inventoryId, quantity, note, request.user);
+        const { quantity, note, usageReason, workArea, scheduleTaskId } = parsed.data;
+        const item = await inventoryService.recordUsage(
+          projectId, siteId, inventoryId, quantity, note, usageReason, workArea, scheduleTaskId, request.user,
+        );
         return reply.send({ item });
       } catch (err) {
         console.error('[inventory-usage] route error:', err);

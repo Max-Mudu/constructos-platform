@@ -22,12 +22,15 @@ const INVENTORY_ITEM_SELECT = {
 } as const;
 
 const TRANSACTION_SELECT = {
-  id:            true,
-  type:          true,
-  quantity:      true,
-  unitOfMeasure: true,
-  note:          true,
-  createdAt:     true,
+  id:             true,
+  type:           true,
+  quantity:       true,
+  unitOfMeasure:  true,
+  note:           true,
+  usageReason:    true,
+  workArea:       true,
+  scheduleTaskId: true,
+  createdAt:      true,
   delivery: {
     select: { id: true, supplierName: true, deliveryDate: true },
   },
@@ -174,12 +177,15 @@ export async function getInventoryItem(
 // ─── Usage deduction ──────────────────────────────────────────────────────────
 
 export async function recordUsage(
-  projectId:   string,
-  siteId:      string,
-  inventoryId: string,
-  quantity:    number,
-  note:        string | undefined,
-  actor:       RequestUser,
+  projectId:      string,
+  siteId:         string,
+  inventoryId:    string,
+  quantity:       number,
+  note:           string | undefined,
+  usageReason:    string | undefined,
+  workArea:       string | undefined,
+  scheduleTaskId: string | undefined,
+  actor:          RequestUser,
 ) {
   await checkSiteAccess(siteId, projectId, actor);
 
@@ -209,14 +215,17 @@ export async function recordUsage(
 
     await tx.inventoryTransaction.create({
       data: {
-        companyId:     actor.companyId,
+        companyId:      actor.companyId,
         siteId,
         inventoryId,
-        type:          'usage_out',
-        quantity:      negativeQty,
-        unitOfMeasure: item.unitOfMeasure,
-        note:          note ?? null,
-        performedById: actor.id,
+        type:           'usage_out',
+        quantity:       negativeQty,
+        unitOfMeasure:  item.unitOfMeasure,
+        note:           note           ?? null,
+        usageReason:    usageReason    ?? null,
+        workArea:       workArea       ?? null,
+        scheduleTaskId: scheduleTaskId ?? null,
+        performedById:  actor.id,
       },
     });
 

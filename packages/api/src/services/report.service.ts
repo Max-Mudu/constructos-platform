@@ -573,6 +573,7 @@ export async function dailySiteReport(
     openInstructionsCount,
     criticalInstructionsCount,
     scheduleTasks,
+    scheduleActivities,
   ] = await Promise.all([
     prisma.attendanceRecord.groupBy({
       by:    ['status'],
@@ -631,6 +632,20 @@ export async function dailySiteReport(
         actualProgress:  true,
         delayReason:     true,
         comments:        true,
+      },
+    }),
+    prisma.scheduleActivity.findMany({
+      where: {
+        createdAt: { gte: dayStart, lt: dayEnd },
+        task:      { companyId, projectId, siteId },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        type:      true,
+        newValue:  true,
+        createdAt: true,
+        task: { select: { title: true } },
+        user: { select: { firstName: true, lastName: true } },
       },
     }),
   ]);
@@ -721,6 +736,14 @@ export async function dailySiteReport(
            Number(t.actualProgress) < Number(t.plannedProgress) - 10,
   ).length;
 
+  // ── Schedule activity counts (today) ─────────────────────────────────────
+  const scheduleUpdatesTotal = scheduleActivities.length;
+  const statusChangesToday   = scheduleActivities.filter((a) => a.type === 'status_change').length;
+  const progressUpdatesToday = scheduleActivities.filter((a) => a.type === 'progress_update').length;
+  const delayBlockNotes      = scheduleActivities.filter(
+    (a) => a.type === 'delay_reason' || a.type === 'block_reason',
+  ).length;
+
   // ── Schedule execution detail rows (delayed/blocked first, then behind plan) ──
   const taskDetailRows: string[][] = scheduleTasks
     .filter((t) =>
@@ -777,6 +800,10 @@ export async function dailySiteReport(
     { label: 'Tasks Overdue',                 value: String(tasksOverdue) },
     { label: 'Tasks Blocked',                 value: String(tasksBlocked) },
     { label: 'Tasks Behind Plan',             value: String(tasksBehindPlan) },
+    { label: 'Schedule Updates Today',        value: String(scheduleUpdatesTotal) },
+    { label: 'Status Changes Today',          value: String(statusChangesToday) },
+    { label: 'Progress Updates Today',        value: String(progressUpdatesToday) },
+    { label: 'Delay/Block Notes Today',       value: String(delayBlockNotes) },
   ];
 
   const rows: string[][] = [
@@ -807,6 +834,15 @@ export async function dailySiteReport(
   ];
 
   if (taskDetailRows.length > 0) rows.push(...taskDetailRows);
+
+  const activityDetailRows = scheduleActivities.map((a) => [
+    `Activity: ${a.type}`,
+    a.task.title,
+    `${a.user.firstName} ${a.user.lastName}`,
+    a.createdAt.toISOString().slice(11, 16),
+    (a.newValue ?? '').slice(0, 80),
+  ]);
+  if (activityDetailRows.length > 0) rows.push(...activityDetailRows);
 
   return {
     title:       'Daily Site Report',
