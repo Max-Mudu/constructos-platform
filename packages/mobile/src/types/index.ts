@@ -300,6 +300,17 @@ export interface Instruction {
 
 export type ScheduleTaskStatus = 'not_started' | 'in_progress' | 'delayed' | 'blocked' | 'completed';
 
+export type ScheduleActivityType = 'status_change' | 'progress_update' | 'delay_reason' | 'block_reason' | 'note_update';
+
+export interface ScheduleActivity {
+  id:        string;
+  type:      ScheduleActivityType;
+  oldValue:  string | null;
+  newValue:  string | null;
+  createdAt: string;
+  user: { id: string; firstName: string; lastName: string; role: string };
+}
+
 export interface ScheduleMilestone {
   id:          string;
   taskId:      string;

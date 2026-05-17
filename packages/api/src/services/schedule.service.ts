@@ -589,7 +589,78 @@ export async function updateTask(
     },
   });
 
+  // ── Activity tracking (lightweight operational log) ───────────────────────
+  const activityRows: Array<{ type: string; oldValue: string | null; newValue: string | null }> = [];
+
+  if (input.status !== undefined && input.status !== before.status) {
+    activityRows.push({ type: 'status_change', oldValue: before.status, newValue: input.status });
+  }
+
+  if (input.actualProgress !== undefined) {
+    const oldPct = before.actualProgress !== null ? String(Math.round(Number(before.actualProgress))) : null;
+    const newPct = input.actualProgress  !== null ? String(input.actualProgress)                      : null;
+    if (oldPct !== newPct) {
+      activityRows.push({ type: 'progress_update', oldValue: oldPct, newValue: newPct });
+    }
+  }
+
+  if (input.delayReason !== undefined) {
+    const newReason = input.delayReason ?? null;
+    if (newReason !== null && newReason !== (before.delayReason ?? null)) {
+      const finalStatus = input.status ?? before.status;
+      activityRows.push({
+        type:     finalStatus === 'blocked' ? 'block_reason' : 'delay_reason',
+        oldValue: before.delayReason ?? null,
+        newValue: newReason,
+      });
+    }
+  }
+
+  if (input.comments !== undefined) {
+    const newNote = input.comments ?? null;
+    if (newNote !== null && newNote !== (before.comments ?? null)) {
+      activityRows.push({ type: 'note_update', oldValue: null, newValue: newNote.slice(0, 200) });
+    }
+  }
+
+  if (activityRows.length > 0) {
+    await prisma.scheduleActivity.createMany({
+      data: activityRows.map((a) => ({
+        scheduleTaskId: taskId,
+        userId:         actor.id,
+        type:           a.type,
+        oldValue:       a.oldValue,
+        newValue:       a.newValue,
+      })),
+    });
+  }
+
   return updated;
+}
+
+export async function getTaskActivity(
+  taskId: string,
+  projectId: string,
+  siteId: string,
+  actor: RequestUser,
+) {
+  await checkSiteAccess(siteId, projectId, actor);
+
+  const task = await prisma.scheduleTask.findFirst({
+    where: { id: taskId, projectId, siteId, companyId: actor.companyId },
+    select: { id: true },
+  });
+  if (!task) throw new NotFoundError('Schedule task');
+
+  return prisma.scheduleActivity.findMany({
+    where:   { scheduleTaskId: taskId },
+    select:  {
+      id: true, type: true, oldValue: true, newValue: true, createdAt: true,
+      user: { select: { id: true, firstName: true, lastName: true, role: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+    take:    20,
+  });
 }
 
 export async function deleteTask(

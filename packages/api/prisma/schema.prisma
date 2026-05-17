@@ -276,6 +276,7 @@ model User {
   worker                  Worker?
   pushTokens              PushToken[]
   inventoryTransactions   InventoryTransaction[]   @relation("InventoryTransactionPerformedBy")
+  scheduleActivities      ScheduleActivity[]       @relation("ScheduleActivityUser")
 
   @@map("users")
 }
@@ -1081,6 +1082,7 @@ model ScheduleTask {
   outgoingDeps ScheduleDependency[] @relation("DependentTask")
   incomingDeps ScheduleDependency[] @relation("DependsOnTask")
   weeklyItems  WeeklyPlanItem[]
+  activities   ScheduleActivity[]
 
   @@map("schedule_tasks")
 }
@@ -1154,6 +1156,21 @@ model WeeklyPlanItem {
 
   @@unique([weeklyPlanId, taskId])
   @@map("weekly_plan_items")
+}
+
+model ScheduleActivity {
+  id             String   @id @default(uuid())
+  scheduleTaskId String
+  userId         String
+  type           String
+  oldValue       String?
+  newValue       String?
+  createdAt      DateTime @default(now())
+
+  task ScheduleTask @relation(fields: [scheduleTaskId], references: [id], onDelete: Cascade)
+  user User         @relation("ScheduleActivityUser", fields: [userId], references: [id])
+
+  @@map("schedule_activities")
 }
 
 // ─── Suppliers ────────────────────────────────────────────────────────────────

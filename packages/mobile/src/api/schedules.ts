@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import { ScheduleTask, ScheduleTaskStatus } from '../types';
+import { ScheduleTask, ScheduleTaskStatus, ScheduleActivity } from '../types';
 
 export interface CreateTaskInput {
   contractorId:       string;
@@ -87,5 +87,20 @@ export const schedulesApi = {
       data,
     );
     return res.data.task;
+  },
+
+  getActivity: async (
+    projectId: string,
+    siteId: string,
+    taskId: string,
+  ): Promise<ScheduleActivity[]> => {
+    try {
+      const res = await apiClient.get<{ activities: ScheduleActivity[] }>(
+        `/projects/${projectId}/sites/${siteId}/schedule/tasks/${taskId}/activity`,
+      );
+      return res.data.activities;
+    } catch {
+      return [];
+    }
   },
 };

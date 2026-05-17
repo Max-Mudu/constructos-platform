@@ -7,7 +7,7 @@ import { useAuthStore } from '../../src/store/auth.store';
 import { projectsApi } from '../../src/api/projects';
 import { schedulesApi } from '../../src/api/schedules';
 import { contractorsApi } from '../../src/api/contractors';
-import { Project, JobSite, ScheduleTask, ScheduleTaskStatus, Contractor } from '../../src/types';
+import { Project, JobSite, ScheduleTask, ScheduleTaskStatus, Contractor, ScheduleActivity } from '../../src/types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -111,6 +111,41 @@ function fmtDate(iso: string | null | undefined): string {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
 }
 
+function fmtTimeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins  = Math.floor(diff / 60000);
+  if (mins < 1)   return 'just now';
+  if (mins < 60)  return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)   return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days === 1) return 'yesterday';
+  if (days < 7)   return `${days}d ago`;
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+function fmtActivityLine(type: ScheduleActivity['type'], oldValue: string | null, newValue: string | null): string {
+  const fmtStatus = (s: string) => s.replace(/_/g, ' ');
+  switch (type) {
+    case 'status_change':
+      return oldValue
+        ? `Status: ${fmtStatus(oldValue)} → ${fmtStatus(newValue ?? '')}`
+        : `Status set to ${fmtStatus(newValue ?? '')}`;
+    case 'progress_update':
+      return oldValue !== null
+        ? `Progress: ${oldValue}% → ${newValue ?? '0'}%`
+        : `Progress updated to ${newValue ?? '0'}%`;
+    case 'delay_reason':
+      return `Delay: ${newValue ?? ''}`;
+    case 'block_reason':
+      return `Blocked: ${newValue ?? ''}`;
+    case 'note_update':
+      return `Note: ${(newValue ?? '').slice(0, 80)}${(newValue ?? '').length > 80 ? '…' : ''}`;
+    default:
+      return newValue ?? '';
+  }
+}
+
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: ScheduleTaskStatus }) {
@@ -146,6 +181,7 @@ function UpdateTaskModal({
   const [delayReason,     setDelayReason]     = useState('');
   const [comments,        setComments]        = useState('');
   const [saving,          setSaving]          = useState(false);
+  const [activity,        setActivity]        = useState<ScheduleActivity[]>([]);
 
   useEffect(() => {
     if (task) {
@@ -155,6 +191,8 @@ function UpdateTaskModal({
       setActualEndDate(normalizeDate(task.actualEndDate) ?? '');
       setDelayReason(task.delayReason ?? '');
       setComments(task.comments ?? '');
+      setActivity([]);
+      void schedulesApi.getActivity(task.projectId, task.siteId, task.id).then(setActivity);
     }
   }, [task]);
 
@@ -380,6 +418,26 @@ function UpdateTaskModal({
           <TouchableOpacity style={UM.discardBtn} onPress={onClose} disabled={saving} activeOpacity={0.7}>
             <Text style={UM.discardBtnText}>Discard Changes</Text>
           </TouchableOpacity>
+
+          {/* ── Activity Timeline ──────────────────────────────────── */}
+          {activity.length > 0 && (
+            <View style={UM.timelineSection}>
+              <Text style={UM.timelineHeader}>Activity</Text>
+              {activity.map((a) => (
+                <View key={a.id} style={UM.timelineRow}>
+                  <View style={UM.timelineDot} />
+                  <View style={UM.timelineBody}>
+                    <Text style={UM.timelineText}>
+                      {fmtActivityLine(a.type, a.oldValue, a.newValue)}
+                    </Text>
+                    <Text style={UM.timelineMeta}>
+                      {a.user.firstName} {a.user.lastName} · {fmtTimeAgo(a.createdAt)}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
         </ScrollView>
       </View>
     </Modal>
@@ -1299,4 +1357,13 @@ const UM = StyleSheet.create({
     marginTop: 10,
   },
   discardBtnText: { color: '#2d5070', fontSize: 14, fontWeight: '600' },
+
+  // Activity timeline
+  timelineSection: { marginTop: 28, borderTopWidth: 1, borderTopColor: '#0d2040', paddingTop: 16 },
+  timelineHeader:  { color: '#2d5a9e', fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 12 },
+  timelineRow:     { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
+  timelineDot:     { width: 6, height: 6, borderRadius: 3, backgroundColor: '#1d4ed8', marginTop: 5, flexShrink: 0 },
+  timelineBody:    { flex: 1 },
+  timelineText:    { color: '#93b4d8', fontSize: 12, fontWeight: '500', lineHeight: 17 },
+  timelineMeta:    { color: '#2d5070', fontSize: 10, marginTop: 2 },
 });

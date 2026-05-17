@@ -273,6 +273,19 @@ export async function scheduleRoutes(fastify: FastifyInstance): Promise<void> {
     },
   );
 
+  // GET /tasks/:taskId/activity
+  fastify.get(
+    '/tasks/:taskId/activity',
+    { preHandler: [authenticate, requireRole(...VIEW_ROLES), requireProjectAccess] },
+    async (request, reply) => {
+      try {
+        const { projectId, siteId, taskId } = request.params as { projectId: string; siteId: string; taskId: string };
+        const activities = await scheduleService.getTaskActivity(taskId, projectId, siteId, request.user);
+        return reply.send({ activities });
+      } catch (err) { return handleError(err, reply); }
+    },
+  );
+
   // ── Dependencies ───────────────────────────────────────────────────────────
 
   // POST /tasks/:taskId/dependencies
