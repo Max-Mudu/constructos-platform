@@ -110,6 +110,31 @@ export async function register(
       },
     });
 
+    const defaultProject = await tx.project.create({
+      data: {
+        companyId: company.id,
+        name: `${input.companyName} Main Project`,
+        status: 'active',
+      },
+    });
+
+    const defaultSite = await tx.jobSite.create({
+      data: {
+        companyId: company.id,
+        projectId: defaultProject.id,
+        name: `${input.companyName} Main Site`,
+        isActive: true,
+      },
+    });
+
+    const updatedUser = await tx.user.update({
+      where: { id: user.id },
+      data: {
+        defaultProjectId: defaultProject.id,
+        defaultSiteId: defaultSite.id,
+      },
+    });
+
     await tx.auditLog.create({
       data: {
         companyId: company.id,
@@ -123,7 +148,7 @@ export async function register(
       },
     });
 
-    return { company, user };
+    return { company, user: updatedUser };
   });
 
   const tokens = await issueTokenPair(fastify, result.user, null, null);
