@@ -38,6 +38,8 @@ export interface AuthUser {
   role: UserRole;
   companyId: string;
   canViewFinance: boolean;
+  defaultProjectId: string | null;
+  defaultSiteId: string | null;
 }
 
 function slugify(name: string): string {
@@ -135,6 +137,8 @@ export async function register(
       role: result.user.role,
       companyId: result.user.companyId,
       canViewFinance: result.user.canViewFinance,
+      defaultProjectId: result.user.defaultProjectId,
+      defaultSiteId: result.user.defaultSiteId,
     },
     tokens,
   };
@@ -228,6 +232,8 @@ export async function login(
       role: user.role,
       companyId: user.companyId,
       canViewFinance: user.canViewFinance,
+      defaultProjectId: user.defaultProjectId,
+      defaultSiteId: user.defaultSiteId,
     },
     tokens,
   };
@@ -278,8 +284,28 @@ export async function refreshTokens(
       role: stored.user.role,
       companyId: stored.user.companyId,
       canViewFinance: stored.user.canViewFinance,
+      defaultProjectId: stored.user.defaultProjectId,
+      defaultSiteId: stored.user.defaultSiteId,
     },
     tokens,
+  };
+}
+
+export async function getMe(userId: string): Promise<AuthUser> {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user || !user.isActive) {
+    throw new UnauthorizedError('User not found or inactive');
+  }
+  return {
+    id: user.id,
+    email: user.email,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    role: user.role,
+    companyId: user.companyId,
+    canViewFinance: user.canViewFinance,
+    defaultProjectId: user.defaultProjectId,
+    defaultSiteId: user.defaultSiteId,
   };
 }
 

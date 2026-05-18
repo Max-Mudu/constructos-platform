@@ -7,17 +7,19 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
-        default:     'border-transparent bg-primary text-primary-foreground',
-        secondary:   'border-transparent bg-navy-elevated text-foreground',
-        destructive: 'border-transparent bg-red-950 text-red-400',
-        outline:     'border-border text-foreground',
-        // Status variants — dark-background friendly
-        active:      'border-transparent bg-emerald-950 text-emerald-300',
-        inactive:    'border-transparent bg-slate-800 text-slate-400',
-        pending:     'border-transparent bg-amber-950 text-amber-300',
-        warning:     'border-transparent bg-amber-950 text-amber-300',
-        info:        'border-transparent bg-blue-950 text-blue-300',
-        private:     'border-transparent bg-amber-950 text-amber-300',
+        default:     'border-transparent bg-primary/20 text-primary border-primary/20',
+        secondary:   'border-border/60 bg-navy-elevated text-muted-foreground',
+        destructive: 'border-red-900/50 bg-red-950/60 text-red-400',
+        outline:     'border-border text-muted-foreground',
+        // ── Operational status variants — preserve semantics ────────────
+        active:      'border-emerald-900/50 bg-emerald-950/60 text-emerald-400',
+        inactive:    'border-navy-border/60 bg-navy-elevated text-muted-foreground/70',
+        pending:     'border-amber-900/50 bg-amber-950/60 text-amber-400',
+        warning:     'border-amber-900/50 bg-amber-950/60 text-amber-400',
+        info:        'border-blue-900/50 bg-blue-950/60 text-blue-400',
+        private:     'border-amber-900/40 bg-amber-950/40 text-amber-500/80',
+        // ── Gold — premium highlight ────────────────────────────────────
+        gold:        'border-[hsl(38_58%_30%)] bg-[hsl(38_58%_12%)] text-gold',
       },
     },
     defaultVariants: { variant: 'default' },

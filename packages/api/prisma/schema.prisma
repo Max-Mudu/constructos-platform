@@ -242,10 +242,14 @@ model User {
   lastLoginAt      DateTime?
   failedLoginCount Int             @default(0)
   lockedAt         DateTime?
+  defaultProjectId String?
+  defaultSiteId    String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
   company                 Company                  @relation(fields: [companyId], references: [id])
+  defaultProject          Project?                 @relation("UserDefaultProject", fields: [defaultProjectId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  defaultSite             JobSite?                 @relation("UserDefaultSite", fields: [defaultSiteId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   refreshTokens           RefreshToken[]
   projectMembers          ProjectMember[]
   auditLogs               AuditLog[]
@@ -278,6 +282,8 @@ model User {
   inventoryTransactions   InventoryTransaction[]   @relation("InventoryTransactionPerformedBy")
   scheduleActivities      ScheduleActivity[]       @relation("ScheduleActivityUser")
 
+  @@index([defaultProjectId])
+  @@index([defaultSiteId])
   @@map("users")
 }
 
@@ -313,6 +319,7 @@ model Project {
 
   company                Company                 @relation(fields: [companyId], references: [id])
   jobSites               JobSite[]
+  usersWithDefault       User[]                  @relation("UserDefaultProject")
   projectMembers         ProjectMember[]
   workerAssignments      WorkerAssignment[]
   labourEntries          LabourEntry[]
@@ -346,6 +353,7 @@ model JobSite {
   updatedAt DateTime @updatedAt
 
   project                Project                 @relation(fields: [projectId], references: [id])
+  usersWithDefault       User[]                  @relation("UserDefaultSite")
   projectMembers         ProjectMember[]
   workerAssignments      WorkerAssignment[]
   labourEntries          LabourEntry[]

@@ -37,13 +37,13 @@ export function SearchFilterBar({
     <div className={cn('flex flex-wrap items-center gap-3', className)}>
       {onSearchChange && (
         <div className="relative flex-1 min-w-[200px]">
-          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground/50" />
           <input
             type="search"
             value={searchValue}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder={searchPlaceholder}
-            className="flex h-9 w-full rounded-lg border border-border bg-navy-base pl-9 pr-3 py-1 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="flex h-9 w-full rounded-lg border border-border bg-navy-base pl-9 pr-3 py-1 text-sm text-foreground placeholder:text-muted-foreground/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-gold/40 transition-colors"
           />
         </div>
       )}
@@ -52,7 +52,7 @@ export function SearchFilterBar({
           key={filter.label}
           value={filter.value}
           onChange={(e) => filter.onChange(e.target.value)}
-          className="h-9 rounded-lg border border-border bg-navy-base px-3 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="h-9 rounded-lg border border-border bg-navy-base px-3 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-gold/40 transition-colors"
           aria-label={filter.label}
         >
           <option value="">{filter.label}: All</option>

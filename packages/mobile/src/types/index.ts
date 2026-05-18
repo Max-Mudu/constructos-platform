@@ -11,13 +11,15 @@ export type UserRole =
   | 'viewer';
 
 export interface AuthUser {
-  id:             string;
-  email:          string;
-  firstName:      string;
-  lastName:       string;
-  role:           UserRole;
-  companyId:      string;
-  canViewFinance: boolean;
+  id:               string;
+  email:            string;
+  firstName:        string;
+  lastName:         string;
+  role:             UserRole;
+  companyId:        string;
+  canViewFinance:   boolean;
+  defaultProjectId: string | null;
+  defaultSiteId:    string | null;
 }
 
 export interface AuthTokens {

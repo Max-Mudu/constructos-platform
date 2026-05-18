@@ -158,6 +158,14 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
   // GET /api/v1/auth/me
   fastify.get('/me', { preHandler: [authenticate] }, async (request, reply) => {
-    return reply.send({ user: request.user });
+    try {
+      const user = await authService.getMe(request.user.id);
+      return reply.send({ user });
+    } catch (err) {
+      if (err instanceof AppError) {
+        return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+      }
+      throw err;
+    }
   });
 }

@@ -5,41 +5,45 @@
 @layer base {
   :root {
     /* ── Surfaces ─────────────────────────────────── */
-    --background:      222 47% 11%;     /* #0f172a — page bg      */
-    --foreground:      214 32% 91%;     /* #f1f5f9 — light text   */
-    --card:            215 33% 17%;     /* #1e293b — surface      */
-    --card-foreground: 214 32% 91%;
+    --background:      220 30% 8%;      /* #0d1118 — deep graphite-black  */
+    --foreground:      210 20% 92%;     /* #e4eaf4 — clean warm white     */
+    --card:            220 26% 11%;     /* #131c28 — dark surface         */
+    --card-foreground: 210 20% 92%;
 
-    /* ── Primary (#0369a1) ───────────────────────── */
-    --primary:            201 96% 32%;
+    /* ── Primary — executive cobalt blue ─────────── */
+    --primary:            213 62% 36%;  /* #1e5ea0                        */
     --primary-foreground: 0 0% 100%;
 
     /* ── Secondary / Muted ───────────────────────── */
-    --secondary:            215 30% 21%;  /* #253347 — elevated   */
-    --secondary-foreground: 214 32% 91%;
-    --muted:                215 30% 21%;
-    --muted-foreground:     215 25% 65%;  /* #94a3b8               */
+    --secondary:            218 26% 15%;  /* #182030 — elevated surface   */
+    --secondary-foreground: 210 20% 92%;
+    --muted:                218 26% 15%;
+    --muted-foreground:     215 16% 54%;  /* #7c94a8 — cool slate         */
 
     /* ── Accent (hover backgrounds) ─────────────── */
-    --accent:            215 30% 21%;
-    --accent-foreground: 214 32% 91%;
+    --accent:            218 26% 15%;
+    --accent-foreground: 210 20% 92%;
 
     /* ── Destructive ─────────────────────────────── */
-    --destructive:            0 72% 51%;
+    --destructive:            0 65% 50%;
     --destructive-foreground: 0 0% 100%;
 
     /* ── Chrome ──────────────────────────────────── */
-    --border: 215 31% 25%;     /* #2d3f55 */
-    --input:  215 31% 25%;
-    --ring:   201 96% 32%;
+    --border: 217 26% 19%;    /* #1e2d3e — refined divider        */
+    --input:  217 26% 19%;
+    --ring:   38 58% 50%;     /* gold focus ring                  */
+
+    /* ── Gold accent ─────────────────────────────── */
+    --gold:            38 58% 50%;    /* #c49038 — executive gold         */
+    --gold-foreground: 220 30% 8%;   /* dark text on gold surfaces       */
 
     /* ── Sidebar ─────────────────────────────────── */
-    --sidebar:                  215 33% 17%;   /* #1e293b               */
-    --sidebar-foreground:       214 32% 91%;
-    --sidebar-border:           215 31% 25%;   /* #2d3f55               */
-    --sidebar-active:           201 96% 32%;   /* #0369a1 primary       */
-    --sidebar-active-foreground: 0 0% 100%;    /* white                 */
-    --sidebar-muted:            215 25% 65%;   /* #94a3b8               */
+    --sidebar:                   220 34% 8.5%;  /* #0c1219 — deeper than card     */
+    --sidebar-foreground:        210 20% 92%;
+    --sidebar-border:            218 28% 15%;   /* #192535                        */
+    --sidebar-active:            218 24% 16%;   /* #1a2535 — subtle elevated      */
+    --sidebar-active-foreground: 38 58% 50%;    /* gold text on active item       */
+    --sidebar-muted:             215 14% 50%;   /* #72828e                        */
 
     /* ── Radius ──────────────────────────────────── */
     --radius: 0.5rem;
@@ -62,9 +66,9 @@
     box-sizing: border-box;
   }
 
-  /* Scrollbar */
-  ::-webkit-scrollbar        { width: 6px; height: 6px; }
+  /* Scrollbar — refined gold-tinted */
+  ::-webkit-scrollbar        { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track  { background: transparent; }
-  ::-webkit-scrollbar-thumb  { background: hsl(var(--border)); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+  ::-webkit-scrollbar-thumb  { background: hsl(217 26% 24%); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(38 58% 50% / 0.5); }
 }

@@ -13,7 +13,7 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
     return (
       <div className="w-full space-y-1.5">
         {label && (
-          <label htmlFor={inputId} className="block text-sm font-medium text-foreground">
+          <label htmlFor={inputId} className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {label}
           </label>
         )}
@@ -21,17 +21,17 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
           id={inputId}
           type={type}
           className={cn(
-            'flex h-9 w-full rounded-lg border border-border bg-navy-base px-3 py-1 text-sm text-foreground placeholder:text-muted-foreground',
-            'transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-            'disabled:cursor-not-allowed disabled:opacity-50',
-            error && 'border-red-500 focus-visible:ring-red-500',
+            'flex h-9 w-full rounded-lg border border-border bg-navy-base px-3 py-1 text-sm text-foreground placeholder:text-muted-foreground/50',
+            'transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:border-gold/40',
+            'disabled:cursor-not-allowed disabled:opacity-40',
+            error && 'border-red-700 focus-visible:ring-red-500/50',
             className,
           )}
           ref={ref}
           {...props}
         />
         {error && <p className="text-xs text-red-400">{error}</p>}
-        {hint && !error && <p className="text-xs text-muted-foreground">{hint}</p>}
+        {hint && !error && <p className="text-xs text-muted-foreground/70">{hint}</p>}
       </div>
     );
   },

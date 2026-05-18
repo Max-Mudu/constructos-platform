@@ -10,7 +10,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // CSS variable tokens — consumed by all shadcn/ui-style components
+        // CSS variable tokens — consumed by all components
         border:      'hsl(var(--border))',
         input:       'hsl(var(--input))',
         ring:        'hsl(var(--ring))',
@@ -48,14 +48,29 @@ const config: Config = {
           'active-foreground': 'hsl(var(--sidebar-active-foreground))',
           muted:      'hsl(var(--sidebar-muted))',
         },
-        // Dark navy semantic palette — used in new components
-        navy: {
-          base:     '#0f172a',
-          surface:  '#1e293b',
-          elevated: '#253347',
-          border:   '#2d3f55',
+        // Gold accent — executive premium highlight
+        gold: {
+          DEFAULT:    'hsl(var(--gold))',
+          foreground: 'hsl(var(--gold-foreground))',
         },
-        'brand-light': '#38bdf8',
+        // Graphite semantic palette — deep dark surfaces
+        // Note: kept as "navy" for backwards compat with existing component classes
+        navy: {
+          base:     '#0d1118',
+          surface:  '#131c28',
+          elevated: '#182030',
+          border:   '#1e2d3e',
+        },
+        // Explicit graphite aliases (new components should use these)
+        graphite: {
+          900: '#0d1118',
+          800: '#131c28',
+          700: '#182030',
+          600: '#1e2d3e',
+          500: '#2a3b52',
+        },
+        // Legacy — kept for any external references
+        'brand-light': 'hsl(var(--gold))',
       },
       borderRadius: {
         lg: 'var(--radius)',

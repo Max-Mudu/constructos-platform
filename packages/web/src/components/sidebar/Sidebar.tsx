@@ -38,10 +38,10 @@ function ConnectionDot() {
           'h-1.5 w-1.5 rounded-full',
           status === 'connected'    && 'bg-emerald-500',
           status === 'connecting'   && 'bg-amber-400 animate-pulse',
-          status === 'disconnected' && 'bg-red-400',
+          status === 'disconnected' && 'bg-red-500',
         )}
       />
-      <span className="text-[10px] text-muted-foreground/50 capitalize">{status}</span>
+      <span className="text-[10px] text-muted-foreground/40 capitalize tracking-wide">{status}</span>
     </div>
   );
 }
@@ -81,12 +81,12 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {/* ── Logo ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 px-5 h-16 border-b border-sidebar-border shrink-0">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-          <Building2 className="h-4 w-4 text-primary-foreground" />
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/90">
+          <Building2 className="h-4 w-4 text-white" />
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-semibold leading-none">ConstructOS</p>
-          <p className="text-xs text-muted-foreground mt-0.5 capitalize truncate">{roleLabel}</p>
+          <p className="text-sm font-semibold leading-none tracking-wide">ConstructOS</p>
+          <p className="text-[11px] text-sidebar-muted mt-0.5 capitalize truncate">{roleLabel}</p>
         </div>
       </div>
 
@@ -95,7 +95,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         {groups.map(({ group, items }, gi) => (
           <div key={group} className={cn(gi > 0 && 'mt-5')}>
             {group && (
-              <p className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+              <p className="mb-1.5 px-2 text-[9px] font-bold uppercase tracking-[0.12em] text-sidebar-muted/60">
                 {group}
               </p>
             )}
@@ -112,21 +112,21 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
                       className={cn(
                         'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
                         active
-                          ? 'bg-sidebar-active text-sidebar-active-foreground'
-                          : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                          ? 'bg-sidebar-active text-sidebar-active-foreground shadow-[inset_3px_0_0_#c49038]'
+                          : 'text-sidebar-muted hover:bg-[hsl(218_26%_13%)] hover:text-foreground',
                       )}
                     >
                       <NavIcon
                         name={item.icon}
                         className={cn(
                           'h-4 w-4 shrink-0',
-                          active ? 'text-sidebar-active-foreground' : 'text-muted-foreground/70',
+                          active ? 'text-gold' : 'text-sidebar-muted/60',
                         )}
                       />
                       <span className="truncate">{item.label}</span>
                       {item.requiresFinance && (
                         <Lock
-                          className="ml-auto h-3 w-3 shrink-0 text-amber-500"
+                          className="ml-auto h-3 w-3 shrink-0 text-amber-500/70"
                           aria-label="Private"
                         />
                       )}
@@ -144,20 +144,20 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <ConnectionDot />
         <div className="flex items-center gap-3 rounded-md px-2 py-2">
           {/* Avatar */}
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold/10 text-xs font-semibold text-gold">
             {initials}
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium leading-none">
               {user.firstName} {user.lastName}
             </p>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">{user.email}</p>
+            <p className="mt-0.5 truncate text-[11px] text-sidebar-muted">{user.email}</p>
           </div>
           <NotificationBell />
           <button
             onClick={handleLogout}
             title="Log out"
-            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded-md p-1.5 text-sidebar-muted transition-colors hover:bg-[hsl(218_26%_13%)] hover:text-foreground"
           >
             <LogOut className="h-4 w-4" />
           </button>
@@ -176,15 +176,17 @@ export function Sidebar() {
   return (
     <>
       {/* Desktop sidebar — always visible on md+ */}
-      <aside className="hidden md:flex md:w-64 md:flex-col md:min-h-screen shrink-0 border-r border-border">
+      <aside className="hidden md:flex md:w-64 md:flex-col md:min-h-screen shrink-0 border-r border-sidebar-border">
         <SidebarContent />
       </aside>
 
       {/* Mobile: fixed top bar with hamburger */}
-      <div className="fixed inset-x-0 top-0 z-40 flex h-14 items-center justify-between border-b border-border bg-card px-4 md:hidden">
-        <div className="flex items-center gap-2">
-          <Building2 className="h-5 w-5 text-primary" />
-          <span className="text-sm font-semibold">ConstructOS</span>
+      <div className="fixed inset-x-0 top-0 z-40 flex h-14 items-center justify-between border-b border-border bg-sidebar px-4 md:hidden">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/90">
+            <Building2 className="h-3.5 w-3.5 text-white" />
+          </div>
+          <span className="text-sm font-semibold tracking-wide">ConstructOS</span>
         </div>
         <div className="flex items-center gap-1">
           <NotificationBell />
@@ -203,11 +205,11 @@ export function Sidebar() {
         <div className="fixed inset-0 z-30 md:hidden">
           {/* Backdrop */}
           <div
-            className="absolute inset-0 bg-black/40"
+            className="absolute inset-0 bg-black/60"
             onClick={() => setMobileOpen(false)}
           />
           {/* Drawer */}
-          <aside className="absolute inset-y-0 left-0 w-64 border-r border-border shadow-lg">
+          <aside className="absolute inset-y-0 left-0 w-64 border-r border-sidebar-border shadow-2xl">
             <SidebarContent onNavigate={() => setMobileOpen(false)} />
           </aside>
         </div>

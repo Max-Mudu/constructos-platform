@@ -10,6 +10,8 @@ const mockUser: AuthUser = {
   role: 'company_admin',
   companyId: 'company-1',
   canViewFinance: true,
+  defaultProjectId: null,
+  defaultSiteId: null,
 };
 
 beforeEach(() => {

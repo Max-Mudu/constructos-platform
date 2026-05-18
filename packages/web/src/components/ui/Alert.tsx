@@ -11,11 +11,11 @@ const alertVariants = cva(
   {
     variants: {
       variant: {
-        default:     'bg-navy-surface border-border text-foreground [&>svg]:text-foreground',
-        destructive: 'bg-red-950/50 border-red-800 text-red-400 [&>svg]:text-red-400',
-        warning:     'bg-amber-950/50 border-amber-800 text-amber-300 [&>svg]:text-amber-300',
-        info:        'bg-blue-950/50 border-blue-800 text-blue-300 [&>svg]:text-blue-300',
-        success:     'bg-emerald-950/50 border-emerald-800 text-emerald-300 [&>svg]:text-emerald-300',
+        default:     'bg-navy-elevated border-border/80 text-foreground [&>svg]:text-muted-foreground',
+        destructive: 'bg-red-950/40 border-red-900/60 text-red-400 [&>svg]:text-red-400',
+        warning:     'bg-amber-950/40 border-amber-900/60 text-amber-400 [&>svg]:text-amber-400',
+        info:        'bg-blue-950/40 border-blue-900/60 text-blue-400 [&>svg]:text-blue-400',
+        success:     'bg-emerald-950/40 border-emerald-900/60 text-emerald-400 [&>svg]:text-emerald-400',
       },
     },
     defaultVariants: {
@@ -45,7 +45,7 @@ function AlertTitle({ className, ...props }: HTMLAttributes<HTMLParagraphElement
 
 function AlertDescription({ className, ...props }: HTMLAttributes<HTMLParagraphElement>) {
   return (
-    <div className={cn('text-sm opacity-90', className)} {...props} />
+    <div className={cn('text-sm opacity-85', className)} {...props} />
   );
 }
 

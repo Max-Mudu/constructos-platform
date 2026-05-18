@@ -5,16 +5,17 @@ import { cn } from '@/lib/utils';
 import { Loader2 } from 'lucide-react';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40',
   {
     variants: {
       variant: {
-        default:     'bg-primary text-primary-foreground hover:bg-primary/90',
-        destructive: 'bg-red-900 text-red-200 hover:bg-red-800',
-        outline:     'border border-border bg-transparent text-foreground hover:bg-navy-elevated',
-        secondary:   'bg-navy-elevated text-foreground hover:bg-navy-border',
+        default:     'bg-primary text-primary-foreground hover:bg-primary/85 shadow-sm',
+        destructive: 'bg-red-950 text-red-300 border border-red-900/60 hover:bg-red-900 hover:text-red-200',
+        outline:     'border border-border bg-transparent text-foreground hover:bg-navy-elevated hover:border-border/80',
+        secondary:   'bg-navy-elevated text-foreground border border-border/60 hover:bg-navy-border',
         ghost:       'text-muted-foreground hover:bg-navy-elevated hover:text-foreground',
         link:        'text-primary underline-offset-4 hover:underline',
+        gold:        'bg-gold text-gold-foreground hover:bg-gold/90 shadow-sm font-semibold',
       },
       size: {
         default: 'h-9 px-4 py-2',
@@ -38,10 +39,6 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, loading = false, children, disabled, ...props }, ref) => {
     const Comp = asChild ? Slot : 'button';
 
-    // When asChild, Radix Slot calls React.Children.only and requires exactly one
-    // ReactElement child. Rendering {loading && <Loader2/>} as a sibling expression
-    // passes [false, children] — an array — which throws at runtime.
-    // The loader is therefore only included on the native <button> path.
     const content = !asChild && loading
       ? <><Loader2 className="h-4 w-4 animate-spin" />{children}</>
       : children;

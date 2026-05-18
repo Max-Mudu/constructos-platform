@@ -17,6 +17,8 @@ export interface AuthUser {
   role: UserRole;
   companyId: string;
   canViewFinance: boolean;
+  defaultProjectId: string | null;
+  defaultSiteId: string | null;
 }
 
 export interface Company {
