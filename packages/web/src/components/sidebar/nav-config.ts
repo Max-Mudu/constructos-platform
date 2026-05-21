@@ -70,6 +70,13 @@ export const NAV_ITEMS: NavItem[] = [
     roles: ['company_admin', 'project_manager', 'site_supervisor'],
     requiresFinance: false,
   },
+  {
+    label: 'Schedules',
+    href: '/schedules',
+    icon: 'CalendarDays',
+    roles: ['company_admin', 'project_manager', 'site_supervisor'],
+    requiresFinance: false,
+  },
 
   // ── People & Contracts ────────────────────────────────────────────────────
   {

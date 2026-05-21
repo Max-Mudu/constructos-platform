@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Building2, HardHat, ClipboardCheck, Target,
   Truck, UserCheck, FileStack, PieChart, Receipt, Lock,
-  ScrollText, Settings, LogOut, Menu, X, Bell, Layers, Package,
+  ScrollText, Settings, LogOut, Menu, X, Bell, Layers, Package, CalendarDays,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi } from '@/lib/api';
@@ -19,7 +19,7 @@ import { useSSE } from '@/providers/SSEProvider';
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   LayoutDashboard, Building2, HardHat, ClipboardCheck, Target,
   Truck, UserCheck, FileStack, PieChart, Receipt, Lock,
-  ScrollText, Settings, Bell, Layers, Package,
+  ScrollText, Settings, Bell, Layers, Package, CalendarDays,
 };
 
 function NavIcon({ name, className }: { name: string; className?: string }) {
@@ -101,7 +101,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             )}
             <ul className="space-y-0.5">
               {items.map((item) => {
-                const isDefaultsShortcut = item.href === '/inventory' || item.href === '/deliveries';
+                const isDefaultsShortcut = item.href === '/inventory' || item.href === '/deliveries' || item.href === '/schedules' || item.href === '/labour' || item.href === '/attendance';
                 if (isDefaultsShortcut && !(user.defaultProjectId && user.defaultSiteId)) return null;
                 const resolvedHref = (isDefaultsShortcut && user.defaultProjectId && user.defaultSiteId)
                   ? `/projects/${user.defaultProjectId}/sites/${user.defaultSiteId}${item.href}`
