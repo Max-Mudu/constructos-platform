@@ -4,15 +4,13 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { projectApi, ApiError } from '@/lib/api';
 import { Project } from '@/lib/types';
-import { useAuthStore } from '@/store/auth.store';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SearchFilterBar } from '@/components/ui/SearchFilterBar';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
-import { Building2, MapPin, Calendar, ChevronRight, AlertCircle, Plus } from 'lucide-react';
+import { Building2, MapPin, Calendar, ChevronRight, AlertCircle } from 'lucide-react';
 
 const STATUS_OPTIONS = [
   { label: 'Active',    value: 'active'    },
@@ -29,7 +27,6 @@ function statusVariant(s: string): 'active' | 'pending' | 'secondary' | 'inactiv
 }
 
 export default function ProjectsPage() {
-  const { user } = useAuthStore();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
@@ -43,8 +40,6 @@ export default function ProjectsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const canManage = user?.role === 'company_admin' || user?.role === 'project_manager';
-
   const filtered = projects.filter((p) => {
     const matchSearch = !search || p.name.toLowerCase().includes(search.toLowerCase());
     const matchStatus = !statusFilter || p.status === statusFilter;
@@ -56,13 +51,6 @@ export default function ProjectsPage() {
       <PageHeader
         title="Projects"
         subtitle={`${projects.length} project${projects.length !== 1 ? 's' : ''} total`}
-        action={
-          canManage ? (
-            <Link href="/projects/new">
-              <Button><Plus className="h-4 w-4" /> New Project</Button>
-            </Link>
-          ) : undefined
-        }
       />
 
       <SearchFilterBar
@@ -94,8 +82,6 @@ export default function ProjectsPage() {
         <EmptyState
           icon={<Building2 className="h-12 w-12" />}
           title={search || statusFilter ? 'No projects match your filter' : 'No projects yet'}
-          description={!search && !statusFilter && canManage ? 'Create your first project to get started.' : undefined}
-          action={!search && !statusFilter && canManage ? { label: 'New Project', href: '/projects/new' } : undefined}
         />
       ) : (
         <div className="space-y-2">

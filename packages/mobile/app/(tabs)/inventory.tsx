@@ -8,6 +8,7 @@ import {
   ScrollView, RefreshControl, ActivityIndicator,
   Modal, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { useAuthStore } from '../../src/store/auth.store';
 import { inventoryApi } from '../../src/api/inventory';
 import { projectsApi } from '../../src/api/projects';
 import { Screen } from '../../src/components/Screen';
@@ -593,6 +594,11 @@ function InventoryDetailView({
 // ─── Inventory Screen ─────────────────────────────────────────────────────────
 
 export default function InventoryScreen() {
+  const authUser         = useAuthStore((s) => s.user);
+  const defaultProjectId = authUser?.defaultProjectId ?? null;
+  const defaultSiteId    = authUser?.defaultSiteId    ?? null;
+  const hasDefaults      = !!(defaultProjectId && defaultSiteId);
+
   const [view,        setView]        = useState<'list' | 'detail'>('list');
   const [selected,    setSelected]    = useState<SiteInventoryItem | null>(null);
   const [items,       setItems]       = useState<SiteInventoryItem[]>([]);
@@ -601,12 +607,16 @@ export default function InventoryScreen() {
 
   const [projects,    setProjects]    = useState<Project[]>([]);
   const [sites,       setSites]       = useState<JobSite[]>([]);
-  const [projectId,   setProjectId]   = useState('');
-  const [siteId,      setSiteId]      = useState('');
+  const [projectId,   setProjectId]   = useState(defaultProjectId ?? '');
+  const [siteId,      setSiteId]      = useState(defaultSiteId ?? '');
 
   useEffect(() => {
+    if (hasDefaults) {
+      void load(defaultProjectId!, defaultSiteId!);
+      return;
+    }
     projectsApi.list().then((p) => setProjects(p ?? [])).catch(() => {});
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function onProjectChange(pid: string) {
     setProjectId(pid); setSiteId(''); setItems([]);
@@ -659,46 +669,50 @@ export default function InventoryScreen() {
         <Text style={styles.pageTitle}>Inventory</Text>
       </View>
 
-      {/* Project picker */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterBar}
-        contentContainerStyle={styles.filterBarContent}
-      >
-        {projects.map((p) => (
-          <TouchableOpacity
-            key={p.id}
-            style={[styles.filterChip, projectId === p.id && styles.filterChipActive]}
-            onPress={() => void onProjectChange(p.id)}
+      {!hasDefaults && (
+        <>
+          {/* Project picker */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.filterBar}
+            contentContainerStyle={styles.filterBarContent}
           >
-            <Text style={[styles.filterChipText, projectId === p.id && styles.filterChipTextActive]}>
-              {p.name}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+            {projects.map((p) => (
+              <TouchableOpacity
+                key={p.id}
+                style={[styles.filterChip, projectId === p.id && styles.filterChipActive]}
+                onPress={() => void onProjectChange(p.id)}
+              >
+                <Text style={[styles.filterChipText, projectId === p.id && styles.filterChipTextActive]}>
+                  {p.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
 
-      {/* Site picker */}
-      {sites.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.filterBar}
-          contentContainerStyle={styles.filterBarContent}
-        >
-          {sites.map((s) => (
-            <TouchableOpacity
-              key={s.id}
-              style={[styles.filterChip, siteId === s.id && styles.filterChipActive]}
-              onPress={() => void onSiteChange(s.id)}
+          {/* Site picker */}
+          {sites.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.filterBar}
+              contentContainerStyle={styles.filterBarContent}
             >
-              <Text style={[styles.filterChipText, siteId === s.id && styles.filterChipTextActive]}>
-                {s.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+              {sites.map((s) => (
+                <TouchableOpacity
+                  key={s.id}
+                  style={[styles.filterChip, siteId === s.id && styles.filterChipActive]}
+                  onPress={() => void onSiteChange(s.id)}
+                >
+                  <Text style={[styles.filterChipText, siteId === s.id && styles.filterChipTextActive]}>
+                    {s.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </>
       )}
 
       {/* Low stock summary banner */}

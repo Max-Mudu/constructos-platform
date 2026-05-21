@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard, Building2, HardHat, ClipboardCheck, Target,
   Truck, UserCheck, FileStack, PieChart, Receipt, Lock,
-  ScrollText, Settings, LogOut, Menu, X, Bell,
+  ScrollText, Settings, LogOut, Menu, X, Bell, Layers, Package,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi } from '@/lib/api';
@@ -19,7 +19,7 @@ import { useSSE } from '@/providers/SSEProvider';
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   LayoutDashboard, Building2, HardHat, ClipboardCheck, Target,
   Truck, UserCheck, FileStack, PieChart, Receipt, Lock,
-  ScrollText, Settings, Bell,
+  ScrollText, Settings, Bell, Layers, Package,
 };
 
 function NavIcon({ name, className }: { name: string; className?: string }) {
@@ -101,13 +101,18 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             )}
             <ul className="space-y-0.5">
               {items.map((item) => {
+                const isDefaultsShortcut = item.href === '/inventory' || item.href === '/deliveries';
+                if (isDefaultsShortcut && !(user.defaultProjectId && user.defaultSiteId)) return null;
+                const resolvedHref = (isDefaultsShortcut && user.defaultProjectId && user.defaultSiteId)
+                  ? `/projects/${user.defaultProjectId}/sites/${user.defaultSiteId}${item.href}`
+                  : item.href;
                 const active =
-                  pathname === item.href ||
-                  (item.href !== '/dashboard' && pathname.startsWith(item.href + '/'));
+                  pathname === resolvedHref ||
+                  (resolvedHref !== '/dashboard' && pathname.startsWith(resolvedHref + '/'));
                 return (
                   <li key={item.href}>
                     <Link
-                      href={item.href}
+                      href={resolvedHref}
                       onClick={onNavigate}
                       className={cn(
                         'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',

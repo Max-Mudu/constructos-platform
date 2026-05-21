@@ -9,7 +9,6 @@ import { useAuthStore } from '@/store/auth.store';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StickyActionsRow } from '@/components/ui/StickyActionsRow';
-import { QuickActions } from '@/components/ui/QuickActions';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -18,7 +17,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Separator } from '@/components/ui/Separator';
 import {
-  Building2, MapPin, Calendar, ChevronRight, Users, Plus, AlertCircle,
+  Building2, MapPin, Calendar, ChevronRight, Users, AlertCircle,
 } from 'lucide-react';
 
 function statusVariant(s: string): 'active' | 'pending' | 'secondary' | 'inactive' {
@@ -114,26 +113,10 @@ export default function ProjectDetailPage() {
           </div>
         </div>
 
-        {canManage && (
-          <QuickActions
-            title="Quick Actions"
-            actions={[
-              { label: 'Add Site', icon: <Plus className="h-4 w-4" />, href: `/projects/${projectId}/sites/new`, variant: 'primary' },
-            ]}
-          />
-        )}
-
         {/* Job Sites */}
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Job Sites</CardTitle>
-              {canManage && (
-                <Link href={`/projects/${projectId}/sites/new`}>
-                  <Button size="sm"><Plus className="h-3.5 w-3.5" /> Add Site</Button>
-                </Link>
-              )}
-            </div>
+            <CardTitle>Job Sites</CardTitle>
           </CardHeader>
           <Separator />
           <CardContent className="pt-4">
@@ -141,8 +124,6 @@ export default function ProjectDetailPage() {
               <EmptyState
                 icon={<Building2 className="h-10 w-10" />}
                 title="No job sites yet"
-                description={canManage ? 'Add the first site to this project.' : undefined}
-                action={canManage ? { label: 'Add Site', href: `/projects/${projectId}/sites/new` } : undefined}
               />
             ) : (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

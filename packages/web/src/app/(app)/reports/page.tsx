@@ -556,6 +556,10 @@ function DailySiteReportViewer({ data }: { data: ReportData }) {
 export default function ReportsPage() {
   const user = useAuthStore((s) => s.user);
 
+  const defaultProjectId = user?.defaultProjectId ?? null;
+  const defaultSiteId    = user?.defaultSiteId    ?? null;
+  const hasDefaults      = !!(defaultProjectId && defaultSiteId);
+
   const visibleReports = REPORT_CONFIGS.filter(
     (r) => user && r.roles.includes(user.role as UserRole),
   );
@@ -573,6 +577,10 @@ export default function ReportsPage() {
   const [sites,        setSites]        = useState<Array<{ id: string; name: string }>>([]);
 
   const isDSR = activeType === 'daily-site-report';
+
+  // Effective DSR context — defaults take precedence over manual selectors
+  const dsrProjectId = hasDefaults ? defaultProjectId : projectId;
+  const dsrSiteId    = hasDefaults ? defaultSiteId    : siteId;
 
   // Load project list once
   useEffect(() => {
@@ -617,7 +625,7 @@ export default function ReportsPage() {
   useEffect(() => {
     setReportData(null);
     setError('');
-    setSiteId('');
+    if (!hasDefaults) setSiteId('');
     if (activeType === 'daily-site-report') {
       setStartDate(today());
     } else {
@@ -627,18 +635,18 @@ export default function ReportsPage() {
 
   // DSR-specific generate
   const generateDSR = useCallback(async () => {
-    if (!projectId || !siteId || !startDate) return;
+    if (!dsrProjectId || !dsrSiteId || !startDate) return;
     setLoading(true);
     setError('');
     try {
-      const res = await reportApi.get('daily-site-report', { projectId, siteId, startDate });
+      const res = await reportApi.get('daily-site-report', { projectId: dsrProjectId, siteId: dsrSiteId, startDate });
       setReportData(res.report);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to generate report');
     } finally {
       setLoading(false);
     }
-  }, [projectId, siteId, startDate]);
+  }, [dsrProjectId, dsrSiteId, startDate]);
 
   const handleDownload = async (format: ReportFormat) => {
     setDownloading(format);
@@ -658,7 +666,7 @@ export default function ReportsPage() {
   };
 
   const activeConfig = REPORT_CONFIGS.find((r) => r.type === activeType);
-  const dsrCanGenerate = isDSR && !!projectId && !!siteId && startDate.length === 10;
+  const dsrCanGenerate = isDSR && startDate.length === 10 && (hasDefaults || (!!projectId && !!siteId));
 
   return (
     <div className="px-6 py-8 space-y-6 animate-fade-in">
@@ -688,38 +696,41 @@ export default function ReportsPage() {
       {isDSR ? (
         <div className="rounded-xl border border-border bg-card p-4">
           <div className="flex flex-wrap gap-4 items-end">
-            {/* Project */}
-            <div className="flex flex-col gap-1 min-w-[180px]">
-              <label className="text-xs font-medium text-muted-foreground">Project *</label>
-              <select
-                value={projectId}
-                onChange={(e) => { setProjectId(e.target.value); setReportData(null); }}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                <option value="">Select project…</option>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
+            {/* Project + Site selectors — shown only when user has no defaults */}
+            {!hasDefaults && (
+              <>
+                <div className="flex flex-col gap-1 min-w-[180px]">
+                  <label className="text-xs font-medium text-muted-foreground">Project *</label>
+                  <select
+                    value={projectId}
+                    onChange={(e) => { setProjectId(e.target.value); setReportData(null); }}
+                    className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  >
+                    <option value="">Select project…</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
 
-            {/* Site */}
-            <div className="flex flex-col gap-1 min-w-[180px]">
-              <label className="text-xs font-medium text-muted-foreground">Site *</label>
-              <select
-                value={siteId}
-                onChange={(e) => { setSiteId(e.target.value); setReportData(null); }}
-                disabled={!projectId || sites.length === 0}
-                className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-              >
-                <option value="">
-                  {!projectId ? 'Select a project first' : sites.length === 0 ? 'No sites found' : 'Select site…'}
-                </option>
-                {sites.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-            </div>
+                <div className="flex flex-col gap-1 min-w-[180px]">
+                  <label className="text-xs font-medium text-muted-foreground">Site *</label>
+                  <select
+                    value={siteId}
+                    onChange={(e) => { setSiteId(e.target.value); setReportData(null); }}
+                    disabled={!projectId || sites.length === 0}
+                    className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                  >
+                    <option value="">
+                      {!projectId ? 'Select a project first' : sites.length === 0 ? 'No sites found' : 'Select site…'}
+                    </option>
+                    {sites.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
 
             {/* Date */}
             <div className="flex flex-col gap-1">
@@ -886,9 +897,13 @@ export default function ReportsPage() {
             {isDSR ? (
               <>
                 <Download className="h-10 w-10 text-muted-foreground mb-3" />
-                <p className="font-semibold text-foreground">Select project, site and date</p>
+                <p className="font-semibold text-foreground">
+                  {hasDefaults ? 'Select a date and click Generate' : 'Select project, site and date'}
+                </p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Then click Generate to view the daily site report.
+                  {hasDefaults
+                    ? 'The daily site report will use your default operational context.'
+                    : 'Then click Generate to view the daily site report.'}
                 </p>
               </>
             ) : (

@@ -617,6 +617,11 @@ function DailySiteReportViewer({
 // ─── Daily Site Report — form + viewer ───────────────────────────────────────
 
 function DailySiteReportView({ onBack }: { onBack: () => void }) {
+  const authUser         = useAuthStore((s) => s.user);
+  const defaultProjectId = authUser?.defaultProjectId ?? null;
+  const defaultSiteId    = authUser?.defaultSiteId    ?? null;
+  const hasDefaults      = !!(defaultProjectId && defaultSiteId);
+
   const [projects,        setProjects]        = useState<Project[]>([]);
   const [sites,           setSites]           = useState<JobSite[]>([]);
   const [projectId,       setProjectId]       = useState('');
@@ -626,12 +631,17 @@ function DailySiteReportView({ onBack }: { onBack: () => void }) {
   const [loadingReport,   setLoadingReport]   = useState(false);
   const [report,          setReport]          = useState<ReportData | null>(null);
 
+  // Effective DSR context — defaults take precedence over manual chips
+  const dsrProjectId = hasDefaults ? defaultProjectId : projectId;
+  const dsrSiteId    = hasDefaults ? defaultSiteId    : siteId;
+
   useEffect(() => {
+    if (hasDefaults) { setLoadingProjects(false); return; }
     void projectsApi.list()
       .then(setProjects)
       .catch(() => Alert.alert('Error', 'Failed to load projects.'))
       .finally(() => setLoadingProjects(false));
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!projectId) { setSites([]); setSiteId(''); return; }
@@ -643,12 +653,12 @@ function DailySiteReportView({ onBack }: { onBack: () => void }) {
   }, [projectId]);
 
   async function generate() {
-    if (!projectId || !siteId || !date) return;
+    if (!dsrProjectId || !dsrSiteId || !date) return;
     setLoadingReport(true);
     try {
       const data = await reportsApi.getJson('daily-site-report', {
-        projectId,
-        siteId,
+        projectId: dsrProjectId,
+        siteId:    dsrSiteId,
         startDate: date,
       });
       setReport(data);
@@ -659,7 +669,9 @@ function DailySiteReportView({ onBack }: { onBack: () => void }) {
     }
   }
 
-  const canGenerate = !!projectId && !!siteId && date.length === 10;
+  const canGenerate = hasDefaults
+    ? date.length === 10
+    : (!!projectId && !!siteId && date.length === 10);
 
   if (report) {
     return <DailySiteReportViewer report={report} onClose={() => setReport(null)} />;
@@ -676,48 +688,51 @@ function DailySiteReportView({ onBack }: { onBack: () => void }) {
         Attendance, deliveries, materials, instructions and schedule for one site
       </Text>
 
-      {/* ── Project ─────────────────────────────────────────────────────── */}
-      <Text style={dsr.sectionLabel}>Project</Text>
-      {loadingProjects ? (
-        <ActivityIndicator color="#3b82f6" style={dsr.spinner} />
-      ) : projects.length === 0 ? (
-        <Text style={dsr.noItems}>No projects available.</Text>
-      ) : (
-        <View style={dsr.chipRow}>
-          {projects.map((p) => (
-            <TouchableOpacity
-              key={p.id}
-              style={[dsr.chip, projectId === p.id && dsr.chipSelected]}
-              onPress={() => setProjectId(p.id)}
-            >
-              <Text style={[dsr.chipText, projectId === p.id && dsr.chipTextSelected]}>
-                {p.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
-      {/* ── Site ─────────────────────────────────────────────────────────── */}
-      {projectId !== '' && (
+      {/* ── Project + Site chips — hidden when defaults exist ──────────────── */}
+      {!hasDefaults && (
         <>
-          <Text style={dsr.sectionLabel}>Site</Text>
-          {sites.length === 0 ? (
-            <Text style={dsr.noItems}>No sites for this project.</Text>
+          <Text style={dsr.sectionLabel}>Project</Text>
+          {loadingProjects ? (
+            <ActivityIndicator color="#3b82f6" style={dsr.spinner} />
+          ) : projects.length === 0 ? (
+            <Text style={dsr.noItems}>No projects available.</Text>
           ) : (
             <View style={dsr.chipRow}>
-              {sites.map((s) => (
+              {projects.map((p) => (
                 <TouchableOpacity
-                  key={s.id}
-                  style={[dsr.chip, siteId === s.id && dsr.chipSelected]}
-                  onPress={() => setSiteId(s.id)}
+                  key={p.id}
+                  style={[dsr.chip, projectId === p.id && dsr.chipSelected]}
+                  onPress={() => setProjectId(p.id)}
                 >
-                  <Text style={[dsr.chipText, siteId === s.id && dsr.chipTextSelected]}>
-                    {s.name}
+                  <Text style={[dsr.chipText, projectId === p.id && dsr.chipTextSelected]}>
+                    {p.name}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
+          )}
+
+          {projectId !== '' && (
+            <>
+              <Text style={dsr.sectionLabel}>Site</Text>
+              {sites.length === 0 ? (
+                <Text style={dsr.noItems}>No sites for this project.</Text>
+              ) : (
+                <View style={dsr.chipRow}>
+                  {sites.map((s) => (
+                    <TouchableOpacity
+                      key={s.id}
+                      style={[dsr.chip, siteId === s.id && dsr.chipSelected]}
+                      onPress={() => setSiteId(s.id)}
+                    >
+                      <Text style={[dsr.chipText, siteId === s.id && dsr.chipTextSelected]}>
+                        {s.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </>
           )}
         </>
       )}
@@ -736,7 +751,9 @@ function DailySiteReportView({ onBack }: { onBack: () => void }) {
       {/* ── Prompt / Generate ─────────────────────────────────────────────── */}
       {!canGenerate ? (
         <Text style={dsr.prompt}>
-          Select project, site and date to generate the report.
+          {hasDefaults
+            ? 'Select a date to generate the report.'
+            : 'Select project, site and date to generate the report.'}
         </Text>
       ) : (
         <TouchableOpacity

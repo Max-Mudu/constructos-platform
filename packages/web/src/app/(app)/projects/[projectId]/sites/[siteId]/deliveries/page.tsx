@@ -60,7 +60,14 @@ export default function DeliveriesPage() {
     deliveryApi
       .list(projectId, siteId)
       .then((d) => setDeliveries(d.deliveries))
-      .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load deliveries'))
+      .catch((err) => {
+        if (err instanceof ApiError) {
+          setError(err.message);
+        } else {
+          console.error('[deliveries] unexpected error:', err);
+          setError('Failed to load deliveries');
+        }
+      })
       .finally(() => setLoading(false));
   }, [projectId, siteId]);
 

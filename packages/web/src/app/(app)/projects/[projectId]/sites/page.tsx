@@ -5,19 +5,17 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { projectApi, siteApi, ApiError } from '@/lib/api';
 import { Project, JobSite } from '@/lib/types';
-import { useAuthStore } from '@/store/auth.store';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Separator } from '@/components/ui/Separator';
-import { ArrowLeft, Building2, MapPin, ChevronRight, Plus, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Building2, MapPin, ChevronRight, AlertCircle } from 'lucide-react';
 
 export default function SiteListPage() {
   const { projectId }         = useParams<{ projectId: string }>();
   const router                = useRouter();
-  const { user }              = useAuthStore();
   const [project, setProject] = useState<Project | null>(null);
   const [sites, setSites]     = useState<JobSite[]>([]);
   const [loading, setLoading] = useState(true);
@@ -33,8 +31,6 @@ export default function SiteListPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load sites'))
       .finally(() => setLoading(false));
   }, [projectId]);
-
-  const canManage = user?.role === 'company_admin' || user?.role === 'project_manager';
 
   if (loading) {
     return (
@@ -77,17 +73,10 @@ export default function SiteListPage() {
           {project?.name ?? 'Back to Project'}
         </Link>
 
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight text-foreground">Job Sites</h1>
-            {project && (
-              <p className="mt-1 text-sm text-muted-foreground">{project.name}</p>
-            )}
-          </div>
-          {canManage && (
-            <Button size="sm">
-              <Plus className="h-3.5 w-3.5" /> Add Site
-            </Button>
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Job Sites</h1>
+          {project && (
+            <p className="mt-1 text-sm text-muted-foreground">{project.name}</p>
           )}
         </div>
       </div>
@@ -102,11 +91,6 @@ export default function SiteListPage() {
             <div className="flex flex-col items-center justify-center py-10">
               <Building2 className="h-10 w-10 text-muted-foreground/30 mb-3" />
               <p className="text-sm font-medium text-foreground">No job sites yet</p>
-              {canManage && (
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Add the first site for this project.
-                </p>
-              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

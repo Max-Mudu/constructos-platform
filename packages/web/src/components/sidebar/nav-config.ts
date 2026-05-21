@@ -56,6 +56,20 @@ export const NAV_ITEMS: NavItem[] = [
     roles: ['company_admin', 'project_manager', 'site_supervisor'],
     requiresFinance: false,
   },
+  {
+    label: 'Inventory',
+    href: '/inventory',
+    icon: 'Layers',
+    roles: ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer'],
+    requiresFinance: false,
+  },
+  {
+    label: 'Deliveries',
+    href: '/deliveries',
+    icon: 'Package',
+    roles: ['company_admin', 'project_manager', 'site_supervisor'],
+    requiresFinance: false,
+  },
 
   // ── People & Contracts ────────────────────────────────────────────────────
   {
