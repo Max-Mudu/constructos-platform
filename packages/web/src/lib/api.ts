@@ -134,6 +134,12 @@ export const authApi = {
     request<{ user: AuthUser; accessToken: string }>('/auth/refresh', {
       method: 'POST',
     }),
+
+  updateDefaults: (data: { defaultProjectId: string | null; defaultSiteId: string | null }) =>
+    request<{ user: AuthUser }>('/auth/me/defaults', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
 };
 
 // ─── Company ─────────────────────────────────────────────────────────────────
