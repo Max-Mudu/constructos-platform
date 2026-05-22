@@ -448,15 +448,19 @@ function UpdateTaskModal({
 
 function CreateTaskModal({
   visible, onClose, sites, projects, contractors, onCreated,
+  defaultProjectId: defProjId, defaultSiteId: defSiteId,
 }: {
-  visible:     boolean;
-  onClose:     () => void;
-  sites:       JobSite[];
-  projects:    Project[];
-  contractors: Contractor[];
-  onCreated:   () => void;
+  visible:           boolean;
+  onClose:           () => void;
+  sites:             JobSite[];
+  projects:          Project[];
+  contractors:       Contractor[];
+  onCreated:         () => void;
+  defaultProjectId?: string | null;
+  defaultSiteId?:    string | null;
 }) {
-  const [siteId,       setSiteId]       = useState('');
+  const hasDefaultContext = !!(defProjId && defSiteId);
+  const [siteId,       setSiteId]       = useState(defSiteId ?? '');
   const [contractorId, setContractorId] = useState('');
   const [title,        setTitle]        = useState('');
   const [startDate,    setStartDate]    = useState('');
@@ -465,7 +469,7 @@ function CreateTaskModal({
   const [saving,       setSaving]       = useState(false);
 
   function reset() {
-    setSiteId(''); setContractorId(''); setTitle('');
+    setSiteId(defSiteId ?? ''); setContractorId(''); setTitle('');
     setStartDate(''); setEndDate(''); setArea('');
   }
 
@@ -510,27 +514,31 @@ function CreateTaskModal({
         </View>
 
         <ScrollView contentContainerStyle={UM.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          <Text style={UM.fieldLabel}>Site *</Text>
-          {sites.length === 0 ? (
-            <Text style={UM.emptyNote}>No sites available</Text>
-          ) : (
-            sites.map((s) => {
-              const project = projects.find((p) => p.id === s.projectId);
-              return (
-                <TouchableOpacity
-                  key={s.id}
-                  style={siteId === s.id ? [UM.selectRow, UM.selectRowActive] : UM.selectRow}
-                  onPress={() => setSiteId(s.id)}
-                  activeOpacity={0.8}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={UM.selectName}>{s.name}</Text>
-                    {project ? <Text style={UM.selectSub}>{project.name}</Text> : null}
-                  </View>
-                  {siteId === s.id ? <Text style={UM.check}>✓</Text> : null}
-                </TouchableOpacity>
-              );
-            })
+          {!hasDefaultContext && (
+            <>
+              <Text style={UM.fieldLabel}>Site *</Text>
+              {sites.length === 0 ? (
+                <Text style={UM.emptyNote}>No sites available</Text>
+              ) : (
+                sites.map((s) => {
+                  const project = projects.find((p) => p.id === s.projectId);
+                  return (
+                    <TouchableOpacity
+                      key={s.id}
+                      style={siteId === s.id ? [UM.selectRow, UM.selectRowActive] : UM.selectRow}
+                      onPress={() => setSiteId(s.id)}
+                      activeOpacity={0.8}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={UM.selectName}>{s.name}</Text>
+                        {project ? <Text style={UM.selectSub}>{project.name}</Text> : null}
+                      </View>
+                      {siteId === s.id ? <Text style={UM.check}>✓</Text> : null}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+            </>
           )}
 
           <Text style={[UM.fieldLabel, { marginTop: 16 }]}>Contractor *</Text>
@@ -636,9 +644,12 @@ function RiskChip({ label, count, color }: { label: string; count: number; color
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ScheduleScreen() {
-  const user      = useAuthStore((s) => s.user);
-  const canCreate = user && WRITE_ROLES.has(user.role);
-  const canUpdate = user && PROGRESS_ROLES.has(user.role);
+  const user             = useAuthStore((s) => s.user);
+  const canCreate        = user && WRITE_ROLES.has(user.role);
+  const canUpdate        = user && PROGRESS_ROLES.has(user.role);
+  const defaultProjectId = user?.defaultProjectId ?? null;
+  const defaultSiteId    = user?.defaultSiteId    ?? null;
+  const hasDefaults      = !!(defaultProjectId && defaultSiteId);
 
   const [projects,     setProjects]     = useState<Project[]>([]);
   const [sites,        setSites]        = useState<JobSite[]>([]);
@@ -657,35 +668,57 @@ export default function ScheduleScreen() {
 
   async function load() {
     try {
-      const projectList = await projectsApi.list();
-      setProjects(projectList);
+      if (hasDefaults) {
+        // Fast path: load only the default site's tasks
+        const [sitesForProject, siteTasks] = await Promise.all([
+          projectsApi.listSites(defaultProjectId!),
+          schedulesApi.listTasks(defaultProjectId!, defaultSiteId!),
+        ]);
+        const defaultSite = sitesForProject.find((s) => s.id === defaultSiteId);
+        setSites(defaultSite ? [defaultSite] : []);
 
-      const allSites: JobSite[] = [];
-      for (const project of projectList) {
-        try {
-          const projectSites = await projectsApi.listSites(project.id);
-          allSites.push(...projectSites);
-        } catch { /* skip */ }
+        const annotated: ScheduleTaskWithContext[] = siteTasks.map((task) => ({
+          ...task,
+          siteName: defaultSite?.name,
+        }));
+        annotated.sort((a, b) => {
+          const aDate = normalizeDate(a.plannedStartDate) ?? '9999-12-31';
+          const bDate = normalizeDate(b.plannedStartDate) ?? '9999-12-31';
+          return aDate.localeCompare(bDate);
+        });
+        setTasks(annotated);
+      } else {
+        // Legacy path: aggregate across all projects/sites
+        const projectList = await projectsApi.list();
+        setProjects(projectList);
+
+        const allSites: JobSite[] = [];
+        for (const project of projectList) {
+          try {
+            const projectSites = await projectsApi.listSites(project.id);
+            allSites.push(...projectSites);
+          } catch { /* skip */ }
+        }
+        setSites(allSites);
+
+        const allTasks: ScheduleTaskWithContext[] = [];
+        for (const site of allSites) {
+          const project = projectList.find((p) => p.id === site.projectId);
+          try {
+            const siteTasks = await schedulesApi.listTasks(site.projectId, site.id);
+            siteTasks.forEach((task) => {
+              allTasks.push({ ...task, projectName: project?.name, siteName: site.name });
+            });
+          } catch { /* skip */ }
+        }
+
+        allTasks.sort((a, b) => {
+          const aDate = normalizeDate(a.plannedStartDate) ?? '9999-12-31';
+          const bDate = normalizeDate(b.plannedStartDate) ?? '9999-12-31';
+          return aDate.localeCompare(bDate);
+        });
+        setTasks(allTasks);
       }
-      setSites(allSites);
-
-      const allTasks: ScheduleTaskWithContext[] = [];
-      for (const site of allSites) {
-        const project = projectList.find((p) => p.id === site.projectId);
-        try {
-          const siteTasks = await schedulesApi.listTasks(site.projectId, site.id);
-          siteTasks.forEach((task) => {
-            allTasks.push({ ...task, projectName: project?.name, siteName: site.name });
-          });
-        } catch { /* skip */ }
-      }
-
-      allTasks.sort((a, b) => {
-        const aDate = normalizeDate(a.plannedStartDate) ?? '9999-12-31';
-        const bDate = normalizeDate(b.plannedStartDate) ?? '9999-12-31';
-        return aDate.localeCompare(bDate);
-      });
-      setTasks(allTasks);
 
       if (canCreate) {
         try {
@@ -1010,6 +1043,8 @@ export default function ScheduleScreen() {
           projects={projects}
           contractors={contractors}
           onCreated={() => void onRefresh()}
+          defaultProjectId={defaultProjectId}
+          defaultSiteId={defaultSiteId}
         />
       ) : null}
 

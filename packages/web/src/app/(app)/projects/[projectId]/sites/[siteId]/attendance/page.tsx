@@ -16,6 +16,10 @@ import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Table, TableHead, TableRow, TableHeader, TableBody, TableCell } from '@/components/ui/Table';
 import { ClipboardCheck, Plus, AlertCircle, Clock } from 'lucide-react';
+import { useAuthStore } from '@/store/auth.store';
+
+const WRITE_ROLES = ['company_admin', 'project_manager', 'site_supervisor'] as const;
+function canWrite(role: string) { return (WRITE_ROLES as readonly string[]).includes(role); }
 
 const STATUS_LABELS: Record<AttendanceStatus, string> = {
   present: 'Present', absent: 'Absent', late: 'Late', half_day: 'Half Day', excused: 'Excused',
@@ -31,6 +35,8 @@ function today(): string { return new Date().toISOString().split('T')[0]; }
 
 export default function AttendancePage() {
   const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>();
+  const user = useAuthStore((s) => s.user);
+  const showAddButton = user && canWrite(user.role);
 
   const [records,  setRecords]  = useState<AttendanceRecord[]>([]);
   const [summary,  setSummary]  = useState<AttendanceSummary | null>(null);
@@ -68,9 +74,11 @@ export default function AttendancePage() {
         title="Attendance"
         subtitle={`Records for ${date}`}
         action={
-          <Link href={`/projects/${projectId}/sites/${siteId}/attendance/new`}>
-            <Button><Plus className="h-4 w-4" /> Add Record</Button>
-          </Link>
+          showAddButton ? (
+            <Link href={`/projects/${projectId}/sites/${siteId}/attendance/new`}>
+              <Button><Plus className="h-4 w-4" /> Add Record</Button>
+            </Link>
+          ) : undefined
         }
       />
 
@@ -110,7 +118,7 @@ export default function AttendancePage() {
         <EmptyState
           icon={<ClipboardCheck className="h-12 w-12" />}
           title="No attendance records for this date"
-          action={{ label: 'Add Record', href: `/projects/${projectId}/sites/${siteId}/attendance/new` }}
+          action={showAddButton ? { label: 'Add Record', href: `/projects/${projectId}/sites/${siteId}/attendance/new` } : undefined}
         />
       ) : (
         <Table>

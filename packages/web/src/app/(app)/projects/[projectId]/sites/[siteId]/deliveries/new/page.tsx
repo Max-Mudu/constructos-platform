@@ -117,7 +117,7 @@ export default function NewDeliveryPage() {
   }
 
   return (
-    <div className="max-w-3xl space-y-6 animate-fade-in">
+    <div className="max-w-3xl px-6 py-8 space-y-6 animate-fade-in">
 
       {/* Header */}
       <div>

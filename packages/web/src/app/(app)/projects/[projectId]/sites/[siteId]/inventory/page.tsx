@@ -239,7 +239,7 @@ export default function InventoryPage() {
   const lowStockCount = inventory.filter(isLowStock).length;
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="px-6 py-8 space-y-6 animate-fade-in">
 
       {/* Header */}
       <div>

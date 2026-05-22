@@ -67,7 +67,7 @@ export default function NewAttendancePage() {
   };
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-lg">
+    <div className="px-6 py-8 space-y-6 animate-fade-in max-w-lg">
       <div>
         <Link
           href={`/projects/${projectId}/sites/${siteId}/attendance`}

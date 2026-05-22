@@ -38,14 +38,29 @@ const STATUSES: AttendanceStatus[] = ['present', 'absent', 'late', 'half_day', '
 
 // ─── Worker self-attendance ───────────────────────────────────────────────────
 
-function WorkerAttendance() {
+function WorkerAttendance({
+  defaultProjectId: defProjId,
+  defaultSiteId: defSiteId,
+}: {
+  defaultProjectId?: string | null;
+  defaultSiteId?:    string | null;
+}) {
   const { pendingCount, isFlushing, flush } = useOfflineQueue();
+  const hasDefaults = !!(defProjId && defSiteId);
+
   const [projects,    setProjects]    = useState<Project[]>([]);
   const [sites,       setSites]       = useState<JobSite[]>([]);
-  const [selected,    setSelected]    = useState<{ project: Project; site: JobSite } | null>(null);
+  const [selected,    setSelected]    = useState<{ project: Project; site: JobSite } | null>(
+    hasDefaults
+      ? {
+          project: { id: defProjId!, companyId: '', name: '', status: '' },
+          site:    { id: defSiteId!, projectId: defProjId!, companyId: '', name: '', status: '' },
+        }
+      : null,
+  );
   const [checkInTime, setCheckInTime] = useState('');
   const [submitting,  setSubmitting]  = useState(false);
-  const [loading,     setLoading]     = useState(true);
+  const [loading,     setLoading]     = useState(!hasDefaults);
   const [done,        setDone]        = useState(false);
   const [doneOffline, setDoneOffline] = useState(false);
 
@@ -53,10 +68,12 @@ function WorkerAttendance() {
   const today = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
 
   useEffect(() => {
+    if (hasDefaults) return;
     projectsApi.list()
       .then(setProjects)
       .catch(() => {})
       .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadSites(project: Project) {
@@ -175,48 +192,51 @@ function WorkerAttendance() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* Step 1 */}
-        <Text style={W.stepLabel}>1 — Select Project</Text>
-        {projects.length === 0 ? (
-          <Text style={W.emptyText}>No projects assigned.</Text>
-        ) : (
-          projects.map((p) => (
-            <TouchableOpacity
-              key={p.id}
-              style={selected?.project.id === p.id ? [W.selectItem, W.selectItemActive] : W.selectItem}
-              onPress={() => {
-                setSelected(null);
-                setSites([]);
-                void loadSites(p);
-                setSelected({ project: p, site: null as unknown as JobSite });
-              }}
-              activeOpacity={0.8}
-            >
-              <Text style={W.selectItemText}>{p.name}</Text>
-              {selected?.project.id === p.id ? <Text style={W.check}>✓</Text> : null}
-            </TouchableOpacity>
-          ))
-        )}
-
-        {/* Step 2 */}
-        {sites.length > 0 && (
+        {/* Steps 1 & 2: project/site selection — hidden for users with defaults */}
+        {!hasDefaults && (
           <>
-            <Text style={[W.stepLabel, { marginTop: 20 }]}>2 — Select Site</Text>
-            {sites.map((s) => (
-              <TouchableOpacity
-                key={s.id}
-                style={selected?.site?.id === s.id ? [W.selectItem, W.selectItemActive] : W.selectItem}
-                onPress={() => setSelected((prev) => prev ? { ...prev, site: s } : null)}
-                activeOpacity={0.8}
-              >
-                <Text style={W.selectItemText}>{s.name}</Text>
-                {selected?.site?.id === s.id ? <Text style={W.check}>✓</Text> : null}
-              </TouchableOpacity>
-            ))}
+            <Text style={W.stepLabel}>1 — Select Project</Text>
+            {projects.length === 0 ? (
+              <Text style={W.emptyText}>No projects assigned.</Text>
+            ) : (
+              projects.map((p) => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={selected?.project.id === p.id ? [W.selectItem, W.selectItemActive] : W.selectItem}
+                  onPress={() => {
+                    setSelected(null);
+                    setSites([]);
+                    void loadSites(p);
+                    setSelected({ project: p, site: null as unknown as JobSite });
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={W.selectItemText}>{p.name}</Text>
+                  {selected?.project.id === p.id ? <Text style={W.check}>✓</Text> : null}
+                </TouchableOpacity>
+              ))
+            )}
+
+            {sites.length > 0 && (
+              <>
+                <Text style={[W.stepLabel, { marginTop: 20 }]}>2 — Select Site</Text>
+                {sites.map((s) => (
+                  <TouchableOpacity
+                    key={s.id}
+                    style={selected?.site?.id === s.id ? [W.selectItem, W.selectItemActive] : W.selectItem}
+                    onPress={() => setSelected((prev) => prev ? { ...prev, site: s } : null)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={W.selectItemText}>{s.name}</Text>
+                    {selected?.site?.id === s.id ? <Text style={W.check}>✓</Text> : null}
+                  </TouchableOpacity>
+                ))}
+              </>
+            )}
           </>
         )}
 
-        {/* Step 3 */}
+        {/* Step 3 (check-in): shown immediately for defaults users, after site selection for others */}
         {selected?.site && (
           <>
             <Text style={[W.stepLabel, { marginTop: 20 }]}>3 — Check In</Text>
@@ -502,7 +522,15 @@ function MarkAttendanceModal({
 
 // ─── Supervisor attendance ────────────────────────────────────────────────────
 
-function SupervisorAttendance() {
+function SupervisorAttendance({
+  defaultProjectId: defProjId,
+  defaultSiteId: defSiteId,
+}: {
+  defaultProjectId?: string | null;
+  defaultSiteId?:    string | null;
+}) {
+  const hasDefaults = !!(defProjId && defSiteId);
+
   const [records,       setRecords]       = useState<AttendanceRecord[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [refreshing,    setRefreshing]    = useState(false);
@@ -517,13 +545,27 @@ function SupervisorAttendance() {
   const today = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
 
   useEffect(() => {
-    projectsApi.list().then((p) => {
-      setProjects(p);
-      if (p.length > 0) {
-        setSelProj(p[0]!);
-        void loadSites(p[0]!.id);
-      }
-    }).finally(() => setLoading(false));
+    if (hasDefaults) {
+      // Fast path: load default project/site and their records in parallel
+      Promise.all([
+        projectsApi.get(defProjId!),
+        projectsApi.getSite(defProjId!, defSiteId!),
+        attendanceApi.list(defProjId!, defSiteId!),
+      ]).then(([proj, site, recs]) => {
+        setSelProj(proj);
+        setSelSite(site);
+        setRecords(recs);
+      }).catch(() => {}).finally(() => setLoading(false));
+    } else {
+      // Legacy path: list all projects, auto-select first
+      projectsApi.list().then((p) => {
+        setProjects(p);
+        if (p.length > 0) {
+          setSelProj(p[0]!);
+          void loadSites(p[0]!.id);
+        }
+      }).finally(() => setLoading(false));
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -746,7 +788,11 @@ function getCardAccent(status: AttendanceStatus): object | null {
 export default function AttendanceScreen() {
   const user = useAuthStore((s) => s.user);
   if (!user) return null;
-  return user.role === 'worker' ? <WorkerAttendance /> : <SupervisorAttendance />;
+  const defaultProjectId = user.defaultProjectId ?? null;
+  const defaultSiteId    = user.defaultSiteId    ?? null;
+  return user.role === 'worker'
+    ? <WorkerAttendance defaultProjectId={defaultProjectId} defaultSiteId={defaultSiteId} />
+    : <SupervisorAttendance defaultProjectId={defaultProjectId} defaultSiteId={defaultSiteId} />;
 }
 
 // ─── Styles: Worker self-attendance ──────────────────────────────────────────

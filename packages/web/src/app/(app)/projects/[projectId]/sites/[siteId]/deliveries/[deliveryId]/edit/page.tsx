@@ -164,7 +164,7 @@ export default function EditDeliveryPage() {
   // ── Loading ──
   if (loading) {
     return (
-      <div className="max-w-3xl space-y-6 animate-fade-in">
+      <div className="max-w-3xl px-6 py-8 space-y-6 animate-fade-in">
         <Skeleton className="h-4 w-40" />
         <Skeleton className="h-8 w-64" />
         {[1, 2, 3].map((i) => (
@@ -188,7 +188,7 @@ export default function EditDeliveryPage() {
   }
 
   return (
-    <div className="max-w-3xl space-y-6 animate-fade-in">
+    <div className="max-w-3xl px-6 py-8 space-y-6 animate-fade-in">
 
       {/* Header */}
       <div>

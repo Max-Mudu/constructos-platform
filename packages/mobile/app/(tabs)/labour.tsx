@@ -16,6 +16,7 @@ import {
   ActivityIndicator,
   FlatList,
 } from 'react-native';
+import { useAuthStore } from '../../src/store/auth.store';
 import { labourApi } from '../../src/api/labour';
 import { attendanceApi } from '../../src/api/attendance';
 import { workersApi } from '../../src/api/workers';
@@ -103,16 +104,21 @@ function CreateLabourModal({
   visible,
   onClose,
   onSaved,
+  defaultProjectId: defProjId,
+  defaultSiteId: defSiteId,
 }: {
-  visible: boolean;
-  onClose: () => void;
-  onSaved: () => void;
+  visible:           boolean;
+  onClose:           () => void;
+  onSaved:           () => void;
+  defaultProjectId?: string | null;
+  defaultSiteId?:    string | null;
 }) {
+  const hasDefaultContext = !!(defProjId && defSiteId);
   const [projects, setProjects] = useState<Project[]>([]);
   const [sites, setSites] = useState<JobSite[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
-  const [projectId, setProjectId] = useState('');
-  const [siteId, setSiteId] = useState('');
+  const [projectId, setProjectId] = useState(defProjId ?? '');
+  const [siteId, setSiteId] = useState(defSiteId ?? '');
   const [workerId, setWorkerId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0] ?? '');
   const [hours, setHours] = useState('8');
@@ -123,13 +129,17 @@ function CreateLabourModal({
   useEffect(() => {
     if (!visible) return;
 
-    Promise.all([projectsApi.list(), workersApi.list()])
-      .then(([p, w]) => {
-        setProjects(p);
-        setWorkers(w);
-      })
-      .catch(() => {});
-  }, [visible]);
+    if (hasDefaultContext) {
+      workersApi.list().then(setWorkers).catch(() => {});
+    } else {
+      Promise.all([projectsApi.list(), workersApi.list()])
+        .then(([p, w]) => {
+          setProjects(p);
+          setWorkers(w);
+        })
+        .catch(() => {});
+    }
+  }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function onProjectChange(pid: string) {
     setProjectId(pid);
@@ -198,35 +208,39 @@ function CreateLabourModal({
         </View>
 
         <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
-          <Text style={styles.fieldLabel}>Project *</Text>
-          {projects.map((p) => (
-            <TouchableOpacity
-              key={p.id}
-              style={[styles.selectItem, projectId === p.id && styles.selectItemActive]}
-              onPress={() => void onProjectChange(p.id)}
-            >
-              <Text style={styles.selectItemText}>{p.name}</Text>
-              {projectId === p.id && <Text style={styles.checkmark}>✓</Text>}
-            </TouchableOpacity>
-          ))}
-
-          {sites.length > 0 && (
+          {!hasDefaultContext && (
             <>
-              <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Site *</Text>
-              {sites.map((s) => (
+              <Text style={styles.fieldLabel}>Project *</Text>
+              {projects.map((p) => (
                 <TouchableOpacity
-                  key={s.id}
-                  style={[styles.selectItem, siteId === s.id && styles.selectItemActive]}
-                  onPress={() => setSiteId(s.id)}
+                  key={p.id}
+                  style={[styles.selectItem, projectId === p.id && styles.selectItemActive]}
+                  onPress={() => void onProjectChange(p.id)}
                 >
-                  <Text style={styles.selectItemText}>{s.name}</Text>
-                  {siteId === s.id && <Text style={styles.checkmark}>✓</Text>}
+                  <Text style={styles.selectItemText}>{p.name}</Text>
+                  {projectId === p.id && <Text style={styles.checkmark}>✓</Text>}
                 </TouchableOpacity>
               ))}
+
+              {sites.length > 0 && (
+                <>
+                  <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Site *</Text>
+                  {sites.map((s) => (
+                    <TouchableOpacity
+                      key={s.id}
+                      style={[styles.selectItem, siteId === s.id && styles.selectItemActive]}
+                      onPress={() => setSiteId(s.id)}
+                    >
+                      <Text style={styles.selectItemText}>{s.name}</Text>
+                      {siteId === s.id && <Text style={styles.checkmark}>✓</Text>}
+                    </TouchableOpacity>
+                  ))}
+                </>
+              )}
             </>
           )}
 
-          <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Worker *</Text>
+          <Text style={[styles.fieldLabel, { marginTop: hasDefaultContext ? 0 : 12 }]}>Worker *</Text>
           {workers.length === 0 ? (
             <Text style={styles.emptyText}>No workers found</Text>
           ) : (
@@ -314,6 +328,10 @@ function getDateRange(filter: DateFilter): { startDate?: string; endDate?: strin
 
 export default function LabourScreen() {
   const { pendingCount, isFlushing, flush } = useOfflineQueue();
+  const authUser         = useAuthStore((s) => s.user);
+  const defaultProjectId = authUser?.defaultProjectId ?? null;
+  const defaultSiteId    = authUser?.defaultSiteId    ?? null;
+  const hasDefaults      = !!(defaultProjectId && defaultSiteId);
 
   const [entries, setEntries] = useState<LabourEntry[]>([]);
   const [attendanceMap, setAttendanceMap] = useState<Record<string, AttendanceRecord>>({});
@@ -385,6 +403,7 @@ export default function LabourScreen() {
 
     try {
       const res = await labourApi.list({
+        ...(hasDefaults && { projectId: defaultProjectId!, siteId: defaultSiteId! }),
         search: searchQ || undefined,
         limit: PAGE_SIZE,
         offset: newOffset,
@@ -699,6 +718,8 @@ export default function LabourScreen() {
           setOffset(0);
           void load({ reset: true });
         }}
+        defaultProjectId={defaultProjectId}
+        defaultSiteId={defaultSiteId}
       />
     </Screen>
   );

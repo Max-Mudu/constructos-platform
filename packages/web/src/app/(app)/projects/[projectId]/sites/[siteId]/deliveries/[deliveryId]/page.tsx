@@ -167,7 +167,7 @@ export default function DeliveryDetailPage() {
   // ── Loading ──
   if (loading) {
     return (
-      <div className="max-w-3xl space-y-6 animate-fade-in">
+      <div className="max-w-3xl px-6 py-8 space-y-6 animate-fade-in">
         <Skeleton className="h-4 w-40" />
         <Skeleton className="h-8 w-64" />
         <Card><CardContent className="pt-6 space-y-3">
@@ -192,7 +192,7 @@ export default function DeliveryDetailPage() {
     delivery.acceptanceStatus === 'partially_accepted' || delivery.acceptanceStatus === 'rejected';
 
   return (
-    <div className="max-w-3xl space-y-6 animate-fade-in">
+    <div className="max-w-3xl px-6 py-8 space-y-6 animate-fade-in">
 
       {/* Breadcrumb */}
       <div>

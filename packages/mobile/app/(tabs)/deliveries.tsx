@@ -295,13 +295,20 @@ function DeliveryDetailView({
 // ─── Create Delivery Modal ────────────────────────────────────────────────────
 
 function CreateDeliveryModal({
-  visible, onClose, onSaved,
-}: { visible: boolean; onClose: () => void; onSaved: (projectId: string, siteId: string) => void }) {
+  visible, onClose, onSaved, defaultProjectId: defProjId, defaultSiteId: defSiteId,
+}: {
+  visible:           boolean;
+  onClose:           () => void;
+  onSaved:           (projectId: string, siteId: string) => void;
+  defaultProjectId?: string | null;
+  defaultSiteId?:    string | null;
+}) {
   const user = useAuthStore((s) => s.user)!;
+  const hasDefaultContext = !!(defProjId && defSiteId);
   const [projects,     setProjects]     = useState<Project[]>([]);
   const [sites,        setSites]        = useState<JobSite[]>([]);
-  const [projectId,    setProjectId]    = useState('');
-  const [siteId,       setSiteId]       = useState('');
+  const [projectId,    setProjectId]    = useState(defProjId ?? '');
+  const [siteId,       setSiteId]       = useState(defSiteId ?? '');
   const [supplier,     setSupplier]     = useState('');
   const [date,         setDate]         = useState(new Date().toISOString().split('T')[0]!);
   const [description,  setDescription]  = useState('');
@@ -315,6 +322,7 @@ function CreateDeliveryModal({
 
   useEffect(() => {
     if (!visible) return;
+    if (hasDefaultContext) return;
     projectsApi.list().then(setProjects).catch(() => {});
   }, [visible]);
 
@@ -374,31 +382,35 @@ function CreateDeliveryModal({
           <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
         </View>
         <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
-          <Text style={styles.fieldLabel}>Project *</Text>
-          {projects.map((p) => (
-            <TouchableOpacity
-              key={p.id}
-              style={[styles.selectItem, projectId === p.id && styles.selectItemActive]}
-              onPress={() => void onProjectChange(p.id)}
-            >
-              <Text style={styles.selectItemText}>{p.name}</Text>
-              {projectId === p.id && <Text style={styles.checkmark}>✓</Text>}
-            </TouchableOpacity>
-          ))}
-
-          {sites.length > 0 && (
+          {!hasDefaultContext && (
             <>
-              <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Site *</Text>
-              {sites.map((s) => (
+              <Text style={styles.fieldLabel}>Project *</Text>
+              {projects.map((p) => (
                 <TouchableOpacity
-                  key={s.id}
-                  style={[styles.selectItem, siteId === s.id && styles.selectItemActive]}
-                  onPress={() => setSiteId(s.id)}
+                  key={p.id}
+                  style={[styles.selectItem, projectId === p.id && styles.selectItemActive]}
+                  onPress={() => void onProjectChange(p.id)}
                 >
-                  <Text style={styles.selectItemText}>{s.name}</Text>
-                  {siteId === s.id && <Text style={styles.checkmark}>✓</Text>}
+                  <Text style={styles.selectItemText}>{p.name}</Text>
+                  {projectId === p.id && <Text style={styles.checkmark}>✓</Text>}
                 </TouchableOpacity>
               ))}
+
+              {sites.length > 0 && (
+                <>
+                  <Text style={[styles.fieldLabel, { marginTop: 12 }]}>Site *</Text>
+                  {sites.map((s) => (
+                    <TouchableOpacity
+                      key={s.id}
+                      style={[styles.selectItem, siteId === s.id && styles.selectItemActive]}
+                      onPress={() => setSiteId(s.id)}
+                    >
+                      <Text style={styles.selectItemText}>{s.name}</Text>
+                      {siteId === s.id && <Text style={styles.checkmark}>✓</Text>}
+                    </TouchableOpacity>
+                  ))}
+                </>
+              )}
             </>
           )}
 
@@ -445,6 +457,11 @@ const ACCEPTANCE_FILTERS = [
 // ─── Deliveries Screen ────────────────────────────────────────────────────────
 
 export default function DeliveriesScreen() {
+  const authUser         = useAuthStore((s) => s.user);
+  const defaultProjectId = authUser?.defaultProjectId ?? null;
+  const defaultSiteId    = authUser?.defaultSiteId    ?? null;
+  const hasDefaults      = !!(defaultProjectId && defaultSiteId);
+
   const [view,           setView]           = useState<'list' | 'detail'>('list');
   const [selectedRecord, setSelectedRecord] = useState<DeliveryRecord | null>(null);
   const [records,        setRecords]        = useState<DeliveryRecord[]>([]);
@@ -457,17 +474,24 @@ export default function DeliveriesScreen() {
   const [statusFilter,   setStatusFilter]   = useState('');
   const [offset,         setOffset]         = useState(0);
 
-  // Project / site selection for list scope
+  // Project / site selection for list scope — pre-seeded from defaults when available
   const [listProjects,   setListProjects]   = useState<Project[]>([]);
   const [listSites,      setListSites]      = useState<JobSite[]>([]);
-  const [listProjectId,  setListProjectId]  = useState('');
-  const [listSiteId,     setListSiteId]     = useState('');
+  const [listProjectId,  setListProjectId]  = useState(defaultProjectId ?? '');
+  const [listSiteId,     setListSiteId]     = useState(defaultSiteId    ?? '');
 
   const searchTimer = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
+    if (hasDefaults) {
+      setLoading(true);
+      void load({ reset: true, pid: defaultProjectId!, sid: defaultSiteId! })
+        .then(() => setLoading(false))
+        .catch(() => setLoading(false));
+      return;
+    }
     projectsApi.list().then((p) => setListProjects(p ?? [])).catch(() => {});
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function onListProjectChange(pid: string) {
     console.log('[Deliveries] project selected:', pid);
@@ -591,46 +615,49 @@ export default function DeliveriesScreen() {
         />
       </View>
 
-      {/* Project picker */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterBar}
-        contentContainerStyle={styles.filterBarContent}
-      >
-        {listProjects.map((p) => (
-          <TouchableOpacity
-            key={p.id}
-            style={[styles.filterChip, listProjectId === p.id && styles.filterChipActive]}
-            onPress={() => void onListProjectChange(p.id)}
+      {/* Project / site pickers — legacy users only; hidden when defaults are active */}
+      {!hasDefaults && (
+        <>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.filterBar}
+            contentContainerStyle={styles.filterBarContent}
           >
-            <Text style={[styles.filterChipText, listProjectId === p.id && styles.filterChipTextActive]}>
-              {p.name}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+            {listProjects.map((p) => (
+              <TouchableOpacity
+                key={p.id}
+                style={[styles.filterChip, listProjectId === p.id && styles.filterChipActive]}
+                onPress={() => void onListProjectChange(p.id)}
+              >
+                <Text style={[styles.filterChipText, listProjectId === p.id && styles.filterChipTextActive]}>
+                  {p.name}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
 
-      {/* Site picker — shown once a project is selected */}
-      {listSites.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.filterBar}
-          contentContainerStyle={styles.filterBarContent}
-        >
-          {listSites.map((s) => (
-            <TouchableOpacity
-              key={s.id}
-              style={[styles.filterChip, listSiteId === s.id && styles.filterChipActive]}
-              onPress={() => void onListSiteChange(s.id, listProjectId)}
+          {listSites.length > 0 && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.filterBar}
+              contentContainerStyle={styles.filterBarContent}
             >
-              <Text style={[styles.filterChipText, listSiteId === s.id && styles.filterChipTextActive]}>
-                {s.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+              {listSites.map((s) => (
+                <TouchableOpacity
+                  key={s.id}
+                  style={[styles.filterChip, listSiteId === s.id && styles.filterChipActive]}
+                  onPress={() => void onListSiteChange(s.id, listProjectId)}
+                >
+                  <Text style={[styles.filterChipText, listSiteId === s.id && styles.filterChipTextActive]}>
+                    {s.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </>
       )}
 
       {/* Search */}
@@ -678,12 +705,18 @@ export default function DeliveriesScreen() {
       {records.length === 0
         ? (
           <EmptyState
-            title={!listProjectId ? 'Select a project' : !listSiteId ? 'Select a site' : 'No deliveries'}
+            title={
+              hasDefaults
+                ? (search ? 'No results' : 'No deliveries')
+                : (!listProjectId ? 'Select a project' : !listSiteId ? 'Select a site' : 'No deliveries')
+            }
             description={
-              !listProjectId ? 'Choose a project above to view its deliveries.' :
-              !listSiteId    ? 'Choose a site above to view its deliveries.' :
-              search         ? `No results for "${search}"` :
-                               'Tap + Add to record a new delivery.'
+              hasDefaults
+                ? (search ? `No results for "${search}"` : 'Tap + Add to record the first delivery.')
+                : (!listProjectId ? 'Choose a project above to view its deliveries.' :
+                   !listSiteId    ? 'Choose a site above to view its deliveries.' :
+                   search         ? `No results for "${search}"` :
+                                    'Tap + Add to record a new delivery.')
             }
           />
         ) : (
@@ -755,6 +788,8 @@ export default function DeliveriesScreen() {
       <CreateDeliveryModal
         visible={showModal}
         onClose={() => setShowModal(false)}
+        defaultProjectId={defaultProjectId}
+        defaultSiteId={defaultSiteId}
         onSaved={(pid, sid) => {
           if (pid !== listProjectId || sid !== listSiteId) {
             setListProjectId(pid);

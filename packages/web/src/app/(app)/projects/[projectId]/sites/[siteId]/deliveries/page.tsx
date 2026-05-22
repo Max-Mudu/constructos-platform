@@ -74,7 +74,7 @@ export default function DeliveriesPage() {
   const showAddButton = user && canWrite(user.role);
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="px-6 py-8 space-y-6 animate-fade-in">
 
       {/* Header */}
       <div className="flex items-center justify-between">
