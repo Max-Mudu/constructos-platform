@@ -8,7 +8,8 @@
       "Bash(grep -l \"PushToken\\\\|pushToken\" \"/c/Users/ADMIN/Desktop/Constructon Platform/node_modules/.prisma/client/\"*.d.ts)",
       "mcp__obsidian__get_workspace_files",
       "Skill(superpowers:brainstorming)",
-      "Skill(superpowers:executing-plans)"
+      "Skill(superpowers:executing-plans)",
+      "mcp__obsidian__obsidian_api"
     ]
   }
 }

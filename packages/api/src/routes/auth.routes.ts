@@ -31,6 +31,11 @@ const logoutSchema = z.object({
   refreshToken: z.string().min(1),
 });
 
+const updateDefaultsSchema = z.object({
+  defaultProjectId: z.string().uuid().nullable(),
+  defaultSiteId: z.string().uuid().nullable(),
+});
+
 export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /api/v1/auth/register
   fastify.post('/register', async (request, reply) => {
@@ -160,6 +165,32 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/me', { preHandler: [authenticate] }, async (request, reply) => {
     try {
       const user = await authService.getMe(request.user.id);
+      return reply.send({ user });
+    } catch (err) {
+      if (err instanceof AppError) {
+        return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+      }
+      throw err;
+    }
+  });
+
+  // PATCH /api/v1/auth/me/defaults
+  fastify.patch('/me/defaults', { preHandler: [authenticate] }, async (request, reply) => {
+    const parsed = updateDefaultsSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(422).send({
+        error: 'Validation failed',
+        code: 'VALIDATION_ERROR',
+        details: parsed.error.flatten().fieldErrors,
+      });
+    }
+
+    try {
+      const user = await authService.updateDefaults(
+        request.user.id,
+        request.user.companyId,
+        parsed.data,
+      );
       return reply.send({ user });
     } catch (err) {
       if (err instanceof AppError) {

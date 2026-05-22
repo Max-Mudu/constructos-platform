@@ -1,6 +1,6 @@
 import { prisma } from '../utils/prisma';
 import { hashPassword, verifyPassword, hashToken, generateToken } from '../utils/hash';
-import { UnauthorizedError, ConflictError, ForbiddenError } from '../utils/errors';
+import { UnauthorizedError, ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../utils/errors';
 import { UserRole } from '@prisma/client';
 import { JwtPayload } from '../types';
 import { FastifyInstance } from 'fastify';
@@ -23,6 +23,11 @@ export interface RegisterInput {
 export interface LoginInput {
   email: string;
   password: string;
+}
+
+export interface UpdateDefaultsInput {
+  defaultProjectId: string | null;
+  defaultSiteId: string | null;
 }
 
 export interface TokenPair {
@@ -321,6 +326,70 @@ export async function getMe(userId: string): Promise<AuthUser> {
   if (!user || !user.isActive) {
     throw new UnauthorizedError('User not found or inactive');
   }
+  return {
+    id: user.id,
+    email: user.email,
+    firstName: user.firstName,
+    lastName: user.lastName,
+    role: user.role,
+    companyId: user.companyId,
+    canViewFinance: user.canViewFinance,
+    defaultProjectId: user.defaultProjectId,
+    defaultSiteId: user.defaultSiteId,
+  };
+}
+
+export async function updateDefaults(
+  userId: string,
+  companyId: string,
+  input: UpdateDefaultsInput,
+): Promise<AuthUser> {
+  if ((input.defaultProjectId === null) !== (input.defaultSiteId === null)) {
+    throw new ValidationError(
+      'Both defaultProjectId and defaultSiteId must be provided, or both must be null',
+    );
+  }
+
+  if (input.defaultProjectId === null) {
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { defaultProjectId: null, defaultSiteId: null },
+    });
+    return {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+      companyId: user.companyId,
+      canViewFinance: user.canViewFinance,
+      defaultProjectId: null,
+      defaultSiteId: null,
+    };
+  }
+
+  const project = await prisma.project.findFirst({
+    where: { id: input.defaultProjectId, companyId },
+  });
+  if (!project) {
+    throw new NotFoundError('Project');
+  }
+
+  const site = await prisma.jobSite.findFirst({
+    where: { id: input.defaultSiteId!, projectId: input.defaultProjectId, companyId },
+  });
+  if (!site) {
+    throw new NotFoundError('Site');
+  }
+
+  const user = await prisma.user.update({
+    where: { id: userId },
+    data: {
+      defaultProjectId: input.defaultProjectId,
+      defaultSiteId: input.defaultSiteId,
+    },
+  });
+
   return {
     id: user.id,
     email: user.email,
