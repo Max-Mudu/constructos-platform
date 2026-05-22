@@ -48,4 +48,12 @@ export const authApi = {
     const res = await apiClient.get<{ user: AuthUser }>('/auth/me');
     return res.data.user;
   },
+
+  updateDefaults: async (data: {
+    defaultProjectId: string | null;
+    defaultSiteId:    string | null;
+  }): Promise<AuthUser> => {
+    const res = await apiClient.patch<{ user: AuthUser }>('/auth/me/defaults', data);
+    return res.data.user;
+  },
 };

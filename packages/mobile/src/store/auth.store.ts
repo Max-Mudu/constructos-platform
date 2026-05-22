@@ -10,6 +10,7 @@ interface AuthState {
   setAuth:   (user: AuthUser, accessToken: string, refreshToken: string) => Promise<void>;
   clearAuth: () => Promise<void>;
   setLoading: (loading: boolean) => void;
+  setUser:   (user: AuthUser) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -28,4 +29,6 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   setLoading: (loading) => set({ isLoading: loading }),
+
+  setUser: (user) => set({ user }),
 }));
