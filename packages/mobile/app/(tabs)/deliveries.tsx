@@ -324,6 +324,7 @@ function CreateDeliveryModal({
     if (!visible) return;
     if (hasDefaultContext) return;
     projectsApi.list().then(setProjects).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   async function onProjectChange(pid: string) {
@@ -358,7 +359,6 @@ function CreateDeliveryModal({
         receivedById:       user.id,
         comments:           notes || undefined,
       };
-      console.log('[createDelivery] payload:', JSON.stringify(payload, null, 2));
       const record = await deliveriesApi.create(payload);
       if (photoUri) {
         try { await deliveriesApi.uploadPhoto(record.id, photoUri); }
@@ -494,17 +494,14 @@ export default function DeliveriesScreen() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function onListProjectChange(pid: string) {
-    console.log('[Deliveries] project selected:', pid);
     setListProjectId(pid); setListSiteId(''); setRecords([]); setTotal(0);
     try {
       const sites = await projectsApi.listSites(pid);
-      console.log('[Deliveries] sites loaded:', Array.isArray(sites) ? sites.length : sites);
       setListSites(Array.isArray(sites) ? sites : []);
-    } catch (e) { console.log('[Deliveries] listSites error:', e); setListSites([]); }
+    } catch { setListSites([]); }
   }
 
   async function onListSiteChange(sid: string, pid: string) {
-    console.log('[Deliveries] site selected:', sid, 'project:', pid);
     if (!sid || !pid) return;
     setListSiteId(sid); setOffset(0);
     setLoading(true);
@@ -536,8 +533,6 @@ export default function DeliveriesScreen() {
         statusQ === ''                  ? fetched :
         statusQ === 'pending_inspection'? fetched.filter((d) => d.acceptanceStatus == null) :
                                           fetched.filter((d) => d.acceptanceStatus === statusQ);
-
-      console.log('[Deliveries] filter:', statusQ || 'all', '| fetched:', fetched.length, '| filtered:', filtered.length);
 
       if (opts.reset || newOffset === 0) {
         setRecords(filtered);

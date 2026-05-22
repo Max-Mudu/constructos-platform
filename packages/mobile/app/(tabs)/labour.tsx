@@ -244,7 +244,7 @@ function CreateLabourModal({
           {workers.length === 0 ? (
             <Text style={styles.emptyText}>No workers found</Text>
           ) : (
-            workers.slice(0, 20).map((w) => (
+            workers.map((w) => (
               <TouchableOpacity
                 key={w.id}
                 style={[styles.selectItem, workerId === w.id && styles.selectItemActive]}
