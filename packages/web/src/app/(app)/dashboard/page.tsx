@@ -178,6 +178,40 @@ function ActivityFeed() {
   );
 }
 
+// ─── Operational helpers ──────────────────────────────────────────────────────
+
+function operationalHref(
+  segment: string,
+  u: { defaultProjectId: string | null; defaultSiteId: string | null } | null,
+): string {
+  if (u?.defaultProjectId && u?.defaultSiteId) {
+    return `/projects/${u.defaultProjectId}/sites/${u.defaultSiteId}/${segment}`;
+  }
+  return '/projects';
+}
+
+function AlertChip({
+  count, label, severity, href,
+}: {
+  count:    number | string;
+  label:    string;
+  severity: 'red' | 'amber';
+  href:     string;
+}) {
+  const cls = severity === 'red'
+    ? 'bg-red-950/40 border-red-800/50 text-red-400 hover:bg-red-950/70'
+    : 'bg-amber-950/40 border-amber-800/50 text-amber-400 hover:bg-amber-950/70';
+  return (
+    <Link
+      href={href}
+      className={cn('inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors', cls)}
+    >
+      <span className="font-bold">{count}</span>
+      <span className="font-medium">{label}</span>
+    </Link>
+  );
+}
+
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
@@ -240,6 +274,37 @@ export default function DashboardPage() {
 
   if (!stats) return null;
 
+  // ── Operational alert data ─────────────────────────────────────────────────
+  const scheduleAlerts = stats.schedule;
+  const hasScheduleAlerts = !!(scheduleAlerts && (
+    scheduleAlerts.overdueTasks    > 0 ||
+    scheduleAlerts.blockedTasks    > 0 ||
+    scheduleAlerts.dueTodayTasks   > 0 ||
+    scheduleAlerts.delayedTasks    > 0 ||
+    scheduleAlerts.behindPlanTasks > 0
+  ));
+
+  const labourAlerts = stats.labourAlerts;
+  const hasLabourAlerts = !!(labourAlerts && (
+    labourAlerts.zeroWorkforceToday       ||
+    labourAlerts.attendanceRateToday < 70 ||
+    labourAlerts.absentToday         > 0  ||
+    labourAlerts.lateToday           > 0
+  ));
+
+  const procAlerts = stats.procurementAlerts;
+  const hasProcAlerts = !!(procAlerts && (
+    procAlerts.pendingDeliveriesCount  > 0 ||
+    procAlerts.rejectedLast30dCount    > 0 ||
+    procAlerts.damagedLast30dCount     > 0 ||
+    procAlerts.lowStockNoDeliveryCount > 0
+  ));
+
+  const lowStockAlerts = stats.lowStockInventory;
+  const hasLowStock    = !!(lowStockAlerts && lowStockAlerts.count > 0);
+
+  const hasOperationalAlerts = hasScheduleAlerts || hasLabourAlerts || hasProcAlerts || hasLowStock;
+
   // ── Top KPI strip (role-based selection) ──────────────────────────────────
   type KPI = { label: string; value: string | number; icon: React.ReactNode; cls?: string; href?: string };
   const kpis: KPI[] = [];
@@ -301,8 +366,65 @@ export default function DashboardPage() {
     <div className="px-6 py-8 space-y-6 animate-fade-in">
       <PageHeader
         title={`Welcome back, ${user?.firstName ?? ''}!`}
-        subtitle={user ? `${user.role.replace(/_/g, ' ')} · ${user.email}` : undefined}
+        subtitle={user ? user.role.replace(/_/g, ' ') : undefined}
       />
+
+      {/* ── Operational alert strip ─────────────────────────────────────── */}
+      {hasOperationalAlerts && (
+        <div className="rounded-xl border border-border bg-card px-5 py-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+            Needs Attention
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {/* Priority 1 — Schedule */}
+            {scheduleAlerts && scheduleAlerts.overdueTasks > 0 && (
+              <AlertChip count={scheduleAlerts.overdueTasks}    label="Overdue Tasks" severity="red"   href={operationalHref('schedules', user)} />
+            )}
+            {scheduleAlerts && scheduleAlerts.blockedTasks > 0 && (
+              <AlertChip count={scheduleAlerts.blockedTasks}    label="Blocked"       severity="red"   href={operationalHref('schedules', user)} />
+            )}
+            {scheduleAlerts && scheduleAlerts.dueTodayTasks > 0 && (
+              <AlertChip count={scheduleAlerts.dueTodayTasks}   label="Due Today"     severity="amber" href={operationalHref('schedules', user)} />
+            )}
+            {scheduleAlerts && scheduleAlerts.delayedTasks > 0 && (
+              <AlertChip count={scheduleAlerts.delayedTasks}    label="Delayed"       severity="amber" href={operationalHref('schedules', user)} />
+            )}
+            {scheduleAlerts && scheduleAlerts.behindPlanTasks > 0 && (
+              <AlertChip count={scheduleAlerts.behindPlanTasks} label="Behind Plan"   severity="amber" href={operationalHref('schedules', user)} />
+            )}
+            {/* Priority 2 — Labour */}
+            {labourAlerts?.zeroWorkforceToday && (
+              <AlertChip count="!" label="No Workforce" severity="red" href={operationalHref('attendance', user)} />
+            )}
+            {labourAlerts && !labourAlerts.zeroWorkforceToday && labourAlerts.attendanceRateToday < 70 && (
+              <AlertChip count={`${labourAlerts.attendanceRateToday}%`} label="Attendance" severity="red" href={operationalHref('attendance', user)} />
+            )}
+            {labourAlerts && labourAlerts.absentToday > 0 && (
+              <AlertChip count={labourAlerts.absentToday} label="Absent" severity="amber" href={operationalHref('attendance', user)} />
+            )}
+            {labourAlerts && labourAlerts.lateToday > 0 && (
+              <AlertChip count={labourAlerts.lateToday} label="Late" severity="amber" href={operationalHref('attendance', user)} />
+            )}
+            {/* Priority 3 — Procurement */}
+            {procAlerts && procAlerts.rejectedLast30dCount > 0 && (
+              <AlertChip count={procAlerts.rejectedLast30dCount}    label="Rejected Deliveries" severity="red"   href={operationalHref('deliveries', user)} />
+            )}
+            {procAlerts && procAlerts.damagedLast30dCount > 0 && (
+              <AlertChip count={procAlerts.damagedLast30dCount}     label="Damaged Deliveries"  severity="red"   href={operationalHref('deliveries', user)} />
+            )}
+            {procAlerts && procAlerts.lowStockNoDeliveryCount > 0 && (
+              <AlertChip count={procAlerts.lowStockNoDeliveryCount} label="No Reorder"           severity="red"   href={operationalHref('inventory', user)} />
+            )}
+            {procAlerts && procAlerts.pendingDeliveriesCount > 0 && (
+              <AlertChip count={procAlerts.pendingDeliveriesCount}  label="Pending Inspection"   severity="amber" href={operationalHref('deliveries', user)} />
+            )}
+            {/* Priority 4 — Low stock */}
+            {lowStockAlerts && lowStockAlerts.count > 0 && (
+              <AlertChip count={lowStockAlerts.count} label="Low Stock Items" severity="amber" href={operationalHref('inventory', user)} />
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Top KPI strip ───────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -493,8 +615,8 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <Link href="/labour" className="text-xs text-primary hover:underline text-center">Labour entries →</Link>
-              <Link href="/attendance" className="text-xs text-primary hover:underline text-center">Attendance →</Link>
+              <Link href={operationalHref('labour', user)} className="text-xs text-primary hover:underline text-center">Labour entries →</Link>
+              <Link href={operationalHref('attendance', user)} className="text-xs text-primary hover:underline text-center">Attendance →</Link>
             </div>
           </Widget>
         )}
@@ -525,7 +647,7 @@ export default function DashboardPage() {
 
         {/* Deliveries widget (canSiteOps) */}
         {canSiteOps && (
-          <Widget title="Deliveries" href="/projects">
+          <Widget title="Deliveries" href={operationalHref('deliveries', user)}>
             <div className="grid grid-cols-3 gap-2 mb-3">
               <MiniStat label="This Month" value={stats.deliveries.thisMonthCount} />
               <MiniStat label="Total"      value={stats.deliveries.totalCount}     />

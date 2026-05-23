@@ -835,6 +835,44 @@ export interface DashboardStats {
     inflowsThisMonth: number;
     netPosition:      number;
   };
+  lowStockInventory?: {
+    count: number;
+    items: Array<{
+      id:                string;
+      materialName:      string;
+      currentQuantity:   number;
+      unitOfMeasure:     string;
+      lowStockThreshold: number;
+      siteName:          string;
+    }>;
+  };
+  schedule?: {
+    overdueTasks:    number;
+    dueTodayTasks:   number;
+    blockedTasks:    number;
+    delayedTasks:    number;
+    behindPlanTasks: number;
+  };
+  labourAlerts?: {
+    absentToday:          number;
+    lateToday:            number;
+    overtimeEntriesToday: number;
+    attendanceRateToday:  number;
+    zeroWorkforceToday:   boolean;
+  };
+  procurementAlerts?: {
+    pendingDeliveriesCount:  number;
+    rejectedLast30dCount:    number;
+    damagedLast30dCount:     number;
+    lowStockNoDeliveryCount: number;
+    lowStockSeverityItems: Array<{
+      materialName:      string;
+      currentQuantity:   number;
+      lowStockThreshold: number;
+      unitOfMeasure:     string;
+      siteName:          string;
+    }>;
+  };
 }
 
 // ─── Reports ──────────────────────────────────────────────────────────────────

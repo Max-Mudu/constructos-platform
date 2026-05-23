@@ -86,13 +86,14 @@ function MetricCard({
 // ─── AlertCard ────────────────────────────────────────────────────────────────
 
 function AlertCard({
-  accentColor, title, body,
+  accentColor, title, body, onPress,
 }: {
   accentColor: string;
   title:       string;
   body:        string;
+  onPress?:    () => void;
 }) {
-  return (
+  const inner = (
     <View style={D.alertCard}>
       <View style={[D.alertAccentBar, { backgroundColor: accentColor }]} />
       <View style={D.alertCardInner}>
@@ -102,6 +103,14 @@ function AlertCard({
       <View style={[D.alertIndicator, { backgroundColor: accentColor }]} />
     </View>
   );
+  if (onPress) {
+    return (
+      <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+        {inner}
+      </TouchableOpacity>
+    );
+  }
+  return inner;
 }
 
 // ─── LowStockCard ────────────────────────────────────────────────────────────
@@ -486,7 +495,9 @@ export default function DashboardScreen() {
     procurementSummary.lowStockNoDeliveryCount > 0
   ));
 
-  const currentProject = recentProjects[0];
+  const displayProject = user.defaultProjectId
+    ? (recentProjects.find((p) => p.id === user.defaultProjectId) ?? recentProjects[0])
+    : recentProjects[0];
 
   return (
     <Screen>
@@ -520,7 +531,7 @@ export default function DashboardScreen() {
         >
           <Text style={D.sitePillPin}>📍</Text>
           <Text style={D.sitePillText} numberOfLines={1}>
-            {currentProject ? currentProject.name : 'All Projects'}
+            {displayProject ? displayProject.name : 'All Projects'}
           </Text>
           <Text style={D.sitePillChev}>›</Text>
         </TouchableOpacity>
@@ -569,7 +580,7 @@ export default function DashboardScreen() {
               icon="📋"
               label="Open Instructions"
               value={openCount}
-              sub="Open from site details"
+              sub={hasCritical ? `${criticalCount} critical` : 'across all projects'}
               urgent={hasCritical}
             />
             <MetricCard
@@ -590,7 +601,7 @@ export default function DashboardScreen() {
               <AlertCard
                 accentColor="#ef4444"
                 title={`${criticalCount} Critical Instruction${criticalCount !== 1 ? 's' : ''}`}
-                body="Immediate review required — tap to manage"
+                body="Immediate review required. Open from project details."
               />
             ) : null}
             {hasPending ? (
@@ -598,6 +609,7 @@ export default function DashboardScreen() {
                 accentColor="#f59e0b"
                 title={`${pendingInspections} Delivery Inspection${pendingInspections !== 1 ? 's' : ''} Pending`}
                 body="Deliveries awaiting quality check"
+                onPress={() => router.push('/(tabs)/deliveries')}
               />
             ) : null}
             {hasOverdue ? (
@@ -605,6 +617,7 @@ export default function DashboardScreen() {
                 accentColor="#f97316"
                 title={`${overdueInvoices} Overdue Invoice${overdueInvoices !== 1 ? 's' : ''}`}
                 body="Payment action required"
+                onPress={() => router.push('/(tabs)/invoices')}
               />
             ) : null}
           </>
