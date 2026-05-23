@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios';
-import { getAccessToken, getRefreshToken, saveTokens, clearTokens } from '../auth/secureStorage';
+import { getAccessToken, getRefreshToken, saveTokens } from '../auth/secureStorage';
+import { useAuthStore } from '../store/auth.store';
 
 const BASE_URL = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://10.0.2.2:3000/api/v1';
 
@@ -79,8 +80,9 @@ apiClient.interceptors.response.use(
         return apiClient(originalRequest);
       } catch (refreshErr) {
         processQueue(refreshErr, null);
-        await clearTokens();
-        // The auth store will detect missing tokens on next render
+        // clearAuth clears secure storage AND resets Zustand state so the
+        // UI navigates to login rather than showing a stale logged-in screen.
+        await useAuthStore.getState().clearAuth();
         return Promise.reject(refreshErr);
       } finally {
         isRefreshing = false;

@@ -19,6 +19,8 @@ export class ApiError extends Error {
 let _getAccessToken: (() => string | null) | null = null;
 let _onUnauthorized: (() => void) | null = null;
 let _onAuthRefreshed: ((user: AuthUser, token: string) => void) | null = null;
+// Shared refresh promise — prevents concurrent 401s from firing duplicate token rotations.
+let _refreshPromise: Promise<boolean> | null = null;
 
 export function configureApiClient(
   getToken: () => string | null,
@@ -45,11 +47,24 @@ async function request<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers,
-    credentials: 'include', // send httpOnly refresh cookie
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...options,
+      headers,
+      credentials: 'include',
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new ApiError(408, 'TIMEOUT', 'Request timed out');
+    }
+    throw err;
+  }
+  clearTimeout(timeoutId);
 
   if (res.status === 401 && !retried) {
     // Try to refresh the token once
@@ -80,13 +95,17 @@ async function request<T>(
   return res.json() as Promise<T>;
 }
 
-async function tryRefresh(): Promise<boolean> {
+async function doRefresh(): Promise<boolean> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000);
   try {
     const res = await fetch(`${BASE}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
     if (!res.ok) return false;
     const data: { accessToken: string; user: AuthUser } = await res.json();
     if (_onAuthRefreshed) {
@@ -97,8 +116,15 @@ async function tryRefresh(): Promise<boolean> {
     }
     return true;
   } catch {
+    clearTimeout(timeoutId);
     return false;
   }
+}
+
+async function tryRefresh(): Promise<boolean> {
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = doRefresh().finally(() => { _refreshPromise = null; });
+  return _refreshPromise;
 }
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
