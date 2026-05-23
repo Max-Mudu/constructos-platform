@@ -69,6 +69,7 @@ export function useOfflineQueue() {
       const queue = await getQueue();
       for (const op of queue) {
         if (op.retryCount >= MAX_RETRIES) {
+          console.warn('[offline-queue] dropping op after max retries — type:', op.type, 'id:', op.id, 'created:', op.createdAt);
           await dequeue(op.id);
           continue;
         }

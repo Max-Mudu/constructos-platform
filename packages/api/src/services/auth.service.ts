@@ -285,6 +285,7 @@ export async function refreshTokens(
   if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
     // If token was already revoked, this may indicate theft — revoke entire family
     if (stored && stored.revokedAt) {
+      console.warn('[auth] refresh token reuse detected — revoking all sessions for userId:', stored.userId);
       await prisma.refreshToken.updateMany({
         where: { userId: stored.userId },
         data: { revokedAt: new Date() },

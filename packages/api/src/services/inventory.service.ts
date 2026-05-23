@@ -74,10 +74,8 @@ export async function creditFromDelivery(
   actorId?: string,
 ): Promise<void> {
   const qty = Number(delivery.quantityDelivered);
-  console.log('[creditFromDelivery] entry — deliveryId:', delivery.id, '| qty:', qty, '| materialName:', delivery.itemDescription, '| siteId:', delivery.siteId, '| companyId:', delivery.companyId);
 
   if (!qty || qty <= 0) {
-    console.log('[creditFromDelivery] early return — qty is zero or negative:', qty);
     return;
   }
 
@@ -106,8 +104,6 @@ export async function creditFromDelivery(
       select: { id: true, currentQuantity: true },
     });
 
-    console.log('[creditFromDelivery] upsert result — inventoryId:', inventoryItem.id, '| newQty:', String(inventoryItem.currentQuantity));
-
     await tx.inventoryTransaction.create({
       data: {
         companyId:     delivery.companyId,
@@ -121,8 +117,6 @@ export async function creditFromDelivery(
         performedById: actorId ?? null,
       },
     });
-
-    console.log('[creditFromDelivery] transaction committed — inventory credited');
   });
 }
 
@@ -189,8 +183,6 @@ export async function recordUsage(
 ) {
   await checkSiteAccess(siteId, projectId, actor);
 
-  console.log('[inventory-usage] request — inventoryId:', inventoryId, '| qty:', quantity, '| actor:', actor.id);
-
   const item = await prisma.siteInventory.findFirst({
     where: { id: inventoryId, siteId, companyId: actor.companyId },
   });
@@ -198,7 +190,6 @@ export async function recordUsage(
 
   const current = Number(item.currentQuantity);
   if (quantity > current) {
-    console.log('[inventory-usage] insufficient stock — requested:', quantity, '| available:', current);
     throw new ValidationError(`Insufficient stock: requested ${quantity}, available ${current}`);
   }
 
@@ -210,8 +201,6 @@ export async function recordUsage(
       data:   { currentQuantity: { decrement: quantity } },
       select: INVENTORY_ITEM_SELECT,
     });
-
-    console.log('[inventory-usage] decrement success — newQty:', String(decremented.currentQuantity));
 
     await tx.inventoryTransaction.create({
       data: {
@@ -229,20 +218,12 @@ export async function recordUsage(
       },
     });
 
-    console.log('[inventory-usage] transaction committed — inventoryId:', inventoryId);
-
     return decremented;
   });
 
   const isLow = computeIsLowStock(updated.currentQuantity, updated.lowStockThreshold);
   if (isLow) {
-    console.log(
-      '[inventory-alert] low stock —',
-      'material:', updated.materialName,
-      '| currentQuantity:', String(updated.currentQuantity),
-      '| threshold:', String(updated.lowStockThreshold),
-      '| siteId:', siteId,
-    );
+    console.warn('[inventory] low stock — material:', updated.materialName, '| qty:', String(updated.currentQuantity), '| threshold:', String(updated.lowStockThreshold), '| siteId:', siteId);
   }
 
   return { ...updated, isLowStock: isLow };
@@ -259,8 +240,6 @@ export async function updateThreshold(
 ) {
   await checkSiteAccess(siteId, projectId, actor);
 
-  console.log('[inventory-threshold] update — inventoryId:', inventoryId, '| threshold:', threshold);
-
   const existing = await prisma.siteInventory.findFirst({
     where:  { id: inventoryId, siteId, companyId: actor.companyId },
     select: { id: true },
@@ -272,8 +251,6 @@ export async function updateThreshold(
     data:   { lowStockThreshold: threshold !== null ? new Prisma.Decimal(threshold) : null },
     select: INVENTORY_ITEM_SELECT,
   });
-
-  console.log('[inventory-threshold] updated — newThreshold:', String(updated.lowStockThreshold));
 
   return {
     ...updated,

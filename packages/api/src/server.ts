@@ -161,7 +161,12 @@ export async function buildApp() {
 
   // ── Global error handler ─────────────────────────────────────────────────
   app.setErrorHandler((error, request, reply) => {
-    app.log.error(error);
+    app.log.error({
+      err:    error,
+      method: request.method,
+      url:    request.url,
+      userId: (request.user as { id?: string } | null | undefined)?.id,
+    }, 'Unhandled server error');
     const statusCode = error.statusCode ?? 500;
     reply.status(statusCode).send({
       error: statusCode === 500 ? 'Internal server error' : error.message,

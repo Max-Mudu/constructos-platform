@@ -284,10 +284,7 @@ export async function createDelivery(
     record.acceptanceStatus === 'accepted' ||
     record.acceptanceStatus === 'partially_accepted';
 
-  console.log('[inventory-hook] createDelivery — acceptanceStatus:', record.acceptanceStatus, '| willCredit:', createdAccepted);
-
   if (createdAccepted) {
-    console.log('[inventory-hook] calling creditFromDelivery on create — materialName:', record.itemDescription, '| qty:', String(record.quantityDelivered), '| siteId:', record.siteId, '| companyId:', record.companyId);
     await inventoryService.creditFromDelivery(record, actor.id);
   }
 
@@ -367,13 +364,7 @@ export async function updateDelivery(
     updated.acceptanceStatus === 'partially_accepted';
   const justAccepted = !wasAccepted && isNowAccepted;
 
-  console.log('[inventory-hook] deliveryId:', deliveryId);
-  console.log('[inventory-hook] before.acceptanceStatus:', before.acceptanceStatus);
-  console.log('[inventory-hook] updated.acceptanceStatus:', updated.acceptanceStatus);
-  console.log('[inventory-hook] wasAccepted:', wasAccepted, '| isNowAccepted:', isNowAccepted, '| justAccepted:', justAccepted);
-
   if (justAccepted) {
-    console.log('[inventory-hook] calling creditFromDelivery — materialName:', updated.itemDescription, '| qty:', String(updated.quantityDelivered), '| siteId:', updated.siteId, '| companyId:', updated.companyId);
     await inventoryService.creditFromDelivery(updated, actor.id);
   }
 

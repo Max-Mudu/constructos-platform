@@ -19,6 +19,7 @@ export async function authenticate(
       canViewFinance: payload.canViewFinance,
     };
   } catch {
+    request.log.warn({ method: request.method, url: request.url }, 'JWT verification failed');
     const error = new UnauthorizedError('Invalid or expired token');
     reply.status(401).send({ error: error.message, code: error.code });
   }
