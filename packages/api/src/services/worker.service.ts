@@ -137,8 +137,9 @@ export async function listWorkers(actor: RequestUser, filters: ListWorkersFilter
       ...siteFilter,
       ...projectFilter,
     },
-    select: WORKER_SELECT,
+    select:  WORKER_SELECT,
     orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+    take:    500,
   });
 }
 

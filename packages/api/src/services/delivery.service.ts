@@ -59,6 +59,40 @@ export interface UpdateDeliveryInput {
 
 // ─── Select ───────────────────────────────────────────────────────────────────
 
+const DELIVERY_LIST_SELECT = {
+  id: true,
+  companyId: true,
+  projectId: true,
+  siteId: true,
+  supplierName: true,
+  supplierContact: true,
+  deliveryDate: true,
+  deliveryTime: true,
+  driverName: true,
+  vehicleRegistration: true,
+  purchaseOrderNumber: true,
+  deliveryNoteNumber: true,
+  invoiceNumber: true,
+  itemDescription: true,
+  unitOfMeasure: true,
+  quantityOrdered: true,
+  quantityDelivered: true,
+  conditionOnArrival: true,
+  inspectionStatus: true,
+  acceptanceStatus: true,
+  rejectionReason: true,
+  discrepancyNotes: true,
+  receivedById: true,
+  budgetLineItemId: true,
+  supplierInvoiceId: true,
+  comments: true,
+  createdAt: true,
+  updatedAt: true,
+  receivedBy: {
+    select: { id: true, firstName: true, lastName: true, email: true },
+  },
+} as const;
+
 const DELIVERY_SELECT = {
   id: true,
   companyId: true,
@@ -193,7 +227,7 @@ export async function listDeliveries(
 
   return prisma.deliveryRecord.findMany({
     where: { projectId, siteId, companyId: actor.companyId },
-    select: DELIVERY_SELECT,
+    select: DELIVERY_LIST_SELECT,
     orderBy: [{ deliveryDate: 'desc' }, { createdAt: 'desc' }],
   });
 }

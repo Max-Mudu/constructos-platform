@@ -198,34 +198,40 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
   const thisMonthCost = Number(monthLabour._sum.dailyRate  ?? 0);
 
   // ── Invoices ──────────────────────────────────────────────────────────────
-  const invoiceRows = await prisma.invoice.findMany({
-    where:  { companyId },
-    select: { status: true, totalAmount: true, paidAmount: true },
-  });
-  let invTotal = 0, invValue = 0, invPaid = 0, invOverdue = 0, invPending = 0;
-  for (const inv of invoiceRows) {
-    invTotal++;
-    invValue   += Number(inv.totalAmount);
-    invPaid    += Number(inv.paidAmount);
-    if (inv.status === 'overdue')    invOverdue++;
-    if (inv.status === 'submitted')  invPending++;
-  }
+  const [invAgg, invByStatus] = await Promise.all([
+    prisma.invoice.aggregate({
+      where:  { companyId },
+      _sum:   { totalAmount: true, paidAmount: true },
+      _count: { _all: true },
+    }),
+    prisma.invoice.groupBy({
+      by:    ['status'],
+      where: { companyId },
+      _count: { _all: true },
+    }),
+  ]);
+  const invTotal       = invAgg._count._all;
+  const invValue       = Number(invAgg._sum.totalAmount ?? 0);
+  const invPaid        = Number(invAgg._sum.paidAmount  ?? 0);
   const invOutstanding = invValue - invPaid;
+  const invOverdue     = invByStatus.find((r) => r.status === 'overdue')?._count._all  ?? 0;
+  const invPending     = invByStatus.find((r) => r.status === 'submitted')?._count._all ?? 0;
 
   // ── Budget ────────────────────────────────────────────────────────────────
-  const allBudgets = await prisma.budget.findMany({
-    where:   { companyId },
-    include: { lineItems: { select: { budgetedAmount: true, actualSpend: true } } },
-  });
-  const budgetsCount  = allBudgets.length;
-  let budgetTotal = 0, budgetSpent = 0;
-  for (const b of allBudgets) {
-    for (const li of b.lineItems) {
-      budgetTotal += Number(li.budgetedAmount);
-      budgetSpent += Number(li.actualSpend);
-    }
-  }
-  const overspendCount = allBudgets.filter((b) =>
+  const [budgetLineAgg, budgetsCount, overspendBudgetData] = await Promise.all([
+    prisma.budgetLineItem.aggregate({
+      where: { budget: { companyId } },
+      _sum:  { budgetedAmount: true, actualSpend: true },
+    }),
+    prisma.budget.count({ where: { companyId } }),
+    prisma.budget.findMany({
+      where:  { companyId },
+      select: { lineItems: { select: { budgetedAmount: true, actualSpend: true } } },
+    }),
+  ]);
+  const budgetTotal    = Number(budgetLineAgg._sum.budgetedAmount ?? 0);
+  const budgetSpent    = Number(budgetLineAgg._sum.actualSpend    ?? 0);
+  const overspendCount = overspendBudgetData.filter((b) =>
     b.lineItems.some((li) => Number(li.actualSpend) > Number(li.budgetedAmount)),
   ).length;
 
@@ -251,6 +257,7 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     prisma.deliveryRecord.findMany({
       where:  { companyId, inspectionStatus: 'pending' },
       select: { siteId: true, itemDescription: true },
+      take:   1000,
     }),
   ]);
 
@@ -260,34 +267,31 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     prisma.contractorSchedule.count({ where: { companyId, status: 'active' } }),
   ]);
 
-  // ── Instructions ──────────────────────────────────────────────────────────
-  const [openInstructions, criticalInstructions] = await Promise.all([
+  // ── Instructions, notifications, and low-stock ────────────────────────────
+  const [openInstructions, criticalInstructions, unreadNotifications, inventoryWithThreshold] = await Promise.all([
     prisma.consultantInstruction.count({
       where: { companyId, status: { in: ['open', 'acknowledged', 'in_progress'] } },
     }),
     prisma.consultantInstruction.count({
       where: { companyId, priority: 'critical', status: { notIn: ['resolved', 'rejected'] } },
     }),
+    prisma.notification.count({
+      where: { userId: actor.id, companyId, isRead: false },
+    }),
+    prisma.siteInventory.findMany({
+      where:  { companyId, lowStockThreshold: { not: null } },
+      take:   500,
+      select: {
+        id:                true,
+        siteId:            true,
+        materialName:      true,
+        currentQuantity:   true,
+        unitOfMeasure:     true,
+        lowStockThreshold: true,
+        site:              { select: { name: true } },
+      },
+    }),
   ]);
-
-  // ── Notifications (for this user) ─────────────────────────────────────────
-  const unreadNotifications = await prisma.notification.count({
-    where: { userId: actor.id, companyId, isRead: false },
-  });
-
-  // ── Low-stock inventory ───────────────────────────────────────────────────
-  const inventoryWithThreshold = await prisma.siteInventory.findMany({
-    where:  { companyId, lowStockThreshold: { not: null } },
-    select: {
-      id:                true,
-      siteId:            true,
-      materialName:      true,
-      currentQuantity:   true,
-      unitOfMeasure:     true,
-      lowStockThreshold: true,
-      site:              { select: { name: true } },
-    },
-  });
   const lowStockRows = inventoryWithThreshold
     .filter((i) => i.currentQuantity.lte(i.lowStockThreshold!))
     .sort((a, b) => Number(a.currentQuantity) - Number(b.currentQuantity))
@@ -341,6 +345,7 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     prisma.scheduleTask.findMany({
       where:  { companyId, actualProgress: { not: null }, plannedProgress: { not: null } },
       select: { actualProgress: true, plannedProgress: true },
+      take:   2000,
     }),
     prisma.labourEntry.count({
       where: { companyId, date: { gte: todayStart, lt: tomorrowStart }, hoursWorked: { gt: 8 } },
