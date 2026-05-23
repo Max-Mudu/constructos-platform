@@ -63,7 +63,12 @@ export async function buildApp() {
   });
 
   // ── Multipart (file uploads) ──────────────────────────────────────────────
-  await app.register(fastifyMultipart);
+  // Framework-level cap prevents large payloads from being buffered before the
+  // upload service can check size. upload.service.ts enforces its own 20 MB
+  // limit with a better error message; 25 MB here is the hard ceiling.
+  await app.register(fastifyMultipart, {
+    limits: { fileSize: 25 * 1024 * 1024 },
+  });
 
   // ── Cookies ──────────────────────────────────────────────────────────────
   await app.register(fastifyCookie);
@@ -157,7 +162,14 @@ export async function buildApp() {
   );
 
   // ── Health check ─────────────────────────────────────────────────────────
-  app.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
+  app.get('/health', async (_req, reply) => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      return reply.send({ status: 'ok', timestamp: new Date().toISOString() });
+    } catch {
+      return reply.status(503).send({ status: 'error', timestamp: new Date().toISOString() });
+    }
+  });
 
   // ── Global error handler ─────────────────────────────────────────────────
   app.setErrorHandler((error, request, reply) => {
