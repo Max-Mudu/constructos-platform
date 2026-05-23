@@ -490,6 +490,7 @@ function InventoryDetailView({
     setRefreshing(false);
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, []);
 
   const activeItem = detail ?? initialItem;

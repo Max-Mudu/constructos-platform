@@ -3,7 +3,7 @@
  * Exposes pending operation count and a flush function.
  * Automatically flushes when the app comes back to the foreground.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import {
   getQueue, dequeue, incrementRetry, clearQueue as clearAllQueue,
@@ -13,6 +13,10 @@ import { attendanceApi } from '../api/attendance';
 import { labourApi } from '../api/labour';
 
 const MAX_RETRIES = 5;
+
+// Module-level lock — shared across all hook instances so concurrent tab
+// foreground events don't trigger duplicate flushes simultaneously.
+let isFlushingGlobal = false;
 
 // ─── Execute a single queued operation ───────────────────────────────────────
 
@@ -50,7 +54,6 @@ async function executeOp(op: OfflineOp): Promise<void> {
 export function useOfflineQueue() {
   const [pendingCount, setPendingCount] = useState(0);
   const [isFlushing,   setIsFlushing]   = useState(false);
-  const flushRef = useRef(false);
 
   async function refresh() {
     const q = await getQueue();
@@ -58,15 +61,14 @@ export function useOfflineQueue() {
   }
 
   const flush = useCallback(async () => {
-    if (flushRef.current) return; // already flushing
-    flushRef.current = true;
+    if (isFlushingGlobal) return; // another tab/screen is already flushing
+    isFlushingGlobal = true;
     setIsFlushing(true);
 
     try {
       const queue = await getQueue();
       for (const op of queue) {
         if (op.retryCount >= MAX_RETRIES) {
-          // Give up on this operation after too many failures
           await dequeue(op.id);
           continue;
         }
@@ -75,11 +77,10 @@ export function useOfflineQueue() {
           await dequeue(op.id);
         } catch {
           await incrementRetry(op.id);
-          // keep in queue, try again next time
         }
       }
     } finally {
-      flushRef.current = false;
+      isFlushingGlobal = false;
       setIsFlushing(false);
       await refresh();
     }

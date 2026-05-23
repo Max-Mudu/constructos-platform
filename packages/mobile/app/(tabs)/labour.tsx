@@ -128,7 +128,7 @@ function CreateLabourModal({
 
   useEffect(() => {
     if (!visible) return;
-
+    setDate(new Date().toISOString().split('T')[0] ?? '');
     if (hasDefaultContext) {
       workersApi.list().then(setWorkers).catch(() => {});
     } else {

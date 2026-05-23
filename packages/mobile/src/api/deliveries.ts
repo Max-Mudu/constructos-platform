@@ -13,17 +13,14 @@ export const deliveriesApi = {
   }): Promise<{ records: DeliveryRecord[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }> => {
     const { projectId, siteId, ...rest } = params ?? {};
     if (!projectId || !siteId) return { records: [], pagination: { total: 0, limit: 0, offset: 0, hasMore: false } };
-    console.log('[deliveriesApi.list] GET', `/projects/${projectId}/sites/${siteId}/deliveries`, rest);
-    const res = await apiClient.get<{ deliveries: DeliveryRecord[] }>(
+    const res = await apiClient.get<{ deliveries: DeliveryRecord[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>(
       `/projects/${projectId}/sites/${siteId}/deliveries`,
       { params: rest },
     );
-    console.log('[deliveriesApi.list] raw response keys:', Object.keys(res.data ?? {}));
     const deliveries = Array.isArray(res.data?.deliveries) ? res.data.deliveries : [];
-    console.log('[deliveriesApi.list] deliveries count:', deliveries.length);
     return {
       records:    deliveries,
-      pagination: { total: deliveries.length, limit: deliveries.length, offset: 0, hasMore: false },
+      pagination: res.data.pagination ?? { total: deliveries.length, limit: deliveries.length, offset: 0, hasMore: false },
     };
   },
 

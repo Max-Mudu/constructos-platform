@@ -192,7 +192,7 @@ function UpdateTaskModal({
       setDelayReason(task.delayReason ?? '');
       setComments(task.comments ?? '');
       setActivity([]);
-      void schedulesApi.getActivity(task.projectId, task.siteId, task.id).then(setActivity);
+      schedulesApi.getActivity(task.projectId, task.siteId, task.id).then(setActivity).catch(() => {});
     }
   }, [task]);
 
