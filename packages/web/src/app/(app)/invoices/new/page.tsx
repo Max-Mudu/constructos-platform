@@ -148,7 +148,7 @@ export default function NewInvoicePage() {
 
   useEffect(() => {
     projectApi.list()
-      .then((r) => setProjects((r as any).projects ?? r))
+      .then((r) => setProjects(r.projects))
       .catch(() => {})
       .finally(() => setLoadingProjects(false));
   }, []);

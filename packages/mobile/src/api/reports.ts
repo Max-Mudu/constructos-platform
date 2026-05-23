@@ -57,8 +57,12 @@ export const reportsApi = {
     const ext   = format === 'pdf' ? 'pdf' : 'csv';
     const dest  = FileSystem.cacheDirectory + `${type}-report.${ext}`;
 
-    // Build query string manually
-    const params = new URLSearchParams({ format, ...(filters as Record<string, string>) });
+    // Build query string manually — only set defined filter values
+    const params = new URLSearchParams({ format });
+    if (filters?.projectId)  params.set('projectId',  filters.projectId);
+    if (filters?.siteId)     params.set('siteId',      filters.siteId);
+    if (filters?.startDate)  params.set('startDate',   filters.startDate);
+    if (filters?.endDate)    params.set('endDate',      filters.endDate);
     const url = `${BASE_URL}/api/v1/reports/${type}?${params.toString()}`;
 
     const result = await FileSystem.downloadAsync(url, dest, {

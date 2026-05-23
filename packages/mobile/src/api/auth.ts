@@ -9,18 +9,8 @@ interface LoginResponse {
 
 export const authApi = {
   login: async (email: string, password: string): Promise<LoginResponse> => {
-    const url = '/auth/login';
-    console.log('[auth] login URL:', (apiClient.defaults.baseURL ?? '') + url);
-    console.log('[auth] login payload — email present:', !!email, '| password present:', !!password);
-    try {
-      const res = await apiClient.post<LoginResponse>(url, { email, password });
-      console.log('[auth] login success — userId:', res.data.user?.id, '| role:', res.data.user?.role);
-      return res.data;
-    } catch (e: unknown) {
-      const resp = (e as { response?: { status?: number; data?: unknown } })?.response;
-      console.error('[auth] login error — status:', resp?.status, '| body:', JSON.stringify(resp?.data));
-      throw e;
-    }
+    const res = await apiClient.post<LoginResponse>('/auth/login', { email, password });
+    return res.data;
   },
 
   register: async (data: {
@@ -36,8 +26,8 @@ export const authApi = {
   },
 
   refresh: async (refreshToken: string): Promise<AuthTokens & { user: AuthUser }> => {
-    const res = await apiClient.post('/auth/refresh', { refreshToken });
-    return res.data as AuthTokens & { user: AuthUser };
+    const res = await apiClient.post<AuthTokens & { user: AuthUser }>('/auth/refresh', { refreshToken });
+    return res.data;
   },
 
   logout: async (refreshToken: string): Promise<void> => {
