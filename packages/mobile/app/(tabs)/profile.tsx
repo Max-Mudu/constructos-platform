@@ -47,10 +47,14 @@ export default function ProfileScreen() {
   const [wsMsg, setWsMsg]                         = useState('');
   const [wsMsgOk, setWsMsgOk]                     = useState(true);
 
-  // Load sites for the current default project on mount (so picker is ready)
+  // Load project list and sites on mount when defaults are already set,
+  // so the project/site names display without requiring the picker to open first.
   useEffect(() => {
     const pid = user?.defaultProjectId;
     if (!pid) return;
+    projectsApi.list()
+      .then(setProjects)
+      .catch(() => {});
     setSitesLoading(true);
     projectsApi.listSites(pid)
       .then(setSites)

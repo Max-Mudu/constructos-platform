@@ -31,7 +31,7 @@ const REPORTS: ReportMeta[] = [
   { type: 'invoices',       title: 'Invoices Report',     description: 'All invoices and payment status',                                            roles: ['company_admin', 'finance_officer', 'project_manager']                    },
   { type: 'budget',         title: 'Budget Report',       description: 'Budget vs actuals by project',                                               roles: ['company_admin', 'finance_officer', 'project_manager']                    },
   { type: 'contractors',    title: 'Contractors Report',  description: 'Contractor schedules and progress',                                          roles: ['company_admin', 'project_manager', 'site_supervisor']                    },
-  { type: 'consultants',    title: 'Consultants Report',  description: 'Consultant costs and instructions',                                          roles: ['company_admin', 'finance_officer', 'project_manager']                    },
+  { type: 'consultants',    title: 'Consultants Report',  description: 'Consultant costs and instructions',                                          roles: ['company_admin', 'finance_officer', 'project_manager', 'consultant']     },
   { type: 'project-health', title: 'Project Health',      description: 'Overall project health dashboard',                                           roles: ['company_admin', 'finance_officer', 'project_manager']                    },
   {
     type:         'daily-site-report',

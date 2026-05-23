@@ -67,7 +67,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Deliveries',
     href: '/deliveries',
     icon: 'Package',
-    roles: ['company_admin', 'project_manager', 'site_supervisor'],
+    roles: ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer'],
     requiresFinance: false,
   },
   {

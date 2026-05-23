@@ -58,7 +58,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
     type:        'consultants',
     label:       'Consultants',
     description: 'Consultant instructions, priority and resolution status',
-    roles:       ['company_admin', 'project_manager', 'consultant'],
+    roles:       ['company_admin', 'finance_officer', 'project_manager', 'consultant'],
   },
   {
     type:        'project-health',
@@ -628,7 +628,7 @@ export default function ReportsPage() {
     if (!hasDefaults) setSiteId('');
     if (activeType === 'daily-site-report') {
       setStartDate(today());
-    } else {
+    } else if (visibleReports.length > 0) {
       load();
     }
   }, [activeType]); // eslint-disable-line react-hooks/exhaustive-deps
