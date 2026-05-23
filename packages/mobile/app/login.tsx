@@ -6,11 +6,12 @@ import {
 import { useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { useAuthStore } from '../src/store/auth.store';
 import { authApi } from '../src/api/auth';
 import { notificationsApi } from '../src/api/notifications';
 
-// ─── Push notification registration (unchanged) ───────────────────────────────
+// ─── Push notification registration ───────────────────────────────────────────
 
 async function registerForPushNotifications(): Promise<string | null> {
   if (!Device.isDevice) return null;
@@ -25,7 +26,13 @@ async function registerForPushNotifications(): Promise<string | null> {
 
   if (finalStatus !== 'granted') return null;
 
-  const tokenData = await Notifications.getExpoPushTokenAsync();
+  // Pass projectId explicitly so token registration works in development builds
+  // and EAS managed builds. The value comes from app.json extra.eas.projectId.
+  const projectId =
+    (Constants.expoConfig?.extra?.eas?.projectId as string | undefined) ?? undefined;
+  const tokenData = await Notifications.getExpoPushTokenAsync(
+    projectId ? { projectId } : undefined,
+  );
   return tokenData.data;
 }
 

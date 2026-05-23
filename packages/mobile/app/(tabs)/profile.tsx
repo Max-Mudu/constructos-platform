@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { useAuthStore } from '../../src/store/auth.store';
 import { authApi } from '../../src/api/auth';
 import { notificationsApi } from '../../src/api/notifications';
@@ -177,7 +178,11 @@ export default function ProfileScreen() {
             setLoggingOut(true);
             try {
               try {
-                const tokenData = await Notifications.getExpoPushTokenAsync();
+                const projectId =
+                  (Constants.expoConfig?.extra?.eas?.projectId as string | undefined) ?? undefined;
+                const tokenData = await Notifications.getExpoPushTokenAsync(
+                  projectId ? { projectId } : undefined,
+                );
                 await notificationsApi.unregisterPushToken(tokenData.data);
               } catch { /* non-fatal */ }
 

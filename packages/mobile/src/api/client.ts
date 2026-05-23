@@ -1,8 +1,9 @@
 import axios, { AxiosInstance, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios';
 import { getAccessToken, getRefreshToken, saveTokens } from '../auth/secureStorage';
 import { useAuthStore } from '../store/auth.store';
+import { API_BASE_URL } from '../constants/api';
 
-const BASE_URL = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://10.0.2.2:3000/api/v1';
+const BASE_URL = API_BASE_URL;
 
 // ─── Axios instance ───────────────────────────────────────────────────────────
 

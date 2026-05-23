@@ -10,6 +10,16 @@ import { getAccessToken, getRefreshToken } from '../src/auth/secureStorage';
 import { authApi } from '../src/api/auth';
 import { SSEProvider } from '../src/providers/SSEProvider';
 
+// Display notifications while the app is in the foreground.
+// Must be called before any navigator renders; module-level placement guarantees that.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge:  true,
+  }),
+});
+
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const segments = useSegments();

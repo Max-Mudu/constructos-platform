@@ -12,8 +12,9 @@ import React, {
 } from 'react';
 import EventSource from 'react-native-sse';
 import { getAccessToken } from '../auth/secureStorage';
+import { API_BASE_URL } from '../constants/api';
 
-const BASE_URL = process.env['EXPO_PUBLIC_API_URL'] ?? 'http://10.0.2.2:3000/api/v1';
+const BASE_URL = API_BASE_URL;
 const RECONNECT_DELAY = 5000;
 
 type SSEStatus = 'connecting' | 'connected' | 'disconnected';
