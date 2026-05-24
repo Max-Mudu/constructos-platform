@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { dashboardApi, activityApi, ApiError, ActivityEntry } from '@/lib/api';
 import { DashboardStats } from '@/lib/types';
@@ -105,6 +105,7 @@ function AttendanceRing({ rate }: { rate: number }) {
 function ActivityFeed() {
   const [entries,  setEntries]  = useState<ActivityEntry[]>([]);
   const [loading,  setLoading]  = useState(true);
+  const activityDebounceRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(() => {
     activityApi.list({ limit: 8 })
@@ -115,8 +116,16 @@ function ActivityFeed() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Refresh on any data-mutation events
-  const onMutation = useCallback(() => load(), [load]);
+  // Debounce SSE-triggered refreshes so rapid-fire events (e.g. bulk labour
+  // import) collapse into a single API call after a 1-second quiet period.
+  useEffect(() => () => {
+    if (activityDebounceRef.current) clearTimeout(activityDebounceRef.current);
+  }, []);
+
+  const onMutation = useCallback(() => {
+    if (activityDebounceRef.current) clearTimeout(activityDebounceRef.current);
+    activityDebounceRef.current = setTimeout(() => { load(); }, 1_000);
+  }, [load]);
   useSSEEvent('invoice_updated',      onMutation);
   useSSEEvent('delivery_created',     onMutation);
   useSSEEvent('labour_created',       onMutation);
@@ -219,6 +228,7 @@ export default function DashboardPage() {
   const [stats,   setStats]   = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
+  const statsDebounceRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const role            = user?.role ?? '';
   const canViewFinance  = user?.canViewFinance && (role === 'company_admin' || role === 'finance_officer');
@@ -235,11 +245,21 @@ export default function DashboardPage() {
 
   useEffect(() => { loadStats(); }, [loadStats]);
 
-  // ── Auto-refresh dashboard on real-time events ─────────────────────────────
+  // Clear any pending debounce timer on unmount
+  useEffect(() => () => {
+    if (statsDebounceRef.current) clearTimeout(statsDebounceRef.current);
+  }, []);
+
+  // ── Auto-refresh dashboard on real-time events (debounced) ────────────────
+  // Coalesces rapid-fire events (e.g. bulk delivery import) into one API call
+  // after a 1-second quiet period instead of firing once per event.
   const onDashboardEvent = useCallback(() => {
-    dashboardApi.get()
-      .then((r) => setStats(r.stats))
-      .catch(() => {});
+    if (statsDebounceRef.current) clearTimeout(statsDebounceRef.current);
+    statsDebounceRef.current = setTimeout(() => {
+      dashboardApi.get()
+        .then((r) => setStats(r.stats))
+        .catch(() => {});
+    }, 1_000);
   }, []);
 
   useSSEEvent('invoice_updated',     onDashboardEvent);

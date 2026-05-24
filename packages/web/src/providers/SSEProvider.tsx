@@ -28,16 +28,18 @@ const SSEContext = createContext<SSEContextValue | null>(null);
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
-const RECONNECT_DELAY_MS = 5_000;
+const RECONNECT_DELAY_MS     = 5_000;
+const MAX_RECONNECT_ATTEMPTS = 10; // stop retrying after this many failures
 
 export function SSEProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SSEStatus>('connecting');
 
   // Map of eventType → Set of handlers
-  const listenersRef = useRef<Map<string, Set<Handler>>>(new Map());
-  const esRef        = useRef<EventSource | null>(null);
-  const timerRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const activeRef    = useRef(true); // false when component unmounts
+  const listenersRef      = useRef<Map<string, Set<Handler>>>(new Map());
+  const esRef             = useRef<EventSource | null>(null);
+  const timerRef          = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeRef         = useRef(true); // false when component unmounts
+  const reconnectCountRef = useRef(0);    // resets to 0 on successful connection
 
   const connect = useCallback(() => {
     const token = getAccessToken();
@@ -50,6 +52,7 @@ export function SSEProvider({ children }: { children: ReactNode }) {
     esRef.current = es;
 
     es.addEventListener('connected', () => {
+      reconnectCountRef.current = 0; // reset retry counter on successful connection
       setStatus('connected');
     });
 
@@ -86,7 +89,10 @@ export function SSEProvider({ children }: { children: ReactNode }) {
       setStatus('disconnected');
       es.close();
       esRef.current = null;
-      // Reconnect after a short delay
+      // Stop retrying after MAX_RECONNECT_ATTEMPTS — prevents an infinite loop
+      // when the server is down or the token is permanently invalid.
+      if (reconnectCountRef.current >= MAX_RECONNECT_ATTEMPTS) return;
+      reconnectCountRef.current += 1;
       timerRef.current = setTimeout(() => {
         if (activeRef.current) connect();
       }, RECONNECT_DELAY_MS);

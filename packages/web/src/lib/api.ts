@@ -48,7 +48,7 @@ async function request<T>(
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30_000);
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, {

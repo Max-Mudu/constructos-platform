@@ -132,11 +132,13 @@ export function NotificationBell({ className }: NotificationBellProps) {
   // ── Load notifications when dropdown opens ─────────────────────────────────
   useEffect(() => {
     if (!open) return;
+    let alive = true;
     setLoading(true);
     notificationApi.list({ limit: 20 })
-      .then((r) => setNotifications(r.notifications))
+      .then((r) => { if (alive) setNotifications(r.notifications); })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
   }, [open]);
 
   // ── Click-outside to close ─────────────────────────────────────────────────
