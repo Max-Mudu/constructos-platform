@@ -468,3 +468,74 @@ These are the error messages users will see and what they mean:
 | Database unreachable (503) | Check Railway PostgreSQL service; Railway support if service is down |
 | All data lost / catastrophic failure | Restore from backup (§13); Railway support if database itself is gone |
 | Railway service down | Railway status page: status.railway.app |
+
+---
+
+## 21. Incident Severity Classification
+
+Use this table to classify incidents and calibrate your response.
+
+| Severity | Definition | Examples | Target Response |
+|----------|------------|----------|-----------------|
+| **Critical** | Platform fully unavailable or data loss occurring | API/web/DB completely down; database corruption; file upload overwriting wrong tenant data | Immediate — drop everything, fix or rollback within 30 min |
+| **High** | Core workflow broken for one or more users; no workaround | Login broken; dashboard 500 for all users; attendance check-in fails; offline queue not flushing | Within 2 hours; consider rollback if fix isn't quick |
+| **Medium** | Feature degraded but workaround exists | Push notifications not arriving; SSE not live-updating (page refresh works); report slow/timing out | Within 1 working day |
+| **Low** | Cosmetic, minor UX friction, non-blocking confusion | Wrong label on a card; notification count off by one; mobile UI layout issue on one device model | Next deploy cycle |
+
+### Classification decision tree
+
+1. Can users log in and perform their primary workflow (attendance, deliveries, labour)? **No** → Critical or High.
+2. Is data being corrupted or lost beyond the known file-upload caveat? **Yes** → Critical.
+3. Is the broken feature the only way to do something? **Yes, and user is blocked** → High.
+4. Does a page refresh or app restart resolve it? **Yes** → Medium at most.
+5. Is it visual/cosmetic with no functional impact? **Yes** → Low.
+
+### Incident log entry format
+
+When an incident occurs, record it in your notes:
+
+```
+Date/time:
+Severity:
+Reported by:
+Symptom:
+Root cause:
+Fix applied:
+Time to resolve:
+Recurrence risk:
+```
+
+---
+
+## 22. Pilot Feedback Capture Procedure
+
+### What to capture
+
+For each piece of feedback from a pilot user, record:
+
+- **Who** reported it (user name / role)
+- **What** they observed (exact words if possible — not your interpretation)
+- **When** it happened (date/time, and how far into their workflow)
+- **Which screen / module** they were using
+- **Severity** (using the table in §21)
+- **Type**: Bug / Confusion / Missing feature / Performance / Positive
+
+### Feedback categories for the pilot
+
+| Category | Description | Pilot action |
+|----------|-------------|--------------|
+| Bug | Something that should work doesn't | Log as incident; fix if Critical/High |
+| Confusion | User didn't understand a flow or label | Note for future UX improvement; explain workaround now |
+| Missing feature | User expected something that doesn't exist | Log for backlog; do not build during pilot |
+| Performance | Something felt slow | Note which screen and approx. time; check Railway logs |
+| Positive | Something worked well | Note it — these anchor what to protect in future changes |
+
+### Recommended capture tool
+
+Use whatever you already have: a WhatsApp group thread, a shared Google Sheet, a Notion page, or a plain text file. The format matters more than the tool. A simple spreadsheet with columns: `Date | User | Module | Type | Description | Severity | Status` is enough.
+
+### Feedback response script (what to say to users)
+
+> "Thank you — I've logged this. [If bug/Critical/High]: I'll look into this right away. [If Medium/Low]: This is noted for the next update. In the meantime, [workaround if any]."
+
+Do not promise timelines unless you are confident. Do not build features during the pilot in response to feedback — log them for the post-pilot backlog.
