@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
@@ -17,8 +17,8 @@ const STATUS_OPTIONS = [
 ];
 
 export default function UploadRevisionPage() {
-  const { drawingId } = useParams<{ drawingId: string }>();
-  const searchParams  = useSearchParams();
+  const { drawingId } = useParams<{ drawingId: string }>()!;
+  const searchParams  = useSearchParams()!;
   const projectId     = searchParams.get('projectId') ?? '';
   const router        = useRouter();
 

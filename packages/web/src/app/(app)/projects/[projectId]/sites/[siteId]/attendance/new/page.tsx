@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -24,7 +24,7 @@ function today(): string {
 }
 
 export default function NewAttendancePage() {
-  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>();
+  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>()!;
   const router = useRouter();
 
   const [workers,      setWorkers]      = useState<Worker[]>([]);

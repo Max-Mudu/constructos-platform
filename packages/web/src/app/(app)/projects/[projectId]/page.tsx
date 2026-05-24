@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -28,7 +28,7 @@ function statusVariant(s: string): 'active' | 'pending' | 'secondary' | 'inactiv
 }
 
 export default function ProjectDetailPage() {
-  const { projectId }         = useParams<{ projectId: string }>();
+  const { projectId }         = useParams<{ projectId: string }>()!;
   const { user }              = useAuthStore();
   const [project, setProject] = useState<Project | null>(null);
   const [sites,   setSites]   = useState<JobSite[]>([]);

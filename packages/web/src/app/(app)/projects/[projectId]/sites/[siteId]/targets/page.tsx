@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -27,7 +27,7 @@ function pctColor(pct: number | null): string {
 }
 
 export default function TargetsPage() {
-  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>();
+  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>()!;
   const user = useAuthStore((s) => s.user);
 
   const [targets,   setTargets]   = useState<DailyTarget[]>([]);

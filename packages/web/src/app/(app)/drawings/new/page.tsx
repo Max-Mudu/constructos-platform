@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -12,7 +12,7 @@ import { AlertCircle, ArrowLeft } from 'lucide-react';
 
 export default function NewDrawingPage() {
   const router       = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams()!;
   const initialProjectId = searchParams.get('projectId') ?? '';
 
   const [projects, setProjects]   = useState<Project[]>([]);

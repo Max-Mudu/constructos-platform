@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -11,7 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
 
 export default function NewLabourEntryPage() {
-  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>();
+  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>()!;
   const router = useRouter();
 
   const [siteWorkers, setSiteWorkers] = useState<Worker[]>([]);

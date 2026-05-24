@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -37,7 +37,7 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 export default function WorkerDetailPage() {
-  const { workerId } = useParams<{ workerId: string }>();
+  const { workerId } = useParams<{ workerId: string }>()!;
   const user   = useAuthStore((s) => s.user);
   const router = useRouter();
 

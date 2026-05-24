@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -29,7 +29,7 @@ function totalWage(entry: LabourEntry): string {
 }
 
 export default function LabourPage() {
-  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>();
+  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>()!;
   const user = useAuthStore((s) => s.user);
 
   const [entries, setEntries] = useState<LabourEntry[]>([]);

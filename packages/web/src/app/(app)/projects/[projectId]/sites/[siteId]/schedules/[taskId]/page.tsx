@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -66,7 +66,7 @@ function ProgressBar({ value }: { value: number }) {
 }
 
 export default function TaskDetailPage() {
-  const { projectId, siteId, taskId } = useParams<{ projectId: string; siteId: string; taskId: string }>();
+  const { projectId, siteId, taskId } = useParams<{ projectId: string; siteId: string; taskId: string }>()!;
   const { user }     = useAuthStore();
   const router       = useRouter();
   const [task, setTask]    = useState<ScheduleTask | null>(null);

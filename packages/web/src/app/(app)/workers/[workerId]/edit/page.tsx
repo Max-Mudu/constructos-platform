@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -23,7 +23,7 @@ const EMPLOYMENT_OPTIONS: { value: WorkerEmploymentStatus; label: string }[] = [
 ];
 
 export default function EditWorkerPage() {
-  const { workerId } = useParams<{ workerId: string }>();
+  const { workerId } = useParams<{ workerId: string }>()!;
   const router = useRouter();
 
   const [form, setForm] = useState({

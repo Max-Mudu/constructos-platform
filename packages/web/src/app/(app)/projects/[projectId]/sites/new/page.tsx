@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
@@ -14,7 +14,7 @@ import { AlertCircle } from 'lucide-react';
 
 export default function NewSitePage() {
   const router = useRouter();
-  const { projectId } = useParams<{ projectId: string }>();
+  const { projectId } = useParams<{ projectId: string }>()!;
 
   const [form, setForm] = useState({ name: '', address: '' });
   const [submitting, setSubmitting]   = useState(false);

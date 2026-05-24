@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -18,7 +18,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { AlertCircle, Phone, Mail, Hash, Truck } from 'lucide-react';
 
 export default function ContractorDetailPage() {
-  const { contractorId }                = useParams<{ contractorId: string }>();
+  const { contractorId }                = useParams<{ contractorId: string }>()!;
   const { user }                        = useAuthStore();
   const [contractor, setContractor]     = useState<Contractor | null>(null);
   const [loading, setLoading]           = useState(true);

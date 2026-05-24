@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
@@ -28,7 +28,7 @@ const ASSIGN_ROLES = new Set(['company_admin', 'project_manager']);
 function todayStr(): string { return new Date().toISOString().split('T')[0]; }
 
 export default function SiteDetailPage() {
-  const { projectId, siteId }             = useParams<{ projectId: string; siteId: string }>();
+  const { projectId, siteId }             = useParams<{ projectId: string; siteId: string }>()!;
   const user                              = useAuthStore((s) => s.user);
   const canAssign                         = user ? ASSIGN_ROLES.has(user.role) : false;
 

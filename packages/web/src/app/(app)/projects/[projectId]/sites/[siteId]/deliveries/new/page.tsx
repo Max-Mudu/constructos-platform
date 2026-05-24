@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, FormEvent, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -41,7 +41,7 @@ const selectCls = inputCls + ' appearance-none';
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function NewDeliveryPage() {
-  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>();
+  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>()!;
   const router = useRouter();
   const user   = useAuthStore((s) => s.user);
 

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
@@ -108,8 +108,8 @@ function RevisionCard({
 }
 
 export default function DrawingDetailPage() {
-  const { drawingId } = useParams<{ drawingId: string }>();
-  const searchParams  = useSearchParams();
+  const { drawingId } = useParams<{ drawingId: string }>()!;
+  const searchParams  = useSearchParams()!;
   const projectId     = searchParams.get('projectId') ?? '';
   const router        = useRouter();
   const { user }      = useAuthStore();

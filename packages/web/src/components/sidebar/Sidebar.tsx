@@ -48,7 +48,7 @@ function ConnectionDot() {
 }
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
-  const pathname = usePathname();
+  const pathname = usePathname() ?? '';
   const router = useRouter();
   const { user, clearAuth } = useAuthStore();
 

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -74,7 +74,7 @@ function conditionBadge(c: DeliveryRecord['conditionOnArrival']) {
 
 export default function DeliveryDetailPage() {
   const { projectId, siteId, deliveryId } =
-    useParams<{ projectId: string; siteId: string; deliveryId: string }>();
+    useParams<{ projectId: string; siteId: string; deliveryId: string }>()!;
   const router = useRouter();
   const user   = useAuthStore((s) => s.user);
 

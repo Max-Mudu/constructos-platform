@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -220,7 +220,7 @@ function DetailPanel({ projectId, siteId, itemId, onClose }: DetailPanelProps) {
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function InventoryPage() {
-  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>();
+  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>()!;
 
   const [inventory, setInventory] = useState<SiteInventoryItem[]>([]);
   const [loading, setLoading]     = useState(true);

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -14,7 +14,7 @@ import { Separator } from '@/components/ui/Separator';
 import { ArrowLeft, Building2, MapPin, ChevronRight, AlertCircle } from 'lucide-react';
 
 export default function SiteListPage() {
-  const { projectId }         = useParams<{ projectId: string }>();
+  const { projectId }         = useParams<{ projectId: string }>()!;
   const router                = useRouter();
   const [project, setProject] = useState<Project | null>(null);
   const [sites, setSites]     = useState<JobSite[]>([]);

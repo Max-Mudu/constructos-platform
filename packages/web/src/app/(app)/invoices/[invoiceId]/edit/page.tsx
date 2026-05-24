@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -80,7 +80,7 @@ function NewLineItemRow({
 // ─── Page ──────────────────────────────────────────────────────────────────────
 
 export default function EditInvoicePage() {
-  const { invoiceId } = useParams<{ invoiceId: string }>();
+  const { invoiceId } = useParams<{ invoiceId: string }>()!;
   const router        = useRouter();
   const { user }      = useAuthStore();
 

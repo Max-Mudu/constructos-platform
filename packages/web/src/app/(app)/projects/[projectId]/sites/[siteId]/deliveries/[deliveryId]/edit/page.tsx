@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -45,7 +45,7 @@ function Field({
 
 export default function EditDeliveryPage() {
   const { projectId, siteId, deliveryId } =
-    useParams<{ projectId: string; siteId: string; deliveryId: string }>();
+    useParams<{ projectId: string; siteId: string; deliveryId: string }>()!;
   const router = useRouter();
 
   const [delivery, setDelivery] = useState<DeliveryRecord | null>(null);

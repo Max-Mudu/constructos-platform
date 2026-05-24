@@ -37,7 +37,7 @@ function Spinner({ label }: { label: string }) {
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, isHydrated, sessionExpired } = useAuthStore();
   const router   = useRouter();
-  const pathname = usePathname();
+  const pathname = usePathname() ?? '';
 
   useEffect(() => {
     if (isHydrated && !user) {

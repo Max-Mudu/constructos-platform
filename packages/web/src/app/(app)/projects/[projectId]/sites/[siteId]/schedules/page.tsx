@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
@@ -79,7 +79,7 @@ function ProgressBar({ value }: { value: number }) {
 }
 
 export default function SchedulesPage() {
-  const { projectId, siteId }     = useParams<{ projectId: string; siteId: string }>();
+  const { projectId, siteId }     = useParams<{ projectId: string; siteId: string }>()!;
   const { user }                  = useAuthStore();
   const [tasks, setTasks]         = useState<ScheduleTask[]>([]);
   const [packages, setPackages]   = useState<WorkPackage[]>([]);

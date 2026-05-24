@@ -1,6 +1,6 @@
-'use client';
+﻿'use client';
 
-import { useState, FormEvent } from 'react';
+import { Suspense, useState, FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { authApi, ApiError } from '@/lib/api';
@@ -10,13 +10,13 @@ import { Input } from '@/components/ui/Input';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { AlertCircle, Clock } from 'lucide-react';
 
-export default function LoginPage() {
+function LoginContent() {
   const router       = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams()!;
   const { setAuth }  = useAuthStore();
 
-  const reason   = searchParams.get('reason');
-  const nextPath = searchParams.get('next');
+  const reason    = searchParams.get('reason');
+  const nextPath  = searchParams.get('next');
   const isExpired = reason === 'expired';
 
   const [email,    setEmail]    = useState('');
@@ -31,7 +31,6 @@ export default function LoginPage() {
     try {
       const data = await authApi.login(email, password);
       setAuth(data.user, data.accessToken);
-      // Redirect to the intended destination if present, otherwise dashboard.
       router.push(nextPath && nextPath.startsWith('/') ? nextPath : '/dashboard');
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong.');
@@ -97,5 +96,13 @@ export default function LoginPage() {
         </Link>
       </p>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="rounded-xl border border-border bg-card p-8 shadow-sm h-[340px] animate-pulse" />}>
+      <LoginContent />
+    </Suspense>
   );
 }

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -48,7 +48,7 @@ function formatDate(iso: string) {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DeliveriesPage() {
-  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>();
+  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>()!;
   const user = useAuthStore((s) => s.user);
 
   const [deliveries, setDeliveries] = useState<DeliveryRecord[]>([]);

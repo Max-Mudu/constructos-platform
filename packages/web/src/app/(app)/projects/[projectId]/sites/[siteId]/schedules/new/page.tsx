@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
@@ -17,7 +17,7 @@ import { AlertCircle } from 'lucide-react';
 
 export default function NewScheduleTaskPage() {
   const router = useRouter();
-  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>();
+  const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>()!;
 
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [packages,    setPackages]    = useState<WorkPackage[]>([]);

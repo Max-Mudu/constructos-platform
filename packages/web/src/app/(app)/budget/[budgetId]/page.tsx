@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -221,7 +221,7 @@ function VariationRow({ variation, currency }: { variation: VariationOrder; curr
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function BudgetDetailPage() {
-  const { budgetId } = useParams<{ budgetId: string }>();
+  const { budgetId } = useParams<{ budgetId: string }>()!;
   const router        = useRouter();
   const { user }      = useAuthStore();
 
