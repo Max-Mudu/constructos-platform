@@ -568,6 +568,7 @@ export async function clearDatabase(): Promise<void> {
   await prisma.jobSite.deleteMany();
   await prisma.project.deleteMany();                 // now safe — no children remaining
   await prisma.pushToken.deleteMany();
+  await prisma.passwordResetToken.deleteMany();
   await prisma.refreshToken.deleteMany();
   await prisma.supplier.deleteMany();
   await prisma.user.deleteMany();

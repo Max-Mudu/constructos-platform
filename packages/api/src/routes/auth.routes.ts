@@ -36,6 +36,19 @@ const updateDefaultsSchema = z.object({
   defaultSiteId: z.string().uuid().nullable(),
 });
 
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1),
+  password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/[A-Z]/, 'Password must contain at least one uppercase letter')
+    .regex(/[0-9]/, 'Password must contain at least one number'),
+});
+
 export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /api/v1/auth/register
   fastify.post('/register', async (request, reply) => {
@@ -166,6 +179,51 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     try {
       const user = await authService.getMe(request.user.id);
       return reply.send({ user });
+    } catch (err) {
+      if (err instanceof AppError) {
+        return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+      }
+      throw err;
+    }
+  });
+
+  // POST /api/v1/auth/forgot-password
+  fastify.post('/forgot-password', {
+    config: {
+      rateLimit: { max: 5, timeWindow: 15 * 60 * 1000 },
+    },
+  }, async (request, reply) => {
+    const GENERIC = 'If an account with that email exists, a reset link has been sent.';
+    const parsed = forgotPasswordSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.send({ message: GENERIC });
+    }
+    try {
+      const result = await authService.requestPasswordReset(parsed.data.email);
+      const response: Record<string, unknown> = { message: GENERIC };
+      if (result.devLink) response.devLink = result.devLink;
+      return reply.send(response);
+    } catch (err) {
+      if (err instanceof AppError) {
+        return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+      }
+      throw err;
+    }
+  });
+
+  // POST /api/v1/auth/reset-password
+  fastify.post('/reset-password', async (request, reply) => {
+    const parsed = resetPasswordSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(422).send({
+        error: 'Validation failed',
+        code: 'VALIDATION_ERROR',
+        details: parsed.error.flatten().fieldErrors,
+      });
+    }
+    try {
+      await authService.resetPassword(parsed.data.token, parsed.data.password);
+      return reply.send({ message: 'Password reset successfully. Please sign in with your new password.' });
     } catch (err) {
       if (err instanceof AppError) {
         return reply.status(err.statusCode).send({ error: err.message, code: err.code });

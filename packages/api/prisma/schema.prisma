@@ -281,6 +281,7 @@ model User {
   pushTokens              PushToken[]
   inventoryTransactions   InventoryTransaction[]   @relation("InventoryTransactionPerformedBy")
   scheduleActivities      ScheduleActivity[]       @relation("ScheduleActivityUser")
+  passwordResetTokens     PasswordResetToken[]
 
   @@index([defaultProjectId])
   @@index([defaultSiteId])
@@ -300,6 +301,20 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 // ─── Projects & Sites ─────────────────────────────────────────────────────────

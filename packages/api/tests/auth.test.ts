@@ -467,3 +467,268 @@ describe('Tenant isolation', () => {
     expect(user1.id).not.toBe(user2.id);
   });
 });
+
+// ─── Forgot Password ──────────────────────────────────────────────────────────
+
+describe('POST /api/v1/auth/forgot-password', () => {
+  const userEmail = 'forgotpw@test.com';
+  let userId: string;
+
+  beforeEach(async () => {
+    const company = await prisma.company.create({
+      data: { name: 'Forgot Co', slug: 'forgot-co', currency: 'USD' },
+    });
+    const user = await prisma.user.create({
+      data: {
+        companyId: company.id,
+        email: userEmail,
+        passwordHash: await hashPassword('TestPass1'),
+        firstName: 'Forgot',
+        lastName: 'User',
+        role: 'company_admin',
+        canViewFinance: false,
+      },
+    });
+    userId = user.id;
+  });
+
+  it('returns 200 with generic message for known email', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/forgot-password',
+      payload: { email: userEmail },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().message).toContain('If an account');
+  });
+
+  it('returns 200 with same generic message for unknown email (no enumeration)', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/forgot-password',
+      payload: { email: 'ghost@nowhere.com' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().message).toContain('If an account');
+  });
+
+  it('creates a reset token in the database', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/forgot-password',
+      payload: { email: userEmail },
+    });
+    const token = await prisma.passwordResetToken.findFirst({ where: { userId } });
+    expect(token).toBeTruthy();
+    expect(token!.usedAt).toBeNull();
+    expect(token!.expiresAt.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('returns devLink in test environment', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/forgot-password',
+      payload: { email: userEmail },
+    });
+    expect(res.json().devLink).toBeTruthy();
+    expect(res.json().devLink).toContain('/reset-password?token=');
+  });
+
+  it('invalidates previous live token when new request is made', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/forgot-password',
+      payload: { email: userEmail },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/forgot-password',
+      payload: { email: userEmail },
+    });
+    const tokens = await prisma.passwordResetToken.findMany({ where: { userId } });
+    const unused = tokens.filter((t) => t.usedAt === null);
+    expect(unused).toHaveLength(1);
+  });
+
+  it('writes audit log with event=password_reset_requested', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/forgot-password',
+      payload: { email: userEmail },
+    });
+    const log = await prisma.auditLog.findFirst({
+      where: { action: 'update', entityType: 'auth', userId },
+    });
+    expect(log).toBeTruthy();
+    expect((log!.changesAfter as Record<string, unknown>)['event']).toBe('password_reset_requested');
+  });
+});
+
+// ─── Reset Password ───────────────────────────────────────────────────────────
+
+describe('POST /api/v1/auth/reset-password', () => {
+  const userEmail    = 'resetpw@test.com';
+  const userPassword = 'OldPass1';
+  let userId: string;
+
+  beforeEach(async () => {
+    const company = await prisma.company.create({
+      data: { name: 'ResetPw Co', slug: 'resetpw-co', currency: 'USD' },
+    });
+    const user = await prisma.user.create({
+      data: {
+        companyId: company.id,
+        email: userEmail,
+        passwordHash: await hashPassword(userPassword),
+        firstName: 'Pw',
+        lastName: 'Reset',
+        role: 'company_admin',
+        canViewFinance: false,
+      },
+    });
+    userId = user.id;
+  });
+
+  async function getResetToken(): Promise<string> {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/forgot-password',
+      payload: { email: userEmail },
+    });
+    const devLink: string = res.json().devLink;
+    return devLink.split('token=')[1]!;
+  }
+
+  it('resets password with valid token', async () => {
+    const token = await getResetToken();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/reset-password',
+      payload: { token, password: 'NewPass1!' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().message).toContain('Password reset');
+  });
+
+  it('allows login with new password after reset', async () => {
+    const token = await getResetToken();
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/reset-password',
+      payload: { token, password: 'NewPass1!' },
+    });
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: userEmail, password: 'NewPass1!' },
+    });
+    expect(loginRes.statusCode).toBe(200);
+  });
+
+  it('rejects old password after reset', async () => {
+    const token = await getResetToken();
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/reset-password',
+      payload: { token, password: 'NewPass1!' },
+    });
+    const loginRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: userEmail, password: userPassword },
+    });
+    expect(loginRes.statusCode).toBe(401);
+  });
+
+  it('rejects already-used token', async () => {
+    const token = await getResetToken();
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/reset-password',
+      payload: { token, password: 'NewPass1!' },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/reset-password',
+      payload: { token, password: 'NewPass2!' },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('rejects expired token', async () => {
+    const { hashToken: ht, generateToken: gt } = await import('../src/utils/hash');
+    const rawToken = gt(48);
+    await prisma.passwordResetToken.create({
+      data: {
+        userId,
+        tokenHash: ht(rawToken),
+        expiresAt: new Date(Date.now() - 1000),
+      },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/reset-password',
+      payload: { token: rawToken, password: 'NewPass1!' },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('rejects unknown token', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/reset-password',
+      payload: { token: 'totallyFakeToken123abc', password: 'NewPass1!' },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it('rejects weak password', async () => {
+    const token = await getResetToken();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/reset-password',
+      payload: { token, password: 'weak' },
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it('revokes all active refresh tokens after reset', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: userEmail, password: userPassword },
+    });
+    const before = await prisma.refreshToken.count({
+      where: { userId, revokedAt: null },
+    });
+    expect(before).toBeGreaterThan(0);
+
+    const token = await getResetToken();
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/reset-password',
+      payload: { token, password: 'NewPass1!' },
+    });
+
+    const after = await prisma.refreshToken.count({
+      where: { userId, revokedAt: null },
+    });
+    expect(after).toBe(0);
+  });
+
+  it('writes audit log with event=password_reset_completed', async () => {
+    const token = await getResetToken();
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/reset-password',
+      payload: { token, password: 'NewPass1!' },
+    });
+    const logs = await prisma.auditLog.findMany({
+      where: { action: 'update', entityType: 'auth', userId },
+    });
+    const completedLog = logs.find(
+      (l) => (l.changesAfter as Record<string, unknown>)?.['event'] === 'password_reset_completed',
+    );
+    expect(completedLog).toBeTruthy();
+  });
+});

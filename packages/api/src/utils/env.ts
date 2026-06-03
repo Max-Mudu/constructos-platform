@@ -33,6 +33,12 @@ export const env = {
   AWS_SECRET_ACCESS_KEY:  process.env['AWS_SECRET_ACCESS_KEY'] ?? '',
   AWS_REGION:             process.env['AWS_REGION']             ?? 'us-east-1',
   AWS_S3_BUCKET:          process.env['AWS_S3_BUCKET']          ?? '',
+  APP_URL:   process.env['APP_URL']   ?? 'http://localhost:3000',
+  SMTP_HOST: process.env['SMTP_HOST'] ?? '',
+  SMTP_PORT: parseInt(process.env['SMTP_PORT'] ?? '587', 10),
+  SMTP_USER: process.env['SMTP_USER'] ?? '',
+  SMTP_PASS: process.env['SMTP_PASS'] ?? '',
+  SMTP_FROM: process.env['SMTP_FROM'] ?? 'noreply@constructos.app',
   isProduction: process.env['NODE_ENV'] === 'production',
   isTest:       process.env['NODE_ENV'] === 'test',
 };

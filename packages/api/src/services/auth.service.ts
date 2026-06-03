@@ -5,6 +5,7 @@ import { UserRole } from '@prisma/client';
 import { JwtPayload } from '../types';
 import { FastifyInstance } from 'fastify';
 import { env } from '../utils/env';
+import { emailService } from './email.service';
 
 const MAX_FAILED_ATTEMPTS = 10;
 const LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes
@@ -419,6 +420,105 @@ export async function logout(
       action: 'logout',
       entityType: 'auth',
     },
+  });
+}
+
+const RESET_TOKEN_EXPIRES_MINUTES = 60;
+
+export async function requestPasswordReset(
+  email: string,
+): Promise<{ devLink?: string }> {
+  const user = await prisma.user.findUnique({ where: { email } });
+
+  if (!user || !user.isActive) {
+    return {};
+  }
+
+  // Invalidate any live unused tokens before creating a fresh one
+  await prisma.passwordResetToken.updateMany({
+    where: { userId: user.id, usedAt: null, expiresAt: { gt: new Date() } },
+    data: { usedAt: new Date() },
+  });
+
+  const rawToken  = generateToken(48);
+  const tokenHash = hashToken(rawToken);
+  const expiresAt = new Date(Date.now() + RESET_TOKEN_EXPIRES_MINUTES * 60 * 1000);
+
+  await prisma.passwordResetToken.create({
+    data: { userId: user.id, tokenHash, expiresAt },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      companyId:    user.companyId,
+      userId:       user.id,
+      userEmail:    user.email,
+      userRole:     user.role,
+      action:       'update',
+      entityType:   'auth',
+      changesAfter: { event: 'password_reset_requested' },
+    },
+  });
+
+  const resetLink = `${env.APP_URL}/reset-password?token=${rawToken}`;
+  await emailService.sendPasswordResetEmail(email, resetLink);
+
+  if (!env.isProduction) {
+    return { devLink: resetLink };
+  }
+  return {};
+}
+
+export async function resetPassword(
+  rawToken: string,
+  newPassword: string,
+): Promise<void> {
+  const tokenHash = hashToken(rawToken);
+
+  const resetToken = await prisma.passwordResetToken.findUnique({
+    where: { tokenHash },
+    include: { user: true },
+  });
+
+  if (!resetToken || !resetToken.user.isActive) {
+    throw new UnauthorizedError('Invalid or expired reset link');
+  }
+  if (resetToken.usedAt) {
+    throw new UnauthorizedError('This reset link has already been used');
+  }
+  if (resetToken.expiresAt < new Date()) {
+    throw new UnauthorizedError('This reset link has expired');
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.passwordResetToken.update({
+      where: { id: resetToken.id },
+      data: { usedAt: new Date() },
+    });
+
+    await tx.user.update({
+      where: { id: resetToken.userId },
+      data: { passwordHash, failedLoginCount: 0, lockedAt: null },
+    });
+
+    await tx.refreshToken.updateMany({
+      where: { userId: resetToken.userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        companyId:    resetToken.user.companyId,
+        userId:       resetToken.userId,
+        userEmail:    resetToken.user.email,
+        userRole:     resetToken.user.role,
+        action:       'update',
+        entityType:   'auth',
+        changesAfter: { event: 'password_reset_completed' },
+      },
+    });
   });
 }
 

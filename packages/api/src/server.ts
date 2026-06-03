@@ -56,11 +56,15 @@ export async function buildApp() {
   });
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
-  await app.register(fastifyRateLimit, {
-    max: 100,
-    timeWindow: '1 minute',
-    keyGenerator: (req) => req.ip,
-  });
+  // Skipped in test: all inject() calls share the same IP so the in-memory
+  // counter is never reset between tests, causing spurious 429s.
+  if (!env.isTest) {
+    await app.register(fastifyRateLimit, {
+      max: 100,
+      timeWindow: '1 minute',
+      keyGenerator: (req) => req.ip,
+    });
+  }
 
   // ── Multipart (file uploads) ──────────────────────────────────────────────
   // Framework-level cap prevents large payloads from being buffered before the
