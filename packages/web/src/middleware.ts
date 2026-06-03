@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // Routes that do NOT require authentication
-const PUBLIC_PATHS = ['/login', '/register'];
+const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/reset-password'];
 
 // Routes that are always accessible regardless of auth state
 const ALWAYS_ALLOWED = ['/_next', '/favicon.ico', '/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/refresh'];
