@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, KeyboardAvoidingView, Platform,
-  ScrollView, TouchableOpacity, Alert, TextInput,
+  ScrollView, TouchableOpacity, Alert, TextInput, Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Notifications from 'expo-notifications';
@@ -47,6 +47,19 @@ export default function LoginScreen() {
   const [loading,  setLoading]  = useState(false);
   const [errors,   setErrors]   = useState<{ email?: string; password?: string }>({});
   const [focused,  setFocused]  = useState<'email' | 'password' | null>(null);
+
+  // ── Forgot password ───────────────────────────────────────────────
+  function handleForgotPassword() {
+    const webUrl = process.env.EXPO_PUBLIC_WEB_URL;
+    if (webUrl) {
+      void Linking.openURL(`${webUrl}/forgot-password`);
+    } else {
+      Alert.alert(
+        'Reset Password',
+        'Contact your company administrator to reset your password, or visit the web app.',
+      );
+    }
+  }
 
   // ── Validation (unchanged) ─────────────────────────────────────────
   function validate() {
@@ -145,9 +158,7 @@ export default function LoginScreen() {
           <View style={L.fieldGroup}>
             <View style={L.fieldLabelRow}>
               <Text style={L.fieldLabel}>Password</Text>
-              <TouchableOpacity
-                onPress={() => Alert.alert('Password Reset', 'Contact your administrator to reset your password.')}
-              >
+              <TouchableOpacity onPress={handleForgotPassword}>
                 <Text style={L.forgotLink}>Forgot password?</Text>
               </TouchableOpacity>
             </View>

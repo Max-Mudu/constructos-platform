@@ -67,15 +67,25 @@ function LoginContent() {
           autoComplete="email"
           required
         />
-        <Input
-          label="Password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="••••••••"
-          autoComplete="current-password"
-          required
-        />
+        <div>
+          <Input
+            label="Password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            autoComplete="current-password"
+            required
+          />
+          <div className="mt-1 text-right">
+            <Link
+              href="/forgot-password"
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+            >
+              Forgot password?
+            </Link>
+          </div>
+        </div>
 
         {error && (
           <Alert variant="destructive">
