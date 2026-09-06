@@ -39,7 +39,9 @@ async function request<T>(
 ): Promise<T> {
   const token = _getAccessToken?.();
   const headers: Record<string, string> = {
-    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(options.body === undefined || options.body instanceof FormData
+      ? {}
+      : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string>),
   };
 

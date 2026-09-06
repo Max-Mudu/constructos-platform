@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/reset-password'];
 
 // Routes that are always accessible regardless of auth state
-const ALWAYS_ALLOWED = ['/_next', '/favicon.ico', '/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/refresh'];
+const ALWAYS_ALLOWED = ['/_next', '/favicon.ico', '/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/refresh', '/api/v1/auth/forgot-password', '/api/v1/auth/reset-password'];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
