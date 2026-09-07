@@ -24,6 +24,7 @@ const mockUser: AuthUser = {
   lastName: 'Admin',
   role: 'company_admin',
   companyId: 'company-1',
+  currency: 'KES',
   canViewFinance: true,
   defaultProjectId: null,
   defaultSiteId: null,
