@@ -45,6 +45,7 @@ describe('POST /api/v1/auth/register', () => {
     expect(body.user.email).toBe('owner@acme.com');
     expect(body.user.role).toBe('company_admin');
     expect(body.user.canViewFinance).toBe(true);
+    expect(body.user.currency).toBe('USD');
     // Password must never be returned
     expect(body.user.passwordHash).toBeUndefined();
     expect(body.user.password).toBeUndefined();
@@ -162,6 +163,7 @@ describe('POST /api/v1/auth/login', () => {
     const body = res.json();
     expect(body.accessToken).toBeTruthy();
     expect(body.user.email).toBe(userEmail);
+    expect(body.user.currency).toBe('USD');
     expect(body.user.passwordHash).toBeUndefined();
   });
 
@@ -426,6 +428,114 @@ describe('GET /api/v1/auth/me', () => {
     });
 
     expect(res.statusCode).toBe(401);
+  });
+});
+
+// ─── Company currency on AuthUser ─────────────────────────────────────────────
+
+describe('Company currency in AuthUser', () => {
+  const kesPayload = {
+    email: 'kes@test.com',
+    password: 'TestPass1',
+    firstName: 'Kip',
+    lastName: 'Kimani',
+    companyName: 'Nairobi Builders',
+    currency: 'KES',
+  };
+
+  let accessToken: string;
+  let refreshToken: string;
+
+  beforeEach(async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: kesPayload,
+    });
+    expect(res.statusCode).toBe(201);
+    accessToken = res.json().accessToken;
+    const setCookie = res.headers['set-cookie'] as string;
+    refreshToken = setCookie.split('refreshToken=')[1]?.split(';')[0] as string;
+  });
+
+  it('register returns KES, not the USD default', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: { ...kesPayload, email: 'kes2@test.com', companyName: 'Mombasa Builders' },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json().user.currency).toBe('KES');
+  });
+
+  it('login returns the company currency', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: kesPayload.email, password: kesPayload.password },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.currency).toBe('KES');
+  });
+
+  it('GET /me returns the company currency', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/me',
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.currency).toBe('KES');
+  });
+
+  it('refresh returns the company currency', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/refresh',
+      payload: { refreshToken },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.currency).toBe('KES');
+  });
+
+  // The company record is the source of truth: currency must be read live on every
+  // request, not captured in the JWT or echoed back from the registration payload.
+  it('reflects a later change to the company currency', async () => {
+    const user = await prisma.user.findUnique({ where: { email: kesPayload.email } });
+    await prisma.company.update({
+      where: { id: user!.companyId },
+      data: { currency: 'GBP' },
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/me',
+      headers: { authorization: `Bearer ${accessToken}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.currency).toBe('GBP');
+  });
+
+  it('falls back to USD when registration omits currency', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        email: 'nocurrency@test.com',
+        password: 'TestPass1',
+        firstName: 'No',
+        lastName: 'Currency',
+        companyName: 'Default Co',
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json().user.currency).toBe('USD');
   });
 });
 

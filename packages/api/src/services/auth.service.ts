@@ -43,6 +43,7 @@ export interface AuthUser {
   lastName: string;
   role: UserRole;
   companyId: string;
+  currency: string;
   canViewFinance: boolean;
   defaultProjectId: string | null;
   defaultSiteId: string | null;
@@ -167,6 +168,7 @@ export async function register(
       lastName: result.user.lastName,
       role: result.user.role,
       companyId: result.user.companyId,
+      currency: result.company.currency,
       canViewFinance: result.user.canViewFinance,
       defaultProjectId: result.user.defaultProjectId,
       defaultSiteId: result.user.defaultSiteId,
@@ -181,7 +183,10 @@ export async function login(
   ipAddress: string | null,
   userAgent: string | null,
 ): Promise<{ user: AuthUser; tokens: TokenPair }> {
-  const user = await prisma.user.findUnique({ where: { email: input.email } });
+  const user = await prisma.user.findUnique({
+    where: { email: input.email },
+    include: { company: { select: { currency: true } } },
+  });
 
   if (!user || !user.isActive) {
     throw new UnauthorizedError('Invalid email or password');
@@ -262,6 +267,7 @@ export async function login(
       lastName: user.lastName,
       role: user.role,
       companyId: user.companyId,
+      currency: user.company.currency,
       canViewFinance: user.canViewFinance,
       defaultProjectId: user.defaultProjectId,
       defaultSiteId: user.defaultSiteId,
@@ -280,7 +286,7 @@ export async function refreshTokens(
 
   const stored = await prisma.refreshToken.findUnique({
     where: { tokenHash },
-    include: { user: true },
+    include: { user: { include: { company: { select: { currency: true } } } } },
   });
 
   if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
@@ -315,6 +321,7 @@ export async function refreshTokens(
       lastName: stored.user.lastName,
       role: stored.user.role,
       companyId: stored.user.companyId,
+      currency: stored.user.company.currency,
       canViewFinance: stored.user.canViewFinance,
       defaultProjectId: stored.user.defaultProjectId,
       defaultSiteId: stored.user.defaultSiteId,
@@ -324,7 +331,10 @@ export async function refreshTokens(
 }
 
 export async function getMe(userId: string): Promise<AuthUser> {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    include: { company: { select: { currency: true } } },
+  });
   if (!user || !user.isActive) {
     throw new UnauthorizedError('User not found or inactive');
   }
@@ -335,6 +345,7 @@ export async function getMe(userId: string): Promise<AuthUser> {
     lastName: user.lastName,
     role: user.role,
     companyId: user.companyId,
+    currency: user.company.currency,
     canViewFinance: user.canViewFinance,
     defaultProjectId: user.defaultProjectId,
     defaultSiteId: user.defaultSiteId,
@@ -356,6 +367,7 @@ export async function updateDefaults(
     const user = await prisma.user.update({
       where: { id: userId },
       data: { defaultProjectId: null, defaultSiteId: null },
+      include: { company: { select: { currency: true } } },
     });
     return {
       id: user.id,
@@ -364,6 +376,7 @@ export async function updateDefaults(
       lastName: user.lastName,
       role: user.role,
       companyId: user.companyId,
+      currency: user.company.currency,
       canViewFinance: user.canViewFinance,
       defaultProjectId: null,
       defaultSiteId: null,
@@ -390,6 +403,7 @@ export async function updateDefaults(
       defaultProjectId: input.defaultProjectId,
       defaultSiteId: input.defaultSiteId,
     },
+    include: { company: { select: { currency: true } } },
   });
 
   return {
@@ -399,6 +413,7 @@ export async function updateDefaults(
     lastName: user.lastName,
     role: user.role,
     companyId: user.companyId,
+    currency: user.company.currency,
     canViewFinance: user.canViewFinance,
     defaultProjectId: user.defaultProjectId,
     defaultSiteId: user.defaultSiteId,
