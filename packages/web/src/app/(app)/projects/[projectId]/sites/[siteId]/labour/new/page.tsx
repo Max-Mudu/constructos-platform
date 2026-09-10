@@ -10,6 +10,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
 
+// Matches the list offered by the worker, budget and invoice forms. A labour
+// entry inherits its currency from the selected worker, so every currency a
+// worker can be paid in must be renderable here.
+const CURRENCIES = ['USD', 'EUR', 'GBP', 'ZAR', 'AED', 'NGN', 'KES', 'GHS'];
+
 export default function NewLabourEntryPage() {
   const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>()!;
   const router = useRouter();
@@ -219,10 +224,9 @@ export default function NewLabourEntryPage() {
                 onChange={(e) => set('currency', e.target.value)}
                 className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="KES">KES</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-                <option value="GBP">GBP</option>
+                {CURRENCIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
               </select>
             </div>
 
