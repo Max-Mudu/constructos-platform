@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { workerApi, ApiError } from '@/lib/api';
+import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -14,8 +15,14 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { cn } from '@/lib/utils';
 import { AlertCircle } from 'lucide-react';
 
+// Matches the list offered by the New Budget and New Invoice forms, and covers
+// every currency a company can register with, so the company default below always
+// has an option to select.
+const CURRENCIES = ['USD', 'EUR', 'GBP', 'ZAR', 'AED', 'NGN', 'KES', 'GHS'];
+
 export default function NewWorkerPage() {
   const router = useRouter();
+  const { user } = useAuthStore();
 
   const [form, setForm] = useState({
     firstName: '',
@@ -25,7 +32,7 @@ export default function NewWorkerPage() {
     idNumber: '',
     trade: '',
     dailyWage: '',
-    currency: 'KES',
+    currency: '',
     emergencyContactName: '',
     emergencyContactPhone: '',
     notes: '',
@@ -34,10 +41,21 @@ export default function NewWorkerPage() {
   const [error, setError]           = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
 
+  // Seed the currency from the company once the auth store has hydrated. The
+  // field starts empty rather than 'KES' so a non-KES company is never shown the
+  // wrong default, and the guard means a selection the user has already made is
+  // never overwritten when hydration lands.
+  useEffect(() => {
+    const companyCurrency = user?.currency;
+    if (!companyCurrency) return;
+    setForm((f) => (f.currency === '' ? { ...f, currency: companyCurrency } : f));
+  }, [user?.currency]);
+
   function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!form.currency) { setError('Currency is still loading — please try again'); return; }
     setSubmitting(true);
     setError('');
     setFieldErrors({});
@@ -150,10 +168,8 @@ export default function NewWorkerPage() {
               value={form.currency}
               onChange={(e) => set('currency', e.target.value)}
             >
-              <option value="KES">KES</option>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
+              {!form.currency && <option value="" disabled>Loading…</option>}
+              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </Select>
           </CardContent>
         </Card>
