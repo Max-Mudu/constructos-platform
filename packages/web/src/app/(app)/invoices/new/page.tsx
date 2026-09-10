@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { AlertCircle, ArrowLeft, Plus, Trash2 } from 'lucide-react';
+import { formatMoney } from '@/lib/utils';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -135,7 +136,7 @@ export default function NewInvoicePage() {
     invoiceNumber: '',
     vendorType:    'contractor' as InvoiceVendorType,
     vendorName:    '',
-    currency:      'USD',
+    currency:      '',
     issueDate:     new Date().toISOString().split('T')[0],
     dueDate:       '',
     subtotal:      '',
@@ -152,6 +153,16 @@ export default function NewInvoicePage() {
       .catch(() => {})
       .finally(() => setLoadingProjects(false));
   }, []);
+
+  // Seed the currency from the company once the auth store has hydrated. The
+  // field starts empty rather than 'USD' so a KES company is never shown a
+  // dollar default, and the guard means a selection the user has already made
+  // is never overwritten when hydration lands.
+  useEffect(() => {
+    const companyCurrency = user?.currency;
+    if (!companyCurrency) return;
+    setForm((f) => (f.currency === '' ? { ...f, currency: companyCurrency } : f));
+  }, [user?.currency]);
 
   if (!canCreate) {
     return (
@@ -205,6 +216,7 @@ export default function NewInvoicePage() {
     if (!form.invoiceNumber) { setError('Invoice number is required'); return; }
     if (!form.vendorName)    { setError('Vendor name is required'); return; }
     if (!form.dueDate)       { setError('Due date is required'); return; }
+    if (!form.currency)      { setError('Currency is still loading — please try again'); return; }
 
     const subtotal    = parseFloat(form.subtotal)    || 0;
     const totalAmount = parseFloat(form.totalAmount) || 0;
@@ -363,6 +375,7 @@ export default function NewInvoicePage() {
                 value={form.currency}
                 onChange={(e) => setField('currency', e.target.value)}
               >
+                {!form.currency && <option value="" disabled>Loading…</option>}
                 {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </Select>
             </div>
@@ -443,11 +456,9 @@ export default function NewInvoicePage() {
                 <p className="text-sm font-semibold text-foreground">
                   Line items total:{' '}
                   <span className="text-primary">
-                    {lineItems.reduce((s, li) => s + (parseFloat(li.amount) || 0), 0).toLocaleString('en-US', {
-                      style: 'currency',
-                      currency: form.currency,
-                      maximumFractionDigits: 2,
-                    })}
+                    {form.currency
+                      ? formatMoney(lineItems.reduce((s, li) => s + (parseFloat(li.amount) || 0), 0), form.currency, { maximumFractionDigits: 2 })
+                      : '—'}
                   </span>
                 </p>
               </div>
