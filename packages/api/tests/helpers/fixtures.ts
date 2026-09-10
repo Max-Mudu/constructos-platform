@@ -530,6 +530,11 @@ export async function clearDatabase(): Promise<void> {
   await prisma.auditLog.deleteMany();
   await prisma.notificationPreference.deleteMany();
   await prisma.notification.deleteMany();
+  // Inventory before job sites: inventory_transactions.inventoryId/siteId and
+  // site_inventory.siteId are all RESTRICT, so job_sites cannot be deleted while
+  // either table holds rows. Transactions first — they reference site_inventory.
+  await prisma.inventoryTransaction.deleteMany();
+  await prisma.siteInventory.deleteMany();
   // Delivery children before delivery records; delivery records before invoice/budgetLineItem
   await prisma.deliveryPhoto.deleteMany();
   await prisma.deliveryDocument.deleteMany();
