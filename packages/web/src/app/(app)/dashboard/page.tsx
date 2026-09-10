@@ -17,15 +17,14 @@ import {
   Truck, ClipboardList, DollarSign, BarChart3, Users,
   Bell, ClipboardCheck, PieChart, Ban, Activity,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatMoney } from '@/lib/utils';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmt(val: number, currency = 'USD') {
-  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
-  if (val >= 1_000)     return `$${(val / 1_000).toFixed(0)}K`;
-  return val.toLocaleString('en-US', { style: 'currency', currency, maximumFractionDigits: 0 });
-}
+// Dashboard KPI cards are dense, so money is shown compactly ("KES 2.5M").
+// Intl derives both the compact suffix and the symbol; the currency itself comes
+// from the authenticated company at each call site, never from a default here.
+const MONEY_COMPACT: Intl.NumberFormatOptions = { notation: 'compact', maximumFractionDigits: 1 };
 
 function fmtNum(val: number) {
   return val.toLocaleString();
@@ -292,7 +291,7 @@ export default function DashboardPage() {
     );
   }
 
-  if (!stats) return null;
+  if (!stats || !user) return null;
 
   // ── Operational alert data ─────────────────────────────────────────────────
   const scheduleAlerts = stats.schedule;
@@ -499,11 +498,11 @@ export default function DashboardPage() {
         {canManage && (
           <Widget title="Invoices" href="/invoices">
             <div className="grid grid-cols-3 gap-2 mb-4">
-              <MiniStat label="Total"       value={fmt(stats.invoices.totalValue)}  />
-              <MiniStat label="Paid"        value={fmt(stats.invoices.totalPaid)}   valueClass="text-emerald-600" />
+              <MiniStat label="Total"       value={formatMoney(stats.invoices.totalValue, user.currency, MONEY_COMPACT)}  />
+              <MiniStat label="Paid"        value={formatMoney(stats.invoices.totalPaid, user.currency, MONEY_COMPACT)}   valueClass="text-emerald-600" />
               <MiniStat
                 label="Outstanding"
-                value={fmt(stats.invoices.outstanding)}
+                value={formatMoney(stats.invoices.outstanding, user.currency, MONEY_COMPACT)}
                 valueClass={stats.invoices.outstanding > 0 ? 'text-amber-600' : undefined}
               />
             </div>
@@ -558,11 +557,11 @@ export default function DashboardPage() {
         {canManage && (
           <Widget title="Budget" href="/budget">
             <div className="grid grid-cols-3 gap-2 mb-4">
-              <MiniStat label="Budgeted" value={fmt(stats.budget.totalBudgeted)} />
-              <MiniStat label="Spent"    value={fmt(stats.budget.totalSpent)}    valueClass={stats.budget.overspendCount > 0 ? 'text-red-500' : 'text-foreground'} />
+              <MiniStat label="Budgeted" value={formatMoney(stats.budget.totalBudgeted, user.currency, MONEY_COMPACT)} />
+              <MiniStat label="Spent"    value={formatMoney(stats.budget.totalSpent, user.currency, MONEY_COMPACT)}    valueClass={stats.budget.overspendCount > 0 ? 'text-red-500' : 'text-foreground'} />
               <MiniStat
                 label="Remaining"
-                value={fmt(stats.budget.totalRemaining)}
+                value={formatMoney(stats.budget.totalRemaining, user.currency, MONEY_COMPACT)}
                 valueClass={stats.budget.totalRemaining < 0 ? 'text-red-500' : 'text-emerald-600'}
               />
             </div>
@@ -628,7 +627,7 @@ export default function DashboardPage() {
                     <p className="text-muted-foreground">This Week</p>
                   </div>
                   <div className="rounded-lg bg-muted/30 py-2">
-                    <p className="font-semibold text-foreground">{fmt(stats.labour.thisMonthCost)}</p>
+                    <p className="font-semibold text-foreground">{formatMoney(stats.labour.thisMonthCost, user.currency, MONEY_COMPACT)}</p>
                     <p className="text-muted-foreground">Month Cost</p>
                   </div>
                 </div>
@@ -716,11 +715,11 @@ export default function DashboardPage() {
         {canViewFinance && stats.finance && (
           <Widget title="Client Finance" href="/finance">
             <div className="grid grid-cols-3 gap-2 mb-4">
-              <MiniStat label="Total Inflows"    value={fmt(stats.finance.totalInflows)}     valueClass="text-emerald-600" />
-              <MiniStat label="This Month"       value={fmt(stats.finance.inflowsThisMonth)} />
+              <MiniStat label="Total Inflows"    value={formatMoney(stats.finance.totalInflows, user.currency, MONEY_COMPACT)}     valueClass="text-emerald-600" />
+              <MiniStat label="This Month"       value={formatMoney(stats.finance.inflowsThisMonth, user.currency, MONEY_COMPACT)} />
               <MiniStat
                 label="Net Position"
-                value={fmt(Math.abs(stats.finance.netPosition))}
+                value={formatMoney(Math.abs(stats.finance.netPosition), user.currency, MONEY_COMPACT)}
                 valueClass={stats.finance.netPosition >= 0 ? 'text-emerald-600' : 'text-red-500'}
               />
             </div>
