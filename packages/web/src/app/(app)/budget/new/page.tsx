@@ -21,7 +21,7 @@ export default function NewBudgetPage() {
   const [form, setForm] = useState({
     projectId: '',
     name:      '',
-    currency:  'USD',
+    currency:  '',
     notes:     '',
   });
   const [error,    setError]    = useState('');
@@ -37,6 +37,16 @@ export default function NewBudgetPage() {
       .finally(() => setLoadingProjects(false));
   }, []);
 
+  // Seed the currency from the company once the auth store has hydrated. The
+  // field starts empty rather than 'USD' so a KES company is never shown a
+  // dollar default, and the guard means a selection the user has already made
+  // is never overwritten when hydration lands.
+  useEffect(() => {
+    const companyCurrency = user?.currency;
+    if (!companyCurrency) return;
+    setForm((f) => (f.currency === '' ? { ...f, currency: companyCurrency } : f));
+  }, [user?.currency]);
+
   if (!canCreate) {
     return (
       <div className="px-6 py-8">
@@ -49,6 +59,7 @@ export default function NewBudgetPage() {
     e.preventDefault();
     if (!form.projectId) { setError('Please select a project'); return; }
     if (!form.name.trim()) { setError('Budget name is required'); return; }
+    if (!form.currency) { setError('Currency is still loading — please try again'); return; }
     setError('');
     setLoading(true);
     try {
@@ -119,6 +130,7 @@ export default function NewBudgetPage() {
             value={form.currency}
             onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
           >
+            {!form.currency && <option value="" disabled>Loading…</option>}
             {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
           </Select>
         </div>
