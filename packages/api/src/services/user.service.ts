@@ -4,6 +4,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../utils/errors';
 import { generateToken, hashPassword, hashToken } from '../utils/hash';
 import { env } from '../utils/env';
 import { RequestUser } from '../types';
+import { emailService } from './email.service';
 
 /**
  * Roles a company_admin may assign when creating a company user.
@@ -208,9 +209,23 @@ export async function createCompanyUser(
     return created;
   });
 
-  // Same URL convention as password recovery. The raw token exists only here
-  // and in the admin's response — outside development it is never disclosed.
+  // Same URL convention as password recovery. The raw token exists only here,
+  // in the setup email, and (outside production only) in the admin's response.
   const setupLink = `${env.APP_URL}/reset-password?token=${rawSetupToken}`;
 
-  return env.isProduction ? { user } : { user, setupLink };
+  // Delivery is best-effort: the user row is already committed, and an admin
+  // can always recover a failed or expired setup through "Forgot password".
+  // Failing the request here would leave a created user the admin believes
+  // does not exist. The log line carries the user id only — never the link,
+  // the token, or the SMTP error text (which may echo the message body).
+  let setupEmailSent = false;
+  try {
+    setupEmailSent = await emailService.sendAccountSetupEmail(user.email, setupLink);
+  } catch {
+    console.warn(`[email] account setup email failed for userId=${user.id}; the user can use "Forgot password"`);
+  }
+
+  return env.isProduction
+    ? { user, setupEmailSent }
+    : { user, setupLink, setupEmailSent };
 }

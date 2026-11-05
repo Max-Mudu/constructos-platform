@@ -68,9 +68,13 @@ export function SSEProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
-    es.addEventListener('error', () => {
+    es.addEventListener('error', (event) => {
       setStatus('disconnected');
       es.close();
+      // 404 = the server has live updates switched off (SSE_ENABLED=false,
+      // code SSE_DISABLED) or has no such route. Polling every few seconds
+      // would only resend the token in the URL, so stop until next mount.
+      if ('xhrStatus' in event && event.xhrStatus === 404) return;
       reconnectRef.current = setTimeout(() => { void connect(); }, RECONNECT_DELAY);
     });
   }, []);

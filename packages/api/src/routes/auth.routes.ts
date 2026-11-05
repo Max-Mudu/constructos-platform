@@ -3,6 +3,7 @@ import { z } from 'zod';
 import * as authService from '../services/auth.service';
 import { authenticate } from '../middleware/authenticate';
 import { AppError } from '../utils/errors';
+import { env } from '../utils/env';
 
 const registerSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -51,7 +52,19 @@ const resetPasswordSchema = z.object({
 
 export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /api/v1/auth/register
+  // Self-service signup creates a brand-new company. Gated server-side by
+  // ALLOW_PUBLIC_REGISTRATION (default: on outside production, off in
+  // production). Checked first so a disabled endpoint reveals nothing about
+  // validation rules or existing accounts. env is read per request so the
+  // flag is a single source of truth that tests can toggle.
   fastify.post('/register', async (request, reply) => {
+    if (!env.ALLOW_PUBLIC_REGISTRATION) {
+      return reply.status(403).send({
+        error: 'Public registration is disabled. Ask your company administrator for an account.',
+        code:  'REGISTRATION_DISABLED',
+      });
+    }
+
     const parsed = registerSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({

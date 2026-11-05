@@ -1,3 +1,91 @@
+import { isIP } from 'net';
+
+/**
+ * Parses a strict boolean env flag. Unset/empty → defaultValue; otherwise only
+ * 'true' / 'false' (case-insensitive) are accepted so a typo fails at boot
+ * instead of silently flipping a security control.
+ */
+export function parseEnvFlag(key: string, raw: string | undefined, defaultValue: boolean): boolean {
+  const value = (raw ?? '').trim().toLowerCase();
+  if (value === '') return defaultValue;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error(`Environment variable ${key} must be 'true' or 'false'`);
+}
+
+/** A flag that is on by default outside production and off in production. */
+export function flagDefaultOffInProduction(
+  key: string,
+  raw: string | undefined,
+  isProduction: boolean,
+): boolean {
+  return parseEnvFlag(key, raw, !isProduction);
+}
+
+export type TrustProxySetting = false | number | string[];
+
+const TRUST_PROXY_PRESETS = new Set(['loopback', 'linklocal', 'uniquelocal']);
+
+function isValidProxyEntry(entry: string): boolean {
+  if (TRUST_PROXY_PRESETS.has(entry)) return true;
+  const [address, prefix, ...rest] = entry.split('/');
+  if (rest.length > 0 || !address) return false;
+  const family = isIP(address);
+  if (family === 0) return false;
+  if (prefix === undefined) return true;
+  if (!/^\d{1,3}$/.test(prefix)) return false;
+  const bits = Number(prefix);
+  return bits >= 0 && bits <= (family === 4 ? 32 : 128);
+}
+
+/**
+ * TRUST_PROXY → Fastify `trustProxy`.
+ *  - unset / '' / 'false' / '0' → false (X-Forwarded-* ignored; safe default)
+ *  - positive integer          → trust that many proxy hops
+ *  - comma-separated list      → trust only these IPs / CIDRs, or the
+ *                                proxy-addr presets loopback, linklocal,
+ *                                uniquelocal
+ * 'true' (trust every hop, so any client can spoof its IP) is refused.
+ */
+export function parseTrustProxy(raw: string | undefined): TrustProxySetting {
+  const value = (raw ?? '').trim();
+  if (value === '' || value.toLowerCase() === 'false' || value === '0') return false;
+  if (value.toLowerCase() === 'true') {
+    throw new Error(
+      'TRUST_PROXY=true would trust any X-Forwarded-For value. ' +
+      'Set a hop count (e.g. 1) or a comma-separated list of proxy IPs/CIDRs.',
+    );
+  }
+  if (/^-?\d+$/.test(value)) {
+    const hops = Number(value);
+    if (!Number.isSafeInteger(hops) || hops < 1) {
+      throw new Error('TRUST_PROXY hop count must be a positive integer');
+    }
+    return hops;
+  }
+  const entries = value.split(',').map((e) => e.trim()).filter((e) => e !== '');
+  const invalid = entries.filter((e) => !isValidProxyEntry(e));
+  if (entries.length === 0 || invalid.length > 0) {
+    throw new Error(
+      'TRUST_PROXY must be false, a positive hop count, or a comma-separated list of IPs/CIDRs ' +
+      `(invalid entries: ${invalid.length})`,
+    );
+  }
+  return entries;
+}
+
+// Development-only behaviour (returning reset/setup links, logging them, open
+// registration) is keyed off "not production". Refuse to boot on an unset or
+// unrecognised NODE_ENV so a misconfigured deployment fails closed instead of
+// silently running in development mode.
+const NODE_ENVS = ['development', 'test', 'production'] as const;
+const NODE_ENV = process.env['NODE_ENV'];
+if (!NODE_ENV || !(NODE_ENVS as readonly string[]).includes(NODE_ENV)) {
+  throw new Error(`NODE_ENV must be one of ${NODE_ENVS.join(', ')} (got ${NODE_ENV ? `'${NODE_ENV}'` : 'unset'})`);
+}
+
+const IS_PRODUCTION = NODE_ENV === 'production';
+
 function requireEnv(key: string): string {
   const value = process.env[key];
   if (!value) {
@@ -27,7 +115,7 @@ export const env = {
   JWT_EXPIRES_IN:         process.env['JWT_EXPIRES_IN']         ?? '15m',
   JWT_REFRESH_EXPIRES_IN: process.env['JWT_REFRESH_EXPIRES_IN'] ?? '7d',
   PORT:                   parseInt(process.env['PORT'] ?? '3001', 10),
-  NODE_ENV:               process.env['NODE_ENV'] ?? 'development',
+  NODE_ENV,
   CORS_ORIGIN:            process.env['CORS_ORIGIN'] ?? 'http://localhost:3000',
   AWS_ACCESS_KEY_ID:      process.env['AWS_ACCESS_KEY_ID']     ?? '',
   AWS_SECRET_ACCESS_KEY:  process.env['AWS_SECRET_ACCESS_KEY'] ?? '',
@@ -39,8 +127,16 @@ export const env = {
   SMTP_USER: process.env['SMTP_USER'] ?? '',
   SMTP_PASS: process.env['SMTP_PASS'] ?? '',
   SMTP_FROM: process.env['SMTP_FROM'] ?? 'noreply@constructos.app',
-  isProduction: process.env['NODE_ENV'] === 'production',
+  isProduction: IS_PRODUCTION,
   isTest:       process.env['NODE_ENV'] === 'test',
+  // Proxy trust for request.ip / rate limiting. Default: trust nothing.
+  TRUST_PROXY: parseTrustProxy(process.env['TRUST_PROXY']) as TrustProxySetting,
+  // POST /auth/register. Default: on outside production, off in production.
+  ALLOW_PUBLIC_REGISTRATION: flagDefaultOffInProduction(
+    'ALLOW_PUBLIC_REGISTRATION', process.env['ALLOW_PUBLIC_REGISTRATION'], IS_PRODUCTION,
+  ),
+  // GET /events (SSE). Default: on outside production, off in production.
+  SSE_ENABLED: flagDefaultOffInProduction('SSE_ENABLED', process.env['SSE_ENABLED'], IS_PRODUCTION),
 };
 
 // Warn loudly if CORS is still pointing at localhost in production so that the

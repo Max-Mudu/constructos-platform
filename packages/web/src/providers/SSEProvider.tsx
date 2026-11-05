@@ -87,15 +87,35 @@ export function SSEProvider({ children }: { children: ReactNode }) {
     es.onerror = () => {
       if (!activeRef.current) return;
       setStatus('disconnected');
+      // CLOSED here means the browser failed the connection on the response
+      // itself (non-200 status or wrong content type) rather than a dropped
+      // stream, which the browser reports while CONNECTING.
+      const rejectedByServer = es.readyState === EventSource.CLOSED;
       es.close();
       esRef.current = null;
       // Stop retrying after MAX_RECONNECT_ATTEMPTS — prevents an infinite loop
       // when the server is down or the token is permanently invalid.
       if (reconnectCountRef.current >= MAX_RECONNECT_ATTEMPTS) return;
       reconnectCountRef.current += 1;
-      timerRef.current = setTimeout(() => {
-        if (activeRef.current) connect();
-      }, RECONNECT_DELAY_MS);
+      const scheduleRetry = () => {
+        timerRef.current = setTimeout(() => {
+          if (activeRef.current) connect();
+        }, RECONNECT_DELAY_MS);
+      };
+      if (!rejectedByServer) {
+        scheduleRetry();
+        return;
+      }
+      // EventSource hides the status code. The server checks SSE_ENABLED
+      // before reading the token, so a token-less probe answers 404 when live
+      // updates are switched off (stop for good) and 401 otherwise (e.g. an
+      // expired token — retry with a fresh one).
+      void fetch('/api/v1/events', { headers: { Accept: 'application/json' } })
+        .then((res) => res.status === 404)
+        .catch(() => false)
+        .then((disabled) => {
+          if (!disabled && activeRef.current) scheduleRetry();
+        });
     };
   }, []);
 

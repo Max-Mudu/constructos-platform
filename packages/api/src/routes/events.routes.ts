@@ -7,6 +7,7 @@ import {
 } from '../services/event-emitter.service';
 import { JwtPayload } from '../types';
 import { env } from '../utils/env';
+import { prisma } from '../utils/prisma';
 
 // Heartbeat interval — keeps the connection alive through proxies and load balancers
 const HEARTBEAT_MS = 25_000;
@@ -31,6 +32,16 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get<{ Querystring: { token?: string } }>(
     '/',
     async (request: FastifyRequest<{ Querystring: { token?: string } }>, reply: FastifyReply) => {
+      // ── Feature gate ────────────────────────────────────────────────────────
+      // SSE_ENABLED (default: on outside production, off in production). The
+      // stream authenticates with an access JWT in the query string, so while
+      // it is disabled the token is never read or verified. A non-200 makes a
+      // browser EventSource close without auto-reconnecting; the web/mobile
+      // providers also stop retrying on SSE_DISABLED.
+      if (!env.SSE_ENABLED) {
+        return reply.status(404).send({ error: 'Live updates are disabled', code: 'SSE_DISABLED' });
+      }
+
       const { token } = request.query;
 
       // ── Authenticate ────────────────────────────────────────────────────────
@@ -47,6 +58,16 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
 
       const userId    = payload.sub;
       const companyId = payload.companyId;
+
+      // A still-valid JWT can outlive a deactivation; refuse the long-lived
+      // stream to users who are no longer active in this company.
+      const activeUser = await prisma.user.findFirst({
+        where:  { id: userId, companyId, isActive: true },
+        select: { id: true },
+      });
+      if (!activeUser) {
+        return reply.status(401).send({ error: 'Invalid or expired token', code: 'UNAUTHORIZED' });
+      }
 
       // ── SSE headers ─────────────────────────────────────────────────────────
       reply.raw.writeHead(200, {

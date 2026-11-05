@@ -2,7 +2,7 @@ import 'dotenv/config';
 import path from 'path';
 import os from 'os';
 import fs from 'fs/promises';
-import Fastify from 'fastify';
+import Fastify, { FastifyServerOptions } from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
@@ -36,11 +36,72 @@ import { eventsRoutes } from './routes/events.routes';
 import { activityRoutes } from './routes/activity.routes';
 import { mobileRoutes } from './routes/mobile.routes';
 import { prisma } from './utils/prisma';
+import { canAccessUploadedFile } from './services/file-access.service';
 
-export async function buildApp() {
+/**
+ * Returns the path part of a URL — no query string, no fragment.
+ *
+ * GET /api/v1/events carries the access JWT as ?token= (EventSource cannot
+ * send headers), so a URL with its query string must never be logged.
+ */
+export function stripQueryString(url: string | undefined): string | undefined {
+  if (typeof url !== 'string') return url;
+  const cut = url.search(/[?#]/);
+  return cut === -1 ? url : url.slice(0, cut);
+}
+
+interface LoggableRequest {
+  method?:   string;
+  url?:      string;
+  hostname?: string;
+  ip?:       string;
+  socket?:   { remotePort?: number };
+}
+
+/**
+ * Pino options shared by the app logger.
+ *  - serializers.req replaces Fastify's default (which logs the full URL).
+ *  - formatters.log strips the query from any top-level `url` field, which
+ *    covers explicit `{ url: request.url }` log calls such as the JWT-failure
+ *    warning in middleware/authenticate.ts.
+ */
+export const loggerOptions = {
+  serializers: {
+    req(req: LoggableRequest) {
+      return {
+        method:        req.method,
+        url:           stripQueryString(req.url),
+        hostname:      req.hostname,
+        remoteAddress: req.ip,
+        remotePort:    req.socket ? req.socket.remotePort : undefined,
+      };
+    },
+  },
+  formatters: {
+    log(obj: Record<string, unknown>) {
+      return typeof obj['url'] === 'string'
+        ? { ...obj, url: stripQueryString(obj['url']) }
+        : obj;
+    },
+  },
+};
+
+export interface BuildAppOptions {
+  /** Test hook: send logs to this stream (enables logging even under test). */
+  logStream?: NodeJS.WritableStream;
+}
+
+export async function buildApp(options: BuildAppOptions = {}) {
+  const logger: FastifyServerOptions['logger'] = options.logStream
+    ? { ...loggerOptions, stream: options.logStream }
+    : env.isTest ? false : loggerOptions;
+
   const app = Fastify({
-    logger: !env.isTest,
-    trustProxy: true,
+    logger,
+    // TRUST_PROXY (default false): only trust X-Forwarded-* from the proxies
+    // explicitly configured for this deployment. request.ip feeds rate
+    // limiting and audit logs, so unrestricted trust lets any client spoof it.
+    trustProxy: env.TRUST_PROXY,
   });
 
   // ── Security headers ─────────────────────────────────────────────────────
@@ -110,8 +171,11 @@ export async function buildApp() {
   await app.register(mobileRoutes,          { prefix: '/api/v1' });
 
   // ── Serve uploaded files ──────────────────────────────────────────────────
-  // Requires authentication and tenant-scoped ownership check.
-  // In production replace with CDN / S3 pre-signed URLs.
+  // Requires authentication plus the same company, role, project-membership,
+  // site and contractor rules as the record that owns the file (see
+  // services/file-access.service.ts). Every denial is a 404 so a caller cannot
+  // probe for keys that exist. In production replace with CDN / S3 pre-signed
+  // URLs.
   app.get(
     '/uploads/*',
     { preHandler: [authenticate] },
@@ -129,30 +193,10 @@ export async function buildApp() {
         return reply.status(400).send({ error: 'Invalid file path', code: 'INVALID_PATH' });
       }
 
-      // ── Tenant-scoped ownership check ────────────────────────────────────
-      // Look up the fileKey (= relativePath) in the DB and ensure it belongs
-      // to the authenticated user's company. This also prevents enumeration.
-      const companyId = request.user.companyId;
-      const [photo, document, drawingRevision, instructionAttachment] = await Promise.all([
-        prisma.deliveryPhoto.findFirst({
-          where: { fileKey: relativePath, companyId },
-          select: { id: true },
-        }),
-        prisma.deliveryDocument.findFirst({
-          where: { fileKey: relativePath, companyId },
-          select: { id: true },
-        }),
-        prisma.drawingRevision.findFirst({
-          where: { fileKey: relativePath, companyId },
-          select: { id: true },
-        }),
-        prisma.instructionAttachment.findFirst({
-          where: { fileKey: relativePath, companyId },
-          select: { id: true },
-        }),
-      ]);
-
-      if (!photo && !document && !drawingRevision && !instructionAttachment) {
+      // ── Record-level authorisation ───────────────────────────────────────
+      // The fileKey (= relativePath) must belong to a record in the caller's
+      // company that the caller is allowed to view.
+      if (!(await canAccessUploadedFile(relativePath, request.user))) {
         return reply.status(404).send({ error: 'File not found', code: 'NOT_FOUND' });
       }
 
@@ -175,12 +219,19 @@ export async function buildApp() {
     }
   });
 
+  // ── Not-found handler ────────────────────────────────────────────────────
+  // Fastify's default 404 logs and echoes the raw URL, query string included.
+  app.setNotFoundHandler((request, reply) => {
+    request.log.info({ method: request.method, url: stripQueryString(request.url) }, 'Route not found');
+    return reply.status(404).send({ error: 'Route not found', code: 'NOT_FOUND' });
+  });
+
   // ── Global error handler ─────────────────────────────────────────────────
   app.setErrorHandler((error, request, reply) => {
     app.log.error({
       err:    error,
       method: request.method,
-      url:    request.url,
+      url:    stripQueryString(request.url), // never log ?token= (SSE)
       userId: (request.user as { id?: string } | null | undefined)?.id,
     }, 'Unhandled server error');
     const statusCode = error.statusCode ?? 500;
