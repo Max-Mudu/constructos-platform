@@ -86,6 +86,24 @@ if (!NODE_ENV || !(NODE_ENVS as readonly string[]).includes(NODE_ENV)) {
 
 const IS_PRODUCTION = NODE_ENV === 'production';
 
+function parseEnumEnv<T extends string>(key: string, allowed: readonly T[], defaultValue: T): T {
+  const value = (process.env[key] ?? '').trim();
+  if (value === '') return defaultValue;
+  if (!(allowed as readonly string[]).includes(value)) {
+    throw new Error(`Environment variable ${key} must be one of ${allowed.join(', ')}`);
+  }
+  return value as T;
+}
+
+function parsePositiveIntEnv(key: string, defaultValue: number): number {
+  const value = (process.env[key] ?? '').trim();
+  if (value === '') return defaultValue;
+  if (!/^\d+$/.test(value) || Number(value) <= 0) {
+    throw new Error(`Environment variable ${key} must be a positive integer`);
+  }
+  return Number(value);
+}
+
 function requireEnv(key: string): string {
   const value = process.env[key];
   if (!value) {
@@ -137,6 +155,34 @@ export const env = {
   ),
   // GET /events (SSE). Default: on outside production, off in production.
   SSE_ENABLED: flagDefaultOffInProduction('SSE_ENABLED', process.env['SSE_ENABLED'], IS_PRODUCTION),
+
+  // ─── Daily report: private object storage ─────────────────────────────────
+  // 'local' for development and tests; 's3' for an S3-compatible private
+  // bucket (Cloudflare R2 for the pilot). No credentials have defaults.
+  STORAGE_DRIVER: parseEnumEnv('STORAGE_DRIVER', ['local', 's3'] as const, 'local'),
+  S3_ENDPOINT:          process.env['S3_ENDPOINT'] ?? '',
+  S3_BUCKET:            process.env['S3_BUCKET'] ?? '',
+  S3_REGION:            process.env['S3_REGION'] ?? '',
+  S3_ACCESS_KEY_ID:     process.env['S3_ACCESS_KEY_ID'] ?? '',
+  S3_SECRET_ACCESS_KEY: process.env['S3_SECRET_ACCESS_KEY'] ?? '',
+  S3_FORCE_PATH_STYLE:  parseEnvFlag('S3_FORCE_PATH_STYLE', process.env['S3_FORCE_PATH_STYLE'], false),
+  // HMAC key for the local driver's short-lived signed URLs.
+  FILE_URL_SECRET:      process.env['FILE_URL_SECRET'] ?? '',
+  // Local disk is lost on most hosted redeploys; refuse it in production unless explicitly allowed.
+  ALLOW_LOCAL_STORAGE_IN_PRODUCTION: parseEnvFlag(
+    'ALLOW_LOCAL_STORAGE_IN_PRODUCTION', process.env['ALLOW_LOCAL_STORAGE_IN_PRODUCTION'], false,
+  ),
+
+  // ─── Daily report: AI extraction ──────────────────────────────────────────
+  // 'fake' is deterministic and makes no network calls; 'disabled' leaves the
+  // report fully manual. The Anthropic SDK reads ANTHROPIC_API_KEY itself.
+  DAILY_REPORT_AI_PROVIDER: parseEnumEnv(
+    'DAILY_REPORT_AI_PROVIDER', ['anthropic', 'fake', 'disabled'] as const,
+    NODE_ENV === 'test' ? 'fake' : 'disabled',
+  ),
+  DAILY_REPORT_AI_MODEL:      process.env['DAILY_REPORT_AI_MODEL'] || 'claude-sonnet-5-5',
+  DAILY_REPORT_AI_TIMEOUT_MS: parsePositiveIntEnv('DAILY_REPORT_AI_TIMEOUT_MS', 45_000),
+  DAILY_REPORT_AI_DAILY_CAP_PER_COMPANY: parsePositiveIntEnv('DAILY_REPORT_AI_DAILY_CAP_PER_COMPANY', 200),
 };
 
 // Warn loudly if CORS is still pointing at localhost in production so that the
