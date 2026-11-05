@@ -15,13 +15,75 @@ function canFinanceApprove(actor: RequestUser): boolean {
   return actor.role === 'company_admin' || actor.role === 'finance_officer';
 }
 
-async function assertProjectAccess(actor: RequestUser, projectId: string): Promise<void> {
-  if (actor.role === 'project_manager') {
-    const member = await prisma.projectMember.findFirst({
-      where: { projectId, userId: actor.id },
+// ─── Financial authorisation (shared with invoice + dashboard services) ───────
+//
+// Owner policy for financial reads AND writes (invoices, budgets, dashboard
+// money fields). canViewFinance is the authoritative finance permission:
+//  - super_admin / company_admin / finance_officer: company-wide.
+//  - project_manager: ONLY when the existing finance permission flag
+//    (canViewFinance) is set, and then only for projects with an ACTIVE
+//    membership (removedAt null). Membership alone never grants access.
+//  - every other role (contractor, consultant, site_supervisor, viewer,
+//    worker): no financial access, regardless of the canViewFinance flag.
+// Writes apply the same scope ON TOP of their existing role rules (canManage /
+// canFinanceApprove), so nobody can create or edit a record they cannot read.
+
+const FINANCE_COMPANY_WIDE_ROLES: readonly string[] = ['super_admin', 'company_admin', 'finance_officer'];
+
+/** `null` projectIds = every project in the actor's company. */
+export type FinanceReadScope = { projectIds: string[] | null };
+
+/** Returns the actor's financial read scope, or `null` when they have none. */
+export async function getFinanceReadScope(actor: RequestUser): Promise<FinanceReadScope | null> {
+  if (FINANCE_COMPANY_WIDE_ROLES.includes(actor.role)) return { projectIds: null };
+
+  if (actor.role === 'project_manager' && actor.canViewFinance === true) {
+    const memberships = await prisma.projectMember.findMany({
+      where:  { userId: actor.id, companyId: actor.companyId, removedAt: null },
+      select: { projectId: true },
     });
-    if (!member) throw new ForbiddenError('Not a member of this project');
+    return { projectIds: memberships.map((m) => m.projectId) };
   }
+
+  return null;
+}
+
+/** Throws 403 when the actor has no financial read access at all. */
+export async function requireFinanceReadScope(actor: RequestUser): Promise<FinanceReadScope> {
+  const scope = await getFinanceReadScope(actor);
+  if (!scope) throw new ForbiddenError('You do not have access to financial records');
+  return scope;
+}
+
+/**
+ * Builds the `projectId` where-clause for a scoped financial read, intersecting
+ * an optional caller-supplied projectId filter with the actor's scope. An
+ * out-of-scope filter yields an empty match, never a pass-through.
+ */
+export function financeProjectFilter(
+  scope: FinanceReadScope,
+  requestedProjectId?: string,
+): string | { in: string[] } | undefined {
+  if (scope.projectIds === null) return requestedProjectId || undefined;
+  if (requestedProjectId) {
+    return { in: scope.projectIds.includes(requestedProjectId) ? [requestedProjectId] : [] };
+  }
+  return { in: scope.projectIds };
+}
+
+export function isProjectInFinanceScope(scope: FinanceReadScope, projectId: string): boolean {
+  return scope.projectIds === null || scope.projectIds.includes(projectId);
+}
+
+/**
+ * Financial WRITE scope check for a budget's project. Same rule as reads, so
+ * nobody can create or edit a financial record they cannot read:
+ *  - no financial scope (incl. PM without canViewFinance) → 403
+ *  - project outside scope (PM without an ACTIVE membership) → 404
+ */
+async function assertProjectAccess(actor: RequestUser, projectId: string): Promise<void> {
+  const scope = await requireFinanceReadScope(actor);
+  if (!isProjectInFinanceScope(scope, projectId)) throw new NotFoundError('Budget');
 }
 
 async function audit(
@@ -246,25 +308,13 @@ export async function listBudgets(
   actor: RequestUser,
   filters: { projectId?: string; status?: BudgetStatus } = {},
 ) {
+  const scope = await requireFinanceReadScope(actor);
+
   const where: Record<string, unknown> = { companyId: actor.companyId };
   if (filters.status) where.status = filters.status;
 
-  if (actor.role === 'project_manager') {
-    const memberships = await prisma.projectMember.findMany({
-      where: { userId: actor.id },
-      select: { projectId: true },
-    });
-    const memberProjectIds = memberships.map((m) => m.projectId);
-    if (filters.projectId) {
-      where.projectId = memberProjectIds.includes(filters.projectId)
-        ? filters.projectId
-        : '__none__';
-    } else {
-      where.projectId = { in: memberProjectIds };
-    }
-  } else if (filters.projectId) {
-    where.projectId = filters.projectId;
-  }
+  const projectFilter = financeProjectFilter(scope, filters.projectId);
+  if (projectFilter !== undefined) where.projectId = projectFilter;
 
   return prisma.budget.findMany({
     where,
@@ -274,15 +324,15 @@ export async function listBudgets(
 }
 
 export async function getBudget(budgetId: string, actor: RequestUser) {
-  const budget = await prisma.budget.findFirst({
-    where: { id: budgetId, companyId: actor.companyId },
-    select: BUDGET_SELECT,
-  });
-  if (!budget) throw new NotFoundError('Budget');
+  const scope = await requireFinanceReadScope(actor);
 
-  if (actor.role === 'project_manager') {
-    await assertProjectAccess(actor, budget.projectId);
-  }
+  const where: Record<string, unknown> = { id: budgetId, companyId: actor.companyId };
+  const projectFilter = financeProjectFilter(scope);
+  if (projectFilter !== undefined) where.projectId = projectFilter;
+
+  // Out-of-scope budgets are indistinguishable from missing ones (404).
+  const budget = await prisma.budget.findFirst({ where, select: BUDGET_SELECT });
+  if (!budget) throw new NotFoundError('Budget');
 
   return budget;
 }
@@ -290,12 +340,13 @@ export async function getBudget(budgetId: string, actor: RequestUser) {
 export async function createBudget(input: CreateBudgetInput, actor: RequestUser) {
   if (!canManage(actor)) throw new ForbiddenError('Only project managers, finance officers, and admins can create budgets');
 
+  // Financial write scope: 403 without finance access, 404 outside scope.
+  const scope = await requireFinanceReadScope(actor);
+
   const project = await prisma.project.findFirst({
     where: { id: input.projectId, companyId: actor.companyId },
   });
-  if (!project) throw new NotFoundError('Project');
-
-  await assertProjectAccess(actor, input.projectId);
+  if (!project || !isProjectInFinanceScope(scope, project.id)) throw new NotFoundError('Project');
 
   const existing = await prisma.budget.findUnique({ where: { projectId: input.projectId } });
   if (existing) throw new ConflictError('A budget already exists for this project');
@@ -319,14 +370,15 @@ export async function createBudget(input: CreateBudgetInput, actor: RequestUser)
 
 export async function updateBudget(budgetId: string, input: UpdateBudgetInput, actor: RequestUser) {
   if (!canManage(actor)) throw new ForbiddenError('Insufficient permissions to update budgets');
+  // Check finance scope before the lookup so 403/404 can't reveal whether the id exists.
+  await requireFinanceReadScope(actor);
 
   const budget = await prisma.budget.findFirst({
     where: { id: budgetId, companyId: actor.companyId },
   });
   if (!budget) throw new NotFoundError('Budget');
-  if (budget.status === 'locked') throw new ForbiddenError('Budget is locked and cannot be edited');
-
   await assertProjectAccess(actor, budget.projectId);
+  if (budget.status === 'locked') throw new ForbiddenError('Budget is locked and cannot be edited');
 
   const updated = await prisma.budget.update({
     where: { id: budgetId },
@@ -400,14 +452,14 @@ export async function lockBudget(budgetId: string, actor: RequestUser) {
 
 export async function addLineItem(budgetId: string, input: CreateLineItemInput, actor: RequestUser) {
   if (!canManage(actor)) throw new ForbiddenError('Insufficient permissions to manage budget line items');
+  await requireFinanceReadScope(actor);
 
   const budget = await prisma.budget.findFirst({
     where: { id: budgetId, companyId: actor.companyId },
   });
   if (!budget) throw new NotFoundError('Budget');
-  if (budget.status === 'locked') throw new ForbiddenError('Budget is locked');
-
   await assertProjectAccess(actor, budget.projectId);
+  if (budget.status === 'locked') throw new ForbiddenError('Budget is locked');
 
   if (input.category === 'consultants' && !input.consultant) {
     throw new ValidationError('Consultant details are required for consultant category');
@@ -477,17 +529,17 @@ export async function updateLineItem(
   actor: RequestUser,
 ) {
   if (!canManage(actor)) throw new ForbiddenError('Insufficient permissions to manage budget line items');
+  await requireFinanceReadScope(actor);
 
   const lineItem = await prisma.budgetLineItem.findFirst({
     where: { id: lineItemId, budgetId, companyId: actor.companyId },
     include: { consultantCostEntry: true, marketingBudgetEntry: true },
   });
   if (!lineItem) throw new NotFoundError('Budget line item');
+  await assertProjectAccess(actor, lineItem.projectId);
 
   const budget = await prisma.budget.findUnique({ where: { id: budgetId } });
   if (budget?.status === 'locked') throw new ForbiddenError('Budget is locked');
-
-  await assertProjectAccess(actor, lineItem.projectId);
 
   await prisma.budgetLineItem.update({
     where: { id: lineItemId },
@@ -543,11 +595,14 @@ export async function updateLineItem(
 
 export async function deleteLineItem(budgetId: string, lineItemId: string, actor: RequestUser) {
   if (!canManage(actor)) throw new ForbiddenError('Insufficient permissions to manage budget line items');
+  await requireFinanceReadScope(actor);
 
   const lineItem = await prisma.budgetLineItem.findFirst({
     where: { id: lineItemId, budgetId, companyId: actor.companyId },
   });
   if (!lineItem) throw new NotFoundError('Budget line item');
+  // Previously missing: PMs could delete line items on any project's budget.
+  await assertProjectAccess(actor, lineItem.projectId);
 
   const budget = await prisma.budget.findUnique({ where: { id: budgetId } });
   if (budget?.status === 'locked') throw new ForbiddenError('Budget is locked');
@@ -560,6 +615,7 @@ export async function deleteLineItem(budgetId: string, lineItemId: string, actor
 
 export async function addVariation(budgetId: string, input: CreateVariationInput, actor: RequestUser) {
   if (!canManage(actor)) throw new ForbiddenError('Insufficient permissions to add variation orders');
+  await requireFinanceReadScope(actor);
 
   const budget = await prisma.budget.findFirst({
     where: { id: budgetId, companyId: actor.companyId },
@@ -593,10 +649,15 @@ export async function updateVariation(
   input: UpdateVariationInput,
   actor: RequestUser,
 ) {
+  await requireFinanceReadScope(actor);
+
   const variation = await prisma.variationOrder.findFirst({
     where: { id: variationId, budgetId, companyId: actor.companyId },
   });
   if (!variation) throw new NotFoundError('Variation order');
+  // Requesters must still hold financial scope on the project (e.g. a PM who
+  // lost canViewFinance or project membership can no longer edit it).
+  await assertProjectAccess(actor, variation.projectId);
 
   const isRequester = variation.requestedById === actor.id;
   const isFinance   = canFinanceApprove(actor);

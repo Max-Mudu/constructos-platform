@@ -136,7 +136,10 @@ export default function WorkerDetailPage() {
           <CardContent className="pt-2">
             <Row label="ID / National ID" value={worker.idNumber} />
             <Row label="Trade"            value={worker.trade} />
-            <Row label="Daily Wage"       value={worker.dailyWage ? `${Number(worker.dailyWage).toLocaleString()} ${worker.currency}` : null} />
+            {/* dailyWage is omitted by the API for callers without financial access */}
+            {worker.dailyWage !== undefined && (
+              <Row label="Daily Wage"     value={worker.dailyWage ? `${Number(worker.dailyWage).toLocaleString()} ${worker.currency}` : null} />
+            )}
             <Row label="Employment"       value={worker.employmentStatus} />
           </CardContent>
         </Card>

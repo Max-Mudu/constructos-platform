@@ -1,8 +1,10 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
 import { emitToCompany } from './event-emitter.service';
+import { canViewFinancialData } from './report.service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -57,6 +59,30 @@ const ENTRY_SELECT = {
     select: { id: true, firstName: true, lastName: true },
   },
 } as const;
+
+// ─── Financial field visibility ───────────────────────────────────────────────
+//
+// dailyRate and currency are FINANCIAL (an individual pay rate). They are
+// returned only when canViewFinancialData(actor) — company_admin /
+// finance_officer / super_admin, or project_manager with canViewFinance. Every
+// labour route runs requireProjectAccess, so a project_manager reaching these
+// functions is already a member of the project ("member projects only").
+// For everyone else the two keys are OMITTED from the response (never 0/null);
+// all other fields (worker, date, hours, notes, …) are unchanged.
+// Audit-log snapshots keep the full record.
+
+type LabourFinancialKey = 'dailyRate' | 'currency';
+type LabourEntryRecord = Prisma.LabourEntryGetPayload<{ select: typeof ENTRY_SELECT }>;
+
+/** A labour entry as returned to the caller; financial keys absent without finance access. */
+export type LabourEntryView =
+  Omit<LabourEntryRecord, LabourFinancialKey> & Partial<Pick<LabourEntryRecord, LabourFinancialKey>>;
+
+function presentEntry(entry: LabourEntryRecord, actor: RequestUser): LabourEntryView {
+  if (canViewFinancialData(actor)) return entry;
+  const { dailyRate: _dailyRate, currency: _currency, ...rest } = entry;
+  return rest;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -114,7 +140,7 @@ export async function listLabourEntries(
     Object.assign(dateFilter, { date: range });
   }
 
-  return prisma.labourEntry.findMany({
+  const entries = await prisma.labourEntry.findMany({
     where: {
       projectId,
       siteId,
@@ -125,6 +151,7 @@ export async function listLabourEntries(
     select: ENTRY_SELECT,
     orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
   });
+  return entries.map((e) => presentEntry(e, actor));
 }
 
 export async function getLabourEntry(
@@ -140,7 +167,7 @@ export async function getLabourEntry(
     select: ENTRY_SELECT,
   });
   if (!entry) throw new NotFoundError('Labour entry');
-  return entry;
+  return presentEntry(entry, actor);
 }
 
 export async function createLabourEntry(
@@ -186,7 +213,7 @@ export async function createLabourEntry(
     payload: { entryId: entry.id, projectId, siteId, workerId: entry.workerId },
   });
 
-  return entry;
+  return presentEntry(entry, actor);
 }
 
 export async function updateLabourEntry(
@@ -229,7 +256,7 @@ export async function updateLabourEntry(
     },
   });
 
-  return updated;
+  return presentEntry(updated, actor);
 }
 
 export async function deleteLabourEntry(

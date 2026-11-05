@@ -51,6 +51,10 @@ export default function WorkersPage() {
     return matchSearch && matchStatus;
   });
 
+  // The API omits dailyWage for workers whose wage the caller may not see;
+  // show the column only when at least one listed worker carries it.
+  const showWage = filtered.some((w) => w.dailyWage !== undefined);
+
   return (
     <div className="px-6 py-8 space-y-6 animate-fade-in">
       <PageHeader
@@ -97,7 +101,7 @@ export default function WorkersPage() {
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Trade</TableHead>
-              <TableHead>Daily Wage</TableHead>
+              {showWage && <TableHead>Daily Wage</TableHead>}
               <TableHead>Status</TableHead>
               <TableHead></TableHead>
             </TableRow>
@@ -107,9 +111,11 @@ export default function WorkersPage() {
               <TableRow key={w.id}>
                 <TableCell className="font-medium">{w.firstName} {w.lastName}</TableCell>
                 <TableCell className="text-muted-foreground">{w.trade ?? '—'}</TableCell>
-                <TableCell className="text-muted-foreground">
-                  {w.dailyWage ? `${Number(w.dailyWage).toLocaleString()} ${w.currency}` : '—'}
-                </TableCell>
+                {showWage && (
+                  <TableCell className="text-muted-foreground">
+                    {w.dailyWage ? `${Number(w.dailyWage).toLocaleString()} ${w.currency}` : '—'}
+                  </TableCell>
+                )}
                 <TableCell>
                   <Badge variant={statusVariant(w.employmentStatus)}>{w.employmentStatus}</Badge>
                 </TableCell>

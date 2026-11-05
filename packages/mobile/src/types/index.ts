@@ -83,8 +83,10 @@ export interface LabourEntry {
   workerId:    string;
   date:        string;
   hoursWorked: number;
-  dailyRate:   number;
-  currency:    string;
+  // Financial: omitted by the API for callers without financial access
+  // (see financialFieldsIncluded on the GET /labour response).
+  dailyRate?:  number;
+  currency?:   string;
   notes:       string | null;
   worker: { id: string; firstName: string; lastName: string; trade: string | null };
 }

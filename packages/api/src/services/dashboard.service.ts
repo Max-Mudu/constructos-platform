@@ -1,5 +1,6 @@
 import { prisma } from '../utils/prisma';
 import { RequestUser } from '../types';
+import { getFinanceReadScope, financeProjectFilter } from './budget.service';
 
 // ─── Return type ──────────────────────────────────────────────────────────────
 
@@ -29,24 +30,27 @@ export interface DashboardStats {
     todayPresent: number;
     todayRate:    number;
   };
+  // Financial fields below are `null` when the actor has no financial read
+  // access (see getFinanceReadScope). For a project_manager with
+  // canViewFinance they are scoped to the PM's active-member projects.
   labour: {
     thisWeekHours: number;
-    thisMonthCost: number;
+    thisMonthCost: number | null;
   };
   invoices: {
-    total:           number;
-    totalValue:      number;
-    totalPaid:       number;
-    outstanding:     number;
-    overdueCount:    number;
-    pendingApproval: number;
+    total:           number | null;
+    totalValue:      number | null;
+    totalPaid:       number | null;
+    outstanding:     number | null;
+    overdueCount:    number | null;
+    pendingApproval: number | null;
   };
   budget: {
-    totalBudgeted:  number;
-    totalSpent:     number;
-    totalRemaining: number;
-    budgetsCount:   number;
-    overspendCount: number;
+    totalBudgeted:  number | null;
+    totalSpent:     number | null;
+    totalRemaining: number | null;
+    budgetsCount:   number | null;
+    overspendCount: number | null;
   };
   deliveries: {
     thisMonthCount:         number;
@@ -183,57 +187,86 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     .reduce((s, r) => s + r._count._all, 0);
   const todayRate    = todayTotal > 0 ? Math.round((todayPresent / todayTotal) * 100) : 0;
 
-  // ── Labour ────────────────────────────────────────────────────────────────
-  const [weekLabour, monthLabour] = await Promise.all([
-    prisma.labourEntry.aggregate({
-      where:  { companyId, date: { gte: weekStart } },
-      _sum:   { hoursWorked: true },
-    }),
-    prisma.labourEntry.aggregate({
-      where:  { companyId, date: { gte: monthStart } },
-      _sum:   { dailyRate: true },
-    }),
-  ]);
+  // ── Labour hours (operational, unchanged) ─────────────────────────────────
+  const weekLabour = await prisma.labourEntry.aggregate({
+    where:  { companyId, date: { gte: weekStart } },
+    _sum:   { hoursWorked: true },
+  });
   const thisWeekHours = Number(weekLabour._sum.hoursWorked ?? 0);
-  const thisMonthCost = Number(monthLabour._sum.dailyRate  ?? 0);
 
-  // ── Invoices ──────────────────────────────────────────────────────────────
-  const [invAgg, invByStatus] = await Promise.all([
-    prisma.invoice.aggregate({
-      where:  { companyId },
-      _sum:   { totalAmount: true, paidAmount: true },
-      _count: { _all: true },
-    }),
-    prisma.invoice.groupBy({
-      by:    ['status'],
-      where: { companyId },
-      _count: { _all: true },
-    }),
-  ]);
-  const invTotal       = invAgg._count._all;
-  const invValue       = Number(invAgg._sum.totalAmount ?? 0);
-  const invPaid        = Number(invAgg._sum.paidAmount  ?? 0);
-  const invOutstanding = invValue - invPaid;
-  const invOverdue     = invByStatus.find((r) => r.status === 'overdue')?._count._all  ?? 0;
-  const invPending     = invByStatus.find((r) => r.status === 'submitted')?._count._all ?? 0;
+  // ── Financial aggregates (gated + project-scoped) ─────────────────────────
+  // Labour cost, invoices and budgets are only computed for actors with a
+  // financial read scope. Everyone else gets these fields as null.
+  const financeScope = await getFinanceReadScope(actor);
 
-  // ── Budget ────────────────────────────────────────────────────────────────
-  const [budgetLineAgg, budgetsCount, overspendBudgetData] = await Promise.all([
-    prisma.budgetLineItem.aggregate({
-      where: { budget: { companyId } },
-      _sum:  { budgetedAmount: true, actualSpend: true },
-    }),
-    prisma.budget.count({ where: { companyId } }),
-    prisma.budget.findMany({
-      where:  { companyId },
-      select: { lineItems: { select: { budgetedAmount: true, actualSpend: true } } },
-    }),
-  ]);
-  const budgetTotal    = Number(budgetLineAgg._sum.budgetedAmount ?? 0);
-  const budgetSpent    = Number(budgetLineAgg._sum.actualSpend    ?? 0);
-  const overspendCount = overspendBudgetData.filter((b) =>
-    b.lineItems.some((li) => Number(li.actualSpend) > Number(li.budgetedAmount)),
-  ).length;
+  type FinancialBlocks = {
+    labour:   { thisMonthCost: number };
+    invoices: DashboardStats['invoices'];
+    budget:   DashboardStats['budget'];
+    invOutstanding: number;
+  };
+  let fin: FinancialBlocks | null = null;
+
+  if (financeScope) {
+    const projectFilter = financeProjectFilter(financeScope);
+    const scoped = projectFilter !== undefined
+      ? { companyId, projectId: projectFilter }
+      : { companyId };
+
+    const [monthLabour, invAgg, invByStatus, budgetLineAgg, budgetsCount, overspendBudgetData] = await Promise.all([
+      prisma.labourEntry.aggregate({
+        where:  { ...scoped, date: { gte: monthStart } },
+        _sum:   { dailyRate: true },
+      }),
+      prisma.invoice.aggregate({
+        where:  scoped,
+        _sum:   { totalAmount: true, paidAmount: true },
+        _count: { _all: true },
+      }),
+      prisma.invoice.groupBy({
+        by:    ['status'],
+        where: scoped,
+        _count: { _all: true },
+      }),
+      prisma.budgetLineItem.aggregate({
+        where: { budget: scoped },
+        _sum:  { budgetedAmount: true, actualSpend: true },
+      }),
+      prisma.budget.count({ where: scoped }),
+      prisma.budget.findMany({
+        where:  scoped,
+        select: { lineItems: { select: { budgetedAmount: true, actualSpend: true } } },
+      }),
+    ]);
+
+    const invValue       = Number(invAgg._sum.totalAmount ?? 0);
+    const invPaid        = Number(invAgg._sum.paidAmount  ?? 0);
+    const invOutstanding = invValue - invPaid;
+    const budgetTotal    = Number(budgetLineAgg._sum.budgetedAmount ?? 0);
+    const budgetSpent    = Number(budgetLineAgg._sum.actualSpend    ?? 0);
+
+    fin = {
+      labour: { thisMonthCost: Number(monthLabour._sum.dailyRate ?? 0) },
+      invoices: {
+        total:           invAgg._count._all,
+        totalValue:      invValue,
+        totalPaid:       invPaid,
+        outstanding:     invOutstanding,
+        overdueCount:    invByStatus.find((r) => r.status === 'overdue')?._count._all   ?? 0,
+        pendingApproval: invByStatus.find((r) => r.status === 'submitted')?._count._all ?? 0,
+      },
+      budget: {
+        totalBudgeted:  budgetTotal,
+        totalSpent:     budgetSpent,
+        totalRemaining: budgetTotal - budgetSpent,
+        budgetsCount,
+        overspendCount: overspendBudgetData.filter((b) =>
+          b.lineItems.some((li) => Number(li.actualSpend) > Number(li.budgetedAmount)),
+        ).length,
+      },
+      invOutstanding,
+    };
+  }
 
   // ── Deliveries ────────────────────────────────────────────────────────────
   const [monthDeliveries, pendingInspections, totalDeliveries] = await Promise.all([
@@ -363,7 +396,10 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
 
   // ── Finance (gated) ───────────────────────────────────────────────────────
   let finance: DashboardStats['finance'];
+  // Unchanged gate. company_admin / finance_officer always have a company-wide
+  // finance scope, so `fin` is populated (company-wide) whenever this runs.
   if (
+    fin &&
     actor.canViewFinance &&
     (actor.role === 'company_admin' || actor.role === 'finance_officer')
   ) {
@@ -382,7 +418,7 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     finance = {
       totalInflows,
       inflowsThisMonth,
-      netPosition: totalInflows - invOutstanding,
+      netPosition: totalInflows - fin.invOutstanding,
     };
   }
 
@@ -414,22 +450,24 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     },
     labour: {
       thisWeekHours,
-      thisMonthCost,
+      thisMonthCost: fin ? fin.labour.thisMonthCost : null,
     },
-    invoices: {
-      total:           invTotal,
-      totalValue:      invValue,
-      totalPaid:       invPaid,
-      outstanding:     invOutstanding,
-      overdueCount:    invOverdue,
-      pendingApproval: invPending,
+    // Keys are always present (backward-compatible shape); values are null
+    // when the actor has no financial read access.
+    invoices: fin ? fin.invoices : {
+      total:           null,
+      totalValue:      null,
+      totalPaid:       null,
+      outstanding:     null,
+      overdueCount:    null,
+      pendingApproval: null,
     },
-    budget: {
-      totalBudgeted:  budgetTotal,
-      totalSpent:     budgetSpent,
-      totalRemaining: budgetTotal - budgetSpent,
-      budgetsCount,
-      overspendCount,
+    budget: fin ? fin.budget : {
+      totalBudgeted:  null,
+      totalSpent:     null,
+      totalRemaining: null,
+      budgetsCount:   null,
+      overspendCount: null,
     },
     deliveries: {
       thisMonthCount:         monthDeliveries,

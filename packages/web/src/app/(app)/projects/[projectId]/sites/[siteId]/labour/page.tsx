@@ -51,7 +51,16 @@ export default function LabourPage() {
 
   // Summary
   const totalWorkerDays = entries.length;
-  const totalCost = entries.reduce((sum, e) => sum + (Number(e.hoursWorked) / 8) * Number(e.dailyRate), 0);
+  // dailyRate/currency are omitted by the API for callers without financial
+  // access: hide the rate/wage columns and the cost card instead of showing NaN.
+  // With no entries, fall back to the same rule the API applies.
+  const showFinance = entries.length > 0
+    ? entries.every((e) => e.dailyRate !== undefined)
+    : !!user && (['super_admin', 'company_admin', 'finance_officer'].includes(user.role)
+        || (user.role === 'project_manager' && user.canViewFinance));
+  const totalCost = showFinance
+    ? entries.reduce((sum, e) => sum + (Number(e.hoursWorked) / 8) * Number(e.dailyRate), 0)
+    : 0;
 
   return (
     <div className="p-6 space-y-6">
@@ -80,15 +89,17 @@ export default function LabourPage() {
             <p className="text-2xl font-bold">{totalWorkerDays}</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-4">
-            <p className="text-sm text-muted-foreground">Total Labour Cost</p>
-            <p className="text-2xl font-bold">
-              {totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-              {entries[0] ? ` ${entries[0].currency}` : ''}
-            </p>
-          </CardContent>
-        </Card>
+        {showFinance && (
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-sm text-muted-foreground">Total Labour Cost</p>
+              <p className="text-2xl font-bold">
+                {totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                {entries[0] ? ` ${entries[0].currency}` : ''}
+              </p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Date filter */}
@@ -143,8 +154,8 @@ export default function LabourPage() {
                   <TableHead>Worker</TableHead>
                   <TableHead>Trade</TableHead>
                   <TableHead>Hours</TableHead>
-                  <TableHead>Daily Rate</TableHead>
-                  <TableHead>Wage</TableHead>
+                  {showFinance && <TableHead>Daily Rate</TableHead>}
+                  {showFinance && <TableHead>Wage</TableHead>}
                   <TableHead>Logged By</TableHead>
                   <TableHead>Notes</TableHead>
                 </TableRow>
@@ -158,8 +169,8 @@ export default function LabourPage() {
                     </TableCell>
                     <TableCell>{e.worker.trade ?? '—'}</TableCell>
                     <TableCell>{e.hoursWorked}h</TableCell>
-                    <TableCell>{Number(e.dailyRate).toLocaleString()} {e.currency}</TableCell>
-                    <TableCell className="font-medium">{totalWage(e)}</TableCell>
+                    {showFinance && <TableCell>{Number(e.dailyRate).toLocaleString()} {e.currency}</TableCell>}
+                    {showFinance && <TableCell className="font-medium">{totalWage(e)}</TableCell>}
                     <TableCell>{e.registeredBy.firstName} {e.registeredBy.lastName}</TableCell>
                     <TableCell className="max-w-[200px] truncate">{e.notes ?? '—'}</TableCell>
                   </TableRow>

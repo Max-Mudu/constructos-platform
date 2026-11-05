@@ -32,6 +32,10 @@ export default function EditWorkerPage() {
     employmentStatus: 'active' as WorkerEmploymentStatus,
     emergencyContactName: '', emergencyContactPhone: '', notes: '',
   });
+  // The API omits dailyWage/currency for callers without financial access.
+  // When omitted, hide the pay fields and never send them, so saving the form
+  // cannot overwrite the stored wage/currency.
+  const [wageVisible, setWageVisible] = useState(true);
   const [loading,    setLoading]    = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error,      setError]      = useState('');
@@ -44,6 +48,7 @@ export default function EditWorkerPage() {
     workerApi
       .get(workerId)
       .then(({ worker }) => {
+        setWageVisible(worker.dailyWage !== undefined);
         setForm({
           firstName:            worker.firstName,
           lastName:             worker.lastName,
@@ -52,7 +57,7 @@ export default function EditWorkerPage() {
           idNumber:             worker.idNumber       ?? '',
           trade:                worker.trade          ?? '',
           dailyWage:            worker.dailyWage      ? String(Number(worker.dailyWage)) : '',
-          currency:             worker.currency,
+          currency:             worker.currency ?? 'KES',
           employmentStatus:     worker.employmentStatus,
           emergencyContactName: worker.emergencyContactName  ?? '',
           emergencyContactPhone: worker.emergencyContactPhone ?? '',
@@ -77,8 +82,10 @@ export default function EditWorkerPage() {
         phone:                 form.phone   || null,
         idNumber:              form.idNumber || null,
         trade:                 form.trade   || null,
-        dailyWage:             form.dailyWage ? Number(form.dailyWage) : null,
-        currency:              form.currency,
+        ...(wageVisible && {
+          dailyWage:           form.dailyWage ? Number(form.dailyWage) : null,
+          currency:            form.currency,
+        }),
         employmentStatus:      form.employmentStatus,
         emergencyContactName:  form.emergencyContactName  || null,
         emergencyContactPhone: form.emergencyContactPhone || null,
@@ -173,23 +180,27 @@ export default function EditWorkerPage() {
         <Card>
           <CardHeader><CardTitle className="text-base">Pay Rate & Status</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-2 gap-4">
-            <Input
-              label="Daily Wage"
-              type="number"
-              value={form.dailyWage}
-              onChange={(e) => set('dailyWage', e.target.value)}
-              error={fieldErrors.dailyWage?.[0]}
-            />
-            <Select
-              label="Currency"
-              value={form.currency}
-              onChange={(e) => set('currency', e.target.value)}
-            >
-              <option value="KES">KES</option>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
-            </Select>
+            {wageVisible && (
+              <>
+                <Input
+                  label="Daily Wage"
+                  type="number"
+                  value={form.dailyWage}
+                  onChange={(e) => set('dailyWage', e.target.value)}
+                  error={fieldErrors.dailyWage?.[0]}
+                />
+                <Select
+                  label="Currency"
+                  value={form.currency}
+                  onChange={(e) => set('currency', e.target.value)}
+                >
+                  <option value="KES">KES</option>
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                </Select>
+              </>
+            )}
             <div className="col-span-2">
               <Select
                 label="Employment Status"

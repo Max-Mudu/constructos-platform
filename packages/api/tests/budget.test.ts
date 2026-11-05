@@ -65,9 +65,10 @@ describe('GET /budgets', () => {
     expect(res.json().budgets[0].projectId).toBe(p1.id);
   });
 
-  it('project_manager sees only their projects\' budgets', async () => {
+  it('project_manager with finance access sees only their projects\' budgets', async () => {
     const { company } = await createTestCompany(app, 'bgt-list-3');
-    const pm = await createTestUser(app, company.id, 'project_manager', 'bgt-list-3-pm');
+    // Owner policy: PM financial reads require canViewFinance (membership alone is not enough).
+    const pm = await createTestUser(app, company.id, 'project_manager', 'bgt-list-3-pm', { canViewFinance: true });
     const p1 = await createTestProject(company.id, 'PM Project');
     const p2 = await createTestProject(company.id, 'Other Project');
     await assignUserToProject(company.id, p1.id, pm.id);
@@ -111,9 +112,10 @@ describe('POST /budgets', () => {
     expect(res.json().budget.currency).toBe('USD');
   });
 
-  it('project_manager can create a budget for their project', async () => {
+  it('project_manager with finance access can create a budget for their project', async () => {
     const { company } = await createTestCompany(app, 'bgt-create-2');
-    const pm = await createTestUser(app, company.id, 'project_manager', 'bgt-create-2-pm');
+    // Owner policy: PM financial writes require canViewFinance plus active membership.
+    const pm = await createTestUser(app, company.id, 'project_manager', 'bgt-create-2-pm', { canViewFinance: true });
     const project = await createTestProject(company.id);
     await assignUserToProject(company.id, project.id, pm.id);
 
@@ -481,9 +483,10 @@ describe('DELETE /budgets/:budgetId/line-items/:lineItemId', () => {
 // ─── Variation Orders ─────────────────────────────────────────────────────────
 
 describe('Variation orders', () => {
-  it('PM can add a variation order', async () => {
+  it('PM with finance access can add a variation order', async () => {
     const { company } = await createTestCompany(app, 'bgt-var-1');
-    const pm = await createTestUser(app, company.id, 'project_manager', 'bgt-var-1-pm');
+    // Owner policy: PM financial writes require canViewFinance plus active membership.
+    const pm = await createTestUser(app, company.id, 'project_manager', 'bgt-var-1-pm', { canViewFinance: true });
     const project = await createTestProject(company.id);
     await assignUserToProject(company.id, project.id, pm.id);
     const budget = await createTestBudget(company.id, project.id);

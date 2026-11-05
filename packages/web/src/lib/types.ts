@@ -140,8 +140,9 @@ export interface Worker {
   phone: string | null;
   idNumber: string | null;
   trade: string | null;
-  dailyWage: string | null;  // Prisma Decimal → string
-  currency: string;
+  // Omitted by the API for callers without financial access.
+  dailyWage?: string | null;  // Prisma Decimal → string
+  currency?: string;
   employmentStatus: WorkerEmploymentStatus;
   isActive: boolean;
   emergencyContactName: string | null;
@@ -169,8 +170,9 @@ export interface LabourEntry {
   registeredById: string;
   date: string;
   hoursWorked: string;  // Prisma Decimal → string
-  dailyRate: string;    // Prisma Decimal → string
-  currency: string;
+  // Omitted by the API for callers without financial access.
+  dailyRate?: string;   // Prisma Decimal → string
+  currency?: string;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -796,24 +798,26 @@ export interface DashboardStats {
     todayPresent: number;
     todayRate:    number;
   };
+  // Financial fields are null when the user has no financial read access
+  // (API-enforced); PMs with finance access get member-project figures only.
   labour: {
     thisWeekHours: number;
-    thisMonthCost: number;
+    thisMonthCost: number | null;
   };
   invoices: {
-    total:           number;
-    totalValue:      number;
-    totalPaid:       number;
-    outstanding:     number;
-    overdueCount:    number;
-    pendingApproval: number;
+    total:           number | null;
+    totalValue:      number | null;
+    totalPaid:       number | null;
+    outstanding:     number | null;
+    overdueCount:    number | null;
+    pendingApproval: number | null;
   };
   budget: {
-    totalBudgeted:  number;
-    totalSpent:     number;
-    totalRemaining: number;
-    budgetsCount:   number;
-    overspendCount: number;
+    totalBudgeted:  number | null;
+    totalSpent:     number | null;
+    totalRemaining: number | null;
+    budgetsCount:   number | null;
+    overspendCount: number | null;
   };
   deliveries: {
     thisMonthCount:         number;

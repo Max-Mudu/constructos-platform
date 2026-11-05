@@ -76,6 +76,12 @@ function MiniStat({ label, value, valueClass }: { label: string; value: string |
   );
 }
 
+// The API nulls financial fields for users without financial read access.
+type NonNullFields<T> = { [K in keyof T]: NonNullable<T[K]> };
+function allPresent<T extends object>(o: T | null | undefined): o is T & NonNullFields<T> {
+  return !!o && Object.values(o).every((v) => v !== null && v !== undefined);
+}
+
 // ─── Progress bar ─────────────────────────────────────────────────────────────
 
 function ProgressBar({ value, max, color = 'bg-primary' }: { value: number; max: number; color?: string }) {
@@ -324,6 +330,11 @@ export default function DashboardPage() {
 
   const hasOperationalAlerts = hasScheduleAlerts || hasLabourAlerts || hasProcAlerts || hasLowStock;
 
+  // ── Financial blocks (null when the API withholds them) ───────────────────
+  const invoiceStats  = allPresent(stats.invoices) ? stats.invoices : null;
+  const budgetStats   = allPresent(stats.budget)   ? stats.budget   : null;
+  const thisMonthCost = stats.labour.thisMonthCost;
+
   // ── Top KPI strip (role-based selection) ──────────────────────────────────
   type KPI = { label: string; value: string | number; icon: React.ReactNode; cls?: string; href?: string };
   const kpis: KPI[] = [];
@@ -351,12 +362,12 @@ export default function DashboardPage() {
     });
   }
 
-  if (canManage) {
+  if (canManage && invoiceStats) {
     kpis.push({
       label: 'Overdue Invoices',
-      value: stats.invoices.overdueCount,
+      value: invoiceStats.overdueCount,
       icon:  <AlertTriangle className="h-5 w-5" />,
-      cls:   stats.invoices.overdueCount > 0 ? 'text-red-500' : undefined,
+      cls:   invoiceStats.overdueCount > 0 ? 'text-red-500' : undefined,
       href:  '/invoices',
     });
   }
@@ -495,31 +506,31 @@ export default function DashboardPage() {
         </Widget>
 
         {/* Invoice widget (canManage) */}
-        {canManage && (
+        {canManage && invoiceStats && (
           <Widget title="Invoices" href="/invoices">
             <div className="grid grid-cols-3 gap-2 mb-4">
-              <MiniStat label="Total"       value={formatMoney(stats.invoices.totalValue, user.currency, MONEY_COMPACT)}  />
-              <MiniStat label="Paid"        value={formatMoney(stats.invoices.totalPaid, user.currency, MONEY_COMPACT)}   valueClass="text-emerald-600" />
+              <MiniStat label="Total"       value={formatMoney(invoiceStats.totalValue, user.currency, MONEY_COMPACT)}  />
+              <MiniStat label="Paid"        value={formatMoney(invoiceStats.totalPaid, user.currency, MONEY_COMPACT)}   valueClass="text-emerald-600" />
               <MiniStat
                 label="Outstanding"
-                value={formatMoney(stats.invoices.outstanding, user.currency, MONEY_COMPACT)}
-                valueClass={stats.invoices.outstanding > 0 ? 'text-amber-600' : undefined}
+                value={formatMoney(invoiceStats.outstanding, user.currency, MONEY_COMPACT)}
+                valueClass={invoiceStats.outstanding > 0 ? 'text-amber-600' : undefined}
               />
             </div>
 
-            {(stats.invoices.totalValue > 0) && (
+            {(invoiceStats.totalValue > 0) && (
               <div className="mb-4">
                 <div className="flex justify-between text-xs text-muted-foreground mb-1">
                   <span>Collection rate</span>
                   <span>
-                    {stats.invoices.totalValue > 0
-                      ? Math.round((stats.invoices.totalPaid / stats.invoices.totalValue) * 100)
+                    {invoiceStats.totalValue > 0
+                      ? Math.round((invoiceStats.totalPaid / invoiceStats.totalValue) * 100)
                       : 0}%
                   </span>
                 </div>
                 <ProgressBar
-                  value={stats.invoices.totalPaid}
-                  max={stats.invoices.totalValue}
+                  value={invoiceStats.totalPaid}
+                  max={invoiceStats.totalValue}
                   color="bg-emerald-500"
                 />
               </div>
@@ -527,78 +538,78 @@ export default function DashboardPage() {
 
             <div className="grid grid-cols-3 gap-2 text-xs text-center">
               <div className="rounded-lg bg-muted/30 py-2 px-1">
-                <p className="font-semibold text-foreground">{stats.invoices.total}</p>
+                <p className="font-semibold text-foreground">{invoiceStats.total}</p>
                 <p className="text-muted-foreground">Total</p>
               </div>
               <div className="rounded-lg bg-amber-500/10 py-2 px-1">
-                <p className={cn('font-semibold', stats.invoices.pendingApproval > 0 ? 'text-amber-600' : 'text-foreground')}>
-                  {stats.invoices.pendingApproval}
+                <p className={cn('font-semibold', invoiceStats.pendingApproval > 0 ? 'text-amber-600' : 'text-foreground')}>
+                  {invoiceStats.pendingApproval}
                 </p>
                 <p className="text-muted-foreground">Pending</p>
               </div>
               <div className="rounded-lg bg-red-500/10 py-2 px-1">
-                <p className={cn('font-semibold', stats.invoices.overdueCount > 0 ? 'text-red-500' : 'text-foreground')}>
-                  {stats.invoices.overdueCount}
+                <p className={cn('font-semibold', invoiceStats.overdueCount > 0 ? 'text-red-500' : 'text-foreground')}>
+                  {invoiceStats.overdueCount}
                 </p>
                 <p className="text-muted-foreground">Overdue</p>
               </div>
             </div>
 
-            {stats.invoices.overdueCount > 0 && (
+            {invoiceStats.overdueCount > 0 && (
               <div className="mt-3 flex items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600">
                 <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0" />
-                {stats.invoices.overdueCount} invoice{stats.invoices.overdueCount !== 1 ? 's' : ''} past due date
+                {invoiceStats.overdueCount} invoice{invoiceStats.overdueCount !== 1 ? 's' : ''} past due date
               </div>
             )}
           </Widget>
         )}
 
         {/* Budget widget (canManage) */}
-        {canManage && (
+        {canManage && budgetStats && (
           <Widget title="Budget" href="/budget">
             <div className="grid grid-cols-3 gap-2 mb-4">
-              <MiniStat label="Budgeted" value={formatMoney(stats.budget.totalBudgeted, user.currency, MONEY_COMPACT)} />
-              <MiniStat label="Spent"    value={formatMoney(stats.budget.totalSpent, user.currency, MONEY_COMPACT)}    valueClass={stats.budget.overspendCount > 0 ? 'text-red-500' : 'text-foreground'} />
+              <MiniStat label="Budgeted" value={formatMoney(budgetStats.totalBudgeted, user.currency, MONEY_COMPACT)} />
+              <MiniStat label="Spent"    value={formatMoney(budgetStats.totalSpent, user.currency, MONEY_COMPACT)}    valueClass={budgetStats.overspendCount > 0 ? 'text-red-500' : 'text-foreground'} />
               <MiniStat
                 label="Remaining"
-                value={formatMoney(stats.budget.totalRemaining, user.currency, MONEY_COMPACT)}
-                valueClass={stats.budget.totalRemaining < 0 ? 'text-red-500' : 'text-emerald-600'}
+                value={formatMoney(budgetStats.totalRemaining, user.currency, MONEY_COMPACT)}
+                valueClass={budgetStats.totalRemaining < 0 ? 'text-red-500' : 'text-emerald-600'}
               />
             </div>
 
-            {stats.budget.totalBudgeted > 0 && (
+            {budgetStats.totalBudgeted > 0 && (
               <div className="mb-4">
                 <div className="flex justify-between text-xs text-muted-foreground mb-1">
                   <span>Budget utilisation</span>
                   <span>
-                    {Math.round((stats.budget.totalSpent / stats.budget.totalBudgeted) * 100)}%
+                    {Math.round((budgetStats.totalSpent / budgetStats.totalBudgeted) * 100)}%
                   </span>
                 </div>
                 <ProgressBar
-                  value={stats.budget.totalSpent}
-                  max={stats.budget.totalBudgeted}
-                  color={stats.budget.totalSpent > stats.budget.totalBudgeted ? 'bg-red-500' : 'bg-primary'}
+                  value={budgetStats.totalSpent}
+                  max={budgetStats.totalBudgeted}
+                  color={budgetStats.totalSpent > budgetStats.totalBudgeted ? 'bg-red-500' : 'bg-primary'}
                 />
               </div>
             )}
 
             <div className="grid grid-cols-2 gap-2 text-xs text-center">
               <div className="rounded-lg bg-muted/30 py-2 px-1">
-                <p className="font-semibold text-foreground">{stats.budget.budgetsCount}</p>
+                <p className="font-semibold text-foreground">{budgetStats.budgetsCount}</p>
                 <p className="text-muted-foreground">Budgets</p>
               </div>
               <div className="rounded-lg bg-red-500/10 py-2 px-1">
-                <p className={cn('font-semibold', stats.budget.overspendCount > 0 ? 'text-red-500' : 'text-foreground')}>
-                  {stats.budget.overspendCount}
+                <p className={cn('font-semibold', budgetStats.overspendCount > 0 ? 'text-red-500' : 'text-foreground')}>
+                  {budgetStats.overspendCount}
                 </p>
                 <p className="text-muted-foreground">Overspent</p>
               </div>
             </div>
 
-            {stats.budget.overspendCount > 0 && (
+            {budgetStats.overspendCount > 0 && (
               <div className="mt-3 flex items-center gap-2 rounded-lg bg-red-500/10 px-3 py-2 text-xs font-medium text-red-600">
                 <AlertCircle className="h-3.5 w-3.5 flex-shrink-0" />
-                {stats.budget.overspendCount} budget{stats.budget.overspendCount !== 1 ? 's have' : ' has'} overspent line items
+                {budgetStats.overspendCount} budget{budgetStats.overspendCount !== 1 ? 's have' : ' has'} overspent line items
               </div>
             )}
           </Widget>
@@ -621,15 +632,18 @@ export default function DashboardPage() {
                     color={stats.attendance.todayRate >= 90 ? 'bg-emerald-500' : stats.attendance.todayRate >= 70 ? 'bg-amber-500' : 'bg-red-500'}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-center">
+                <div className={cn('grid gap-2 text-xs text-center', thisMonthCost !== null ? 'grid-cols-2' : 'grid-cols-1')}>
                   <div className="rounded-lg bg-muted/30 py-2">
                     <p className="font-semibold text-foreground">{stats.labour.thisWeekHours.toFixed(1)}h</p>
                     <p className="text-muted-foreground">This Week</p>
                   </div>
-                  <div className="rounded-lg bg-muted/30 py-2">
-                    <p className="font-semibold text-foreground">{formatMoney(stats.labour.thisMonthCost, user.currency, MONEY_COMPACT)}</p>
-                    <p className="text-muted-foreground">Month Cost</p>
-                  </div>
+                  {/* Labour cost is withheld (null) by the API for non-finance users */}
+                  {thisMonthCost !== null && (
+                    <div className="rounded-lg bg-muted/30 py-2">
+                      <p className="font-semibold text-foreground">{formatMoney(thisMonthCost, user.currency, MONEY_COMPACT)}</p>
+                      <p className="text-muted-foreground">Month Cost</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

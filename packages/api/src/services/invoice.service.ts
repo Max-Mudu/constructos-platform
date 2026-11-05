@@ -4,6 +4,7 @@ import { RequestUser } from '../types';
 import { InvoiceStatus, InvoiceVendorType } from '@prisma/client';
 import { createNotification } from './notification.service';
 import { emitToCompany } from './event-emitter.service';
+import { requireFinanceReadScope, financeProjectFilter, isProjectInFinanceScope } from './budget.service';
 
 // ─── RBAC helpers ─────────────────────────────────────────────────────────────
 
@@ -128,13 +129,70 @@ const INVOICE_INCLUDE = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-async function getInvoiceOrThrow(invoiceId: string, companyId: string) {
-  const invoice = await prisma.invoice.findFirst({
-    where: { id: invoiceId, companyId },
-    include: INVOICE_INCLUDE,
-  });
+/**
+ * Loads an invoice within the actor's financial scope. Used by every read AND
+ * write path so a user can never act on an invoice they cannot read:
+ *  - no financial scope (PM without canViewFinance, contractor, consultant,
+ *    site_supervisor, viewer, worker) → 403
+ *  - outside scope (other tenant, or PM non-member project) → 404
+ */
+async function getInvoiceOrThrow(invoiceId: string, actor: RequestUser) {
+  const scope = await requireFinanceReadScope(actor);
+
+  const where: Record<string, unknown> = { id: invoiceId, companyId: actor.companyId };
+  const projectFilter = financeProjectFilter(scope);
+  if (projectFilter !== undefined) where.projectId = projectFilter;
+
+  const invoice = await prisma.invoice.findFirst({ where, include: INVOICE_INCLUDE });
   if (!invoice) throw new NotFoundError('Invoice not found');
   return invoice;
+}
+
+// ─── Link-ID validation (never trust a supplied ID) ──────────────────────────
+
+type InvoiceLinkInput = Pick<
+  UpdateInvoiceInput,
+  | 'siteId' | 'contractorId' | 'supplierId' | 'consultantUserId'
+  | 'budgetLineItemId' | 'variationOrderId' | 'deliveryRecordId' | 'labourEntryId'
+  | 'marketingBudgetEntryId' | 'consultantCostEntryId'
+>;
+
+/**
+ * Validates every supplied link ID before anything is written.
+ *  - contractorId, supplierId, consultantUserId: same company.
+ *  - siteId and the project-scoped records (budget line item, variation,
+ *    delivery, labour entry, marketing entry, consultant cost entry): same
+ *    company AND the invoice's project (each model carries projectId directly).
+ * Omitted (undefined) and explicit null (unlink) values are skipped. Any other
+ * value that does not resolve throws the generic NotFoundError for that
+ * entity, so a foreign ID and a nonexistent ID are indistinguishable.
+ */
+async function assertInvoiceLinksInScope(
+  input: InvoiceLinkInput,
+  companyId: string,
+  projectId: string,
+): Promise<void> {
+  const inCompany = { companyId };
+  const inProject = { companyId, projectId };
+  const select    = { id: true } as const;
+
+  const checks: Array<[unknown, string, (id: string) => Promise<unknown>]> = [
+    [input.contractorId,           'Contractor',             (id) => prisma.contractor.findFirst({ where: { id, ...inCompany }, select })],
+    [input.supplierId,             'Supplier',               (id) => prisma.supplier.findFirst({ where: { id, ...inCompany }, select })],
+    [input.consultantUserId,       'User',                   (id) => prisma.user.findFirst({ where: { id, ...inCompany }, select })],
+    [input.siteId,                 'Site',                   (id) => prisma.jobSite.findFirst({ where: { id, ...inProject }, select })],
+    [input.budgetLineItemId,       'Budget line item',       (id) => prisma.budgetLineItem.findFirst({ where: { id, ...inProject }, select })],
+    [input.variationOrderId,       'Variation order',        (id) => prisma.variationOrder.findFirst({ where: { id, ...inProject }, select })],
+    [input.deliveryRecordId,       'Delivery record',        (id) => prisma.deliveryRecord.findFirst({ where: { id, ...inProject }, select })],
+    [input.labourEntryId,          'Labour entry',           (id) => prisma.labourEntry.findFirst({ where: { id, ...inProject }, select })],
+    [input.marketingBudgetEntryId, 'Marketing budget entry', (id) => prisma.marketingBudgetEntry.findFirst({ where: { id, ...inProject }, select })],
+    [input.consultantCostEntryId,  'Consultant cost entry',  (id) => prisma.consultantCostEntry.findFirst({ where: { id, ...inProject }, select })],
+  ];
+
+  for (const [value, entity, find] of checks) {
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'string' || !(await find(value))) throw new NotFoundError(entity);
+  }
 }
 
 function computeStatusFromPayments(
@@ -174,7 +232,10 @@ export interface ListInvoicesFilter {
 }
 
 export async function listInvoices(actor: RequestUser, filter: ListInvoicesFilter = {}) {
-  // First, mark overdue invoices
+  // Authorise before any side effect. Throws 403 for roles without financial reads.
+  const scope = await requireFinanceReadScope(actor);
+
+  // First, mark overdue invoices (company-wide maintenance, unchanged)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   await prisma.invoice.updateMany({
@@ -190,7 +251,8 @@ export async function listInvoices(actor: RequestUser, filter: ListInvoicesFilte
     companyId: actor.companyId,
   };
 
-  if (filter.projectId)  where.projectId  = filter.projectId;
+  const projectFilter = financeProjectFilter(scope, filter.projectId);
+  if (projectFilter !== undefined) where.projectId = projectFilter;
   if (filter.status)     where.status     = filter.status;
   if (filter.vendorType) where.vendorType = filter.vendorType;
 
@@ -228,7 +290,8 @@ export async function listInvoices(actor: RequestUser, filter: ListInvoicesFilte
 // ─── Get detail ───────────────────────────────────────────────────────────────
 
 export async function getInvoice(invoiceId: string, actor: RequestUser) {
-  return getInvoiceOrThrow(invoiceId, actor.companyId);
+  // Out-of-scope invoices are indistinguishable from missing ones (404).
+  return getInvoiceOrThrow(invoiceId, actor);
 }
 
 // ─── Create ───────────────────────────────────────────────────────────────────
@@ -236,11 +299,17 @@ export async function getInvoice(invoiceId: string, actor: RequestUser) {
 export async function createInvoice(input: CreateInvoiceInput, actor: RequestUser) {
   if (!canManage(actor)) throw new ForbiddenError('Insufficient permissions to create invoices');
 
-  // Validate project belongs to company
+  // Financial write scope: 403 without finance access, 404 outside scope.
+  const scope = await requireFinanceReadScope(actor);
+
+  // Validate project belongs to company (and to the actor's finance scope)
   const project = await prisma.project.findFirst({
     where: { id: input.projectId, companyId: actor.companyId },
   });
-  if (!project) throw new NotFoundError('Project not found');
+  if (!project || !isProjectInFinanceScope(scope, project.id)) throw new NotFoundError('Project not found');
+
+  // Every supplied link must belong to this company (and this project).
+  await assertInvoiceLinksInScope(input, actor.companyId, project.id);
 
   // Check invoice number uniqueness
   const existing = await prisma.invoice.findFirst({
@@ -296,10 +365,13 @@ export async function createInvoice(input: CreateInvoiceInput, actor: RequestUse
 export async function updateInvoice(invoiceId: string, input: UpdateInvoiceInput, actor: RequestUser) {
   if (!canManage(actor)) throw new ForbiddenError('Insufficient permissions');
 
-  const invoice = await getInvoiceOrThrow(invoiceId, actor.companyId);
+  const invoice = await getInvoiceOrThrow(invoiceId, actor);
   if (!['draft', 'submitted'].includes(invoice.status)) {
     throw new ValidationError('Only draft or submitted invoices can be edited');
   }
+
+  // Every supplied link must belong to this company and the invoice's project.
+  await assertInvoiceLinksInScope(input, actor.companyId, invoice.projectId);
 
   // Check invoice number uniqueness if changing
   if (input.invoiceNumber && input.invoiceNumber !== invoice.invoiceNumber) {
@@ -344,7 +416,7 @@ export async function updateInvoice(invoiceId: string, input: UpdateInvoiceInput
 export async function deleteInvoice(invoiceId: string, actor: RequestUser) {
   if (!canFinanceApprove(actor)) throw new ForbiddenError('Only finance staff can delete invoices');
 
-  const invoice = await getInvoiceOrThrow(invoiceId, actor.companyId);
+  const invoice = await getInvoiceOrThrow(invoiceId, actor);
   if (!['draft', 'cancelled'].includes(invoice.status)) {
     throw new ValidationError('Only draft or cancelled invoices can be deleted');
   }
@@ -357,7 +429,7 @@ export async function deleteInvoice(invoiceId: string, actor: RequestUser) {
 
 export async function submitInvoice(invoiceId: string, actor: RequestUser) {
   if (!canManage(actor)) throw new ForbiddenError('Insufficient permissions');
-  const invoice = await getInvoiceOrThrow(invoiceId, actor.companyId);
+  const invoice = await getInvoiceOrThrow(invoiceId, actor);
   if (invoice.status !== 'draft') throw new ValidationError('Only draft invoices can be submitted');
 
   const updated = await prisma.invoice.update({
@@ -386,7 +458,7 @@ export async function submitInvoice(invoiceId: string, actor: RequestUser) {
 
 export async function approveInvoice(invoiceId: string, actor: RequestUser) {
   if (!canFinanceApprove(actor)) throw new ForbiddenError('Only finance staff can approve invoices');
-  const invoice = await getInvoiceOrThrow(invoiceId, actor.companyId);
+  const invoice = await getInvoiceOrThrow(invoiceId, actor);
   if (!['submitted', 'draft'].includes(invoice.status)) throw new ValidationError('Invoice must be in draft or submitted state to approve');
 
   const updated = await prisma.invoice.update({
@@ -415,7 +487,7 @@ export async function approveInvoice(invoiceId: string, actor: RequestUser) {
 
 export async function disputeInvoice(invoiceId: string, notes: string | undefined, actor: RequestUser) {
   if (!canFinanceApprove(actor)) throw new ForbiddenError('Only finance staff can dispute invoices');
-  const invoice = await getInvoiceOrThrow(invoiceId, actor.companyId);
+  const invoice = await getInvoiceOrThrow(invoiceId, actor);
   if (['paid', 'cancelled'].includes(invoice.status)) throw new ValidationError('Paid or cancelled invoices cannot be disputed');
 
   const updated = await prisma.invoice.update({
@@ -444,7 +516,7 @@ export async function disputeInvoice(invoiceId: string, notes: string | undefine
 
 export async function cancelInvoice(invoiceId: string, actor: RequestUser) {
   if (!canFinanceApprove(actor)) throw new ForbiddenError('Only finance staff can cancel invoices');
-  const invoice = await getInvoiceOrThrow(invoiceId, actor.companyId);
+  const invoice = await getInvoiceOrThrow(invoiceId, actor);
   if (invoice.status === 'paid') throw new ValidationError('Paid invoices cannot be cancelled');
 
   const updated = await prisma.invoice.update({
@@ -475,7 +547,7 @@ export async function cancelInvoice(invoiceId: string, actor: RequestUser) {
 
 export async function addLineItem(invoiceId: string, input: CreateLineItemInput, actor: RequestUser) {
   if (!canManage(actor)) throw new ForbiddenError('Insufficient permissions');
-  const invoice = await getInvoiceOrThrow(invoiceId, actor.companyId);
+  const invoice = await getInvoiceOrThrow(invoiceId, actor);
   if (!['draft', 'submitted'].includes(invoice.status)) {
     throw new ValidationError('Line items can only be added to draft or submitted invoices');
   }
@@ -493,12 +565,12 @@ export async function addLineItem(invoiceId: string, input: CreateLineItemInput,
   });
 
   await audit(actor, 'update', 'Invoice', invoiceId);
-  return getInvoiceOrThrow(invoiceId, actor.companyId);
+  return getInvoiceOrThrow(invoiceId, actor);
 }
 
 export async function deleteLineItem(invoiceId: string, lineItemId: string, actor: RequestUser) {
   if (!canManage(actor)) throw new ForbiddenError('Insufficient permissions');
-  const invoice = await getInvoiceOrThrow(invoiceId, actor.companyId);
+  const invoice = await getInvoiceOrThrow(invoiceId, actor);
   if (!['draft', 'submitted'].includes(invoice.status)) {
     throw new ValidationError('Line items can only be removed from draft or submitted invoices');
   }
@@ -516,7 +588,7 @@ export async function deleteLineItem(invoiceId: string, lineItemId: string, acto
 
 export async function recordPayment(invoiceId: string, input: RecordPaymentInput, actor: RequestUser) {
   if (!canFinanceApprove(actor)) throw new ForbiddenError('Only finance staff can record payments');
-  const invoice = await getInvoiceOrThrow(invoiceId, actor.companyId);
+  const invoice = await getInvoiceOrThrow(invoiceId, actor);
 
   if (!['approved', 'partially_paid', 'overdue'].includes(invoice.status)) {
     throw new ValidationError('Payments can only be recorded for approved, partially paid, or overdue invoices');
@@ -571,7 +643,7 @@ export async function recordPayment(invoiceId: string, input: RecordPaymentInput
 
 export async function deletePayment(invoiceId: string, paymentId: string, actor: RequestUser) {
   if (!canFinanceApprove(actor)) throw new ForbiddenError('Only finance staff can remove payments');
-  const invoice = await getInvoiceOrThrow(invoiceId, actor.companyId);
+  const invoice = await getInvoiceOrThrow(invoiceId, actor);
 
   const payment = await prisma.invoicePayment.findFirst({
     where: { id: paymentId, invoiceId },
@@ -623,8 +695,11 @@ export interface InvoiceSummary {
 }
 
 export async function getInvoiceSummary(actor: RequestUser, projectId?: string): Promise<InvoiceSummary> {
+  const scope = await requireFinanceReadScope(actor);
+
   const where: Record<string, unknown> = { companyId: actor.companyId };
-  if (projectId) where.projectId = projectId;
+  const projectFilter = financeProjectFilter(scope, projectId);
+  if (projectFilter !== undefined) where.projectId = projectFilter;
 
   const invoices = await prisma.invoice.findMany({
     where,

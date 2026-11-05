@@ -1,8 +1,9 @@
 import { prisma } from '../utils/prisma';
 import { NotFoundError, ForbiddenError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
-import { WorkerEmploymentStatus } from '@prisma/client';
+import { Prisma, WorkerEmploymentStatus } from '@prisma/client';
 import { getAccessibleProjectIds } from '../middleware/requireProjectAccess';
+import { canViewFinancialData } from './report.service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,6 +69,76 @@ const WORKER_SELECT = {
   updatedAt: true,
 } as const;
 
+// ─── Financial field visibility ───────────────────────────────────────────────
+//
+// dailyWage and currency are FINANCIAL (an individual pay rate). They are
+// returned only to callers passing canViewFinancialData(actor):
+//   - super_admin / company_admin / finance_officer: every worker in the company;
+//   - project_manager with canViewFinance: only workers with an active
+//     assignment on a project the PM is an active member of (a worker is a
+//     company-level record, so "member projects only" is decided per worker).
+// Everyone else gets the record with those two keys OMITTED (never 0/null).
+// Audit-log snapshots keep the full record. Who may read or write a worker is
+// unchanged.
+
+type WorkerFinancialKey = 'dailyWage' | 'currency';
+
+/** Strips the financial keys from a worker record (any select that includes them). */
+function withoutWage<T extends Record<WorkerFinancialKey, unknown>>(
+  worker: T,
+): Omit<T, WorkerFinancialKey> {
+  const { dailyWage: _dailyWage, currency: _currency, ...rest } = worker;
+  return rest;
+}
+
+/**
+ * Returns the subset of workerIds whose wage the actor may see.
+ * Never inferred from membership alone: the finance gate is checked first.
+ */
+async function wageVisibleWorkerIds(
+  actor: RequestUser,
+  workerIds: string[],
+): Promise<Set<string>> {
+  if (workerIds.length === 0 || !canViewFinancialData(actor)) return new Set();
+
+  const projectIds = await getAccessibleProjectIds(actor.companyId, actor.id, actor.role);
+  if (projectIds === null) return new Set(workerIds); // company-wide finance roles
+
+  if (projectIds.length === 0) return new Set();
+  const assignments = await prisma.workerAssignment.findMany({
+    where: {
+      companyId: actor.companyId,
+      workerId:  { in: workerIds },
+      projectId: { in: projectIds },
+      removedAt: null,
+    },
+    select: { workerId: true },
+  });
+  return new Set(assignments.map((a) => a.workerId));
+}
+
+type WorkerRecord = Prisma.WorkerGetPayload<{ select: typeof WORKER_SELECT }>;
+
+/** A worker as returned to the caller; dailyWage/currency absent without finance access. */
+export type WorkerView<T extends WorkerRecord = WorkerRecord> =
+  Omit<T, WorkerFinancialKey> & Partial<Pick<T, WorkerFinancialKey>>;
+
+async function presentWorkers<T extends WorkerRecord>(
+  workers: T[],
+  actor: RequestUser,
+): Promise<WorkerView<T>[]> {
+  const visible = await wageVisibleWorkerIds(actor, workers.map((w) => w.id));
+  return workers.map((w) => (visible.has(w.id) ? w : withoutWage(w)) as WorkerView<T>);
+}
+
+async function presentWorker<T extends WorkerRecord>(
+  worker: T,
+  actor: RequestUser,
+): Promise<WorkerView<T>> {
+  const [view] = await presentWorkers([worker], actor);
+  return view!;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
@@ -127,7 +198,7 @@ export async function listWorkers(actor: RequestUser, filters: ListWorkersFilter
     ? { assignments: { some: { projectId: filters.projectId, removedAt: null } } }
     : {};
 
-  return prisma.worker.findMany({
+  const workers = await prisma.worker.findMany({
     where: {
       companyId: actor.companyId,
       ...assignmentFilter,
@@ -141,6 +212,7 @@ export async function listWorkers(actor: RequestUser, filters: ListWorkersFilter
     orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
     take:    500,
   });
+  return presentWorkers(workers, actor);
 }
 
 export async function getWorker(workerId: string, actor: RequestUser) {
@@ -162,7 +234,7 @@ export async function getWorker(workerId: string, actor: RequestUser) {
     },
   });
   if (!worker) throw new NotFoundError('Worker');
-  return worker;
+  return presentWorker(worker, actor);
 }
 
 export async function createWorker(input: CreateWorkerInput, actor: RequestUser) {
@@ -198,7 +270,7 @@ export async function createWorker(input: CreateWorkerInput, actor: RequestUser)
     },
   });
 
-  return worker;
+  return presentWorker(worker, actor);
 }
 
 export async function updateWorker(
@@ -249,7 +321,7 @@ export async function updateWorker(
     },
   });
 
-  return updated;
+  return presentWorker(updated, actor);
 }
 
 export async function deactivateWorker(workerId: string, actor: RequestUser) {
@@ -287,7 +359,7 @@ export async function listSiteWorkers(
   siteId: string,
   actor: RequestUser,
 ) {
-  return prisma.worker.findMany({
+  const workers = await prisma.worker.findMany({
     where: {
       companyId: actor.companyId,
       assignments: {
@@ -297,6 +369,7 @@ export async function listSiteWorkers(
     select: WORKER_SELECT,
     orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
   });
+  return presentWorkers(workers, actor);
 }
 
 export async function assignWorkerToSite(

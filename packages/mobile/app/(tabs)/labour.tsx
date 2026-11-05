@@ -17,7 +17,7 @@ import {
   FlatList,
 } from 'react-native';
 import { useAuthStore } from '../../src/store/auth.store';
-import { labourApi } from '../../src/api/labour';
+import { labourApi, LabourListResponse } from '../../src/api/labour';
 import { attendanceApi } from '../../src/api/attendance';
 import { workersApi } from '../../src/api/workers';
 import { projectsApi } from '../../src/api/projects';
@@ -334,6 +334,8 @@ export default function LabourScreen() {
   const hasDefaults      = !!(defaultProjectId && defaultSiteId);
 
   const [entries, setEntries] = useState<LabourEntry[]>([]);
+  // Wage fields are omitted by the API unless the caller has financial access.
+  const [showCost, setShowCost] = useState(false);
   const [attendanceMap, setAttendanceMap] = useState<Record<string, AttendanceRecord>>({});
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -402,7 +404,7 @@ export default function LabourScreen() {
     const range = getDateRange(dateF);
 
     try {
-      const res = await labourApi.list({
+      const res: LabourListResponse & { financialFieldsIncluded?: boolean } = await labourApi.list({
         ...(hasDefaults && { projectId: defaultProjectId!, siteId: defaultSiteId! }),
         search: searchQ || undefined,
         limit: PAGE_SIZE,
@@ -414,6 +416,9 @@ export default function LabourScreen() {
         opts.reset || newOffset === 0 ? res.entries : [...entries, ...res.entries];
 
       setEntries(nextEntries);
+      setShowCost(
+        res.financialFieldsIncluded ?? nextEntries.every((e) => e.dailyRate != null),
+      );
       setTotal(res.pagination.total);
       setOffset(newOffset + res.entries.length);
 
@@ -492,8 +497,8 @@ export default function LabourScreen() {
   // ── Labour intelligence ────────────────────────────────────────────────────
   const totalHours    = entries.reduce((s, e) => s + Number(e.hoursWorked), 0);
   const overtimeCount = entries.filter((e) => Number(e.hoursWorked) > 8).length;
-  const totalCost     = entries.reduce((s, e) => s + Number(e.dailyRate), 0);
-  const currencies    = [...new Set(entries.map((e) => e.currency))];
+  const totalCost     = showCost ? entries.reduce((s, e) => s + Number(e.dailyRate ?? 0), 0) : 0;
+  const currencies    = [...new Set(entries.map((e) => e.currency).filter((c): c is string => !!c))];
   const costDisplay   = totalCost > 0
     ? (currencies.length === 1 ? `${currencies[0]!} ${totalCost.toFixed(0)}` : totalCost.toFixed(0))
     : '—';
@@ -579,10 +584,12 @@ export default function LabourScreen() {
             </Text>
             <Text style={styles.labourStatLabel}>Overtime</Text>
           </View>
-          <View style={styles.labourStatCard}>
-            <Text style={styles.labourStatValue} numberOfLines={1}>{costDisplay}</Text>
-            <Text style={styles.labourStatLabel}>Est. Cost</Text>
-          </View>
+          {showCost && (
+            <View style={styles.labourStatCard}>
+              <Text style={styles.labourStatValue} numberOfLines={1}>{costDisplay}</Text>
+              <Text style={styles.labourStatLabel}>Est. Cost</Text>
+            </View>
+          )}
         </View>
       )}
 
@@ -661,9 +668,11 @@ export default function LabourScreen() {
                   {normalizeDate(item.date)} · {item.hoursWorked}h
                 </Text>
 
-                <Text style={styles.entryMeta}>
-                  Rate: {item.dailyRate} {item.currency}
-                </Text>
+                {item.dailyRate != null && (
+                  <Text style={styles.entryMeta}>
+                    Rate: {item.dailyRate} {item.currency ?? ''}
+                  </Text>
+                )}
 
                 {item.worker.trade && (
                   <Text style={styles.entryMeta}>{item.worker.trade}</Text>
