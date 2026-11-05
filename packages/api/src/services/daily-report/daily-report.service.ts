@@ -53,7 +53,10 @@ export const MAX_PHOTOS_PER_REPORT   = 30;
 export const MAX_PHOTO_BYTES         = 10 * 1024 * 1024;
 export const MAX_CAPTION_CHARS       = 300;
 export const DAILY_REPORT_PHOTO_TYPES = new Set(['image/jpeg', 'image/png']);
+/** One row per extraction attempt, written before the model call; the daily cap counts these. */
 export const AI_EXTRACTION_AUDIT_ENTITY = 'daily_report_ai_extraction';
+/** Outcome of each attempt (status, usage). Not counted towards the cap. */
+export const AI_EXTRACTION_RESULT_AUDIT_ENTITY = 'daily_report_ai_extraction_result';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -447,6 +450,30 @@ const EXTRACTION_HTTP: Record<ExtractionErrorCode, { status: number; message: st
   AI_ERROR:       { status: 502, message: 'AI extraction failed' },
 };
 
+/**
+ * Atomically claims one of today's AI extractions for the company before the
+ * model is called. A per-company advisory lock serialises the count + insert,
+ * so concurrent requests cannot all pass the check; the lock is released at
+ * commit, before the (slow) model call. The reservation row is what the cap
+ * counts; the outcome is written separately as a result row.
+ */
+async function reserveExtractionSlot(actor: RequestUser, reportId: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`daily-report-ai-cap:${actor.companyId}`}::text, 0))`;
+    const used = await tx.auditLog.count({
+      where: {
+        companyId: actor.companyId,
+        entityType: AI_EXTRACTION_AUDIT_ENTITY,
+        createdAt: { gte: startOfUtcDay() },
+      },
+    });
+    if (used >= env.DAILY_REPORT_AI_DAILY_CAP_PER_COMPANY) {
+      throw new DailyReportError(429, 'AI_CAP_REACHED', 'Daily AI extraction limit reached for your company');
+    }
+    await audit(actor, 'create', AI_EXTRACTION_AUDIT_ENTITY, reportId, { status: 'started' }, tx);
+  });
+}
+
 export async function extractDraft(
   deps: DailyReportDeps, actor: RequestUser, projectId: string, siteId: string, reportId: string,
 ) {
@@ -454,16 +481,7 @@ export async function extractDraft(
   assertDraft(report);
   if (report.rawInput.trim() === '') throw validationError('Save some site notes before running extraction');
 
-  const used = await prisma.auditLog.count({
-    where: {
-      companyId: actor.companyId,
-      entityType: AI_EXTRACTION_AUDIT_ENTITY,
-      createdAt: { gte: startOfUtcDay() },
-    },
-  });
-  if (used >= env.DAILY_REPORT_AI_DAILY_CAP_PER_COMPANY) {
-    throw new DailyReportError(429, 'AI_CAP_REACHED', 'Daily AI extraction limit reached for your company');
-  }
+  await reserveExtractionSlot(actor, report.id);
 
   const [project, site, company] = await Promise.all([
     prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { name: true } }),
@@ -498,7 +516,7 @@ export async function extractDraft(
       where: { id: report.id, status: 'draft' },
       data:  { extractionStatus: 'failed', extractionError: failCode },
     });
-    await audit(actor, 'create', AI_EXTRACTION_AUDIT_ENTITY, report.id, {
+    await audit(actor, 'create', AI_EXTRACTION_RESULT_AUDIT_ENTITY, report.id, {
       status: 'failed', errorCode: failCode,
     });
     const http = EXTRACTION_HTTP[failCode];
@@ -517,7 +535,7 @@ export async function extractDraft(
       extractionError:  null,
     },
   });
-  await audit(actor, 'create', AI_EXTRACTION_AUDIT_ENTITY, report.id, {
+  await audit(actor, 'create', AI_EXTRACTION_RESULT_AUDIT_ENTITY, report.id, {
     status:  count === 0 ? 'discarded' : 'succeeded',
     model:   result.model,
     promptVersion: result.promptVersion,

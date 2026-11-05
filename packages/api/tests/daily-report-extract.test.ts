@@ -132,8 +132,12 @@ async function operationalCounts() {
   return { labourEntry, attendanceRecord, inventoryTransaction, siteInventory, deliveryRecord, invoice, budgetLineItem, worker, dailyTarget, scheduleTask };
 }
 
+// Outcome rows (status, usage). Each attempt also writes one reservation row
+// ('daily_report_ai_extraction', status 'started') that the daily cap counts.
 const extractionAudits = (companyId: string) =>
-  prisma.auditLog.findMany({ where: { companyId, entityType: 'daily_report_ai_extraction' }, orderBy: { createdAt: 'asc' } });
+  prisma.auditLog.findMany({ where: { companyId, entityType: 'daily_report_ai_extraction_result' }, orderBy: { createdAt: 'asc' } });
+const extractionReservations = (companyId: string) =>
+  prisma.auditLog.findMany({ where: { companyId, entityType: 'daily_report_ai_extraction' } });
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
@@ -175,6 +179,9 @@ describe('POST /:reportId/extract — success', () => {
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({ entityId: ctx.report.id, userId: ctx.sup.id });
     expect(audits[0].changesAfter).toMatchObject({ status: 'succeeded', model: 'fake-model-1', usage: USAGE, unsupportedNumberCount: 1 });
+    const reservations = await extractionReservations(ctx.company.id);
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0].changesAfter).toEqual({ status: 'started' });
     const dump = JSON.stringify(await prisma.auditLog.findMany({ where: { companyId: ctx.company.id } }));
     expect(dump).not.toContain('RAWNOTE-kestrel');
     expect(dump).not.toContain(DRAFT_MARKER);
@@ -277,5 +284,20 @@ describe('per-company daily cap', () => {
     });
     expect((await extract(ctx)).statusCode).toBe(200);
     expect((await extract(ctx)).statusCode).toBe(429);
+  });
+
+  it('holds under concurrency: with one slot left, exactly one of several parallel extractions runs', async () => {
+    const ctx = await setup();
+    const cap = env.DAILY_REPORT_AI_DAILY_CAP_PER_COMPANY;
+    await prisma.auditLog.createMany({
+      data: Array.from({ length: cap - 1 }, () => ({
+        companyId: ctx.company.id, action: 'create' as const, entityType: 'daily_report_ai_extraction', entityId: ctx.report.id,
+      })),
+    });
+    const results = await Promise.all(Array.from({ length: 5 }, () => extract(ctx)));
+    const codes = results.map((r) => r.statusCode).sort();
+    expect(codes).toEqual([200, 429, 429, 429, 429]);
+    expect(calls).toHaveLength(1);
+    expect(await extractionReservations(ctx.company.id)).toHaveLength(cap);
   });
 });
