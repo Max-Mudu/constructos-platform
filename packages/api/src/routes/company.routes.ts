@@ -3,7 +3,23 @@ import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { requireRole } from '../middleware/requireRole';
 import * as companyService from '../services/company.service';
+import * as userService from '../services/user.service';
+import { ASSIGNABLE_USER_ROLES } from '../services/user.service';
 import { AppError } from '../utils/errors';
+
+// companyId, canViewFinance, password and isActive are intentionally absent:
+// Zod strips unknown keys, so a client cannot supply them. The company comes
+// from the JWT and finance access is derived from the role.
+const createUserSchema = z.object({
+  email:            z.string().email(),
+  firstName:        z.string().min(1).max(100),
+  lastName:         z.string().min(1).max(100),
+  role:             z.enum(ASSIGNABLE_USER_ROLES),
+  phone:            z.string().max(30).optional(),
+  consultantType:   z.enum(['engineer', 'architect', 'quantity_surveyor', 'other']).optional(),
+  defaultProjectId: z.string().uuid().optional(),
+  defaultSiteId:    z.string().uuid().optional(),
+});
 
 const updateCompanySchema = z.object({
   name: z.string().min(2).max(255).optional(),
@@ -51,6 +67,35 @@ export async function companyRoutes(fastify: FastifyInstance): Promise<void> {
           request.user,
         );
         return reply.send({ company });
+      } catch (err) {
+        if (err instanceof AppError) {
+          return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+        }
+        throw err;
+      }
+    },
+  );
+
+  // POST /api/v1/companies/me/users — company_admin only
+  fastify.post(
+    '/me/users',
+    { preHandler: [authenticate, requireRole('company_admin')] },
+    async (request, reply) => {
+      const parsed = createUserSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(422).send({
+          error: 'Validation failed',
+          code: 'VALIDATION_ERROR',
+          details: parsed.error.flatten().fieldErrors,
+        });
+      }
+
+      try {
+        const result = await userService.createCompanyUser(parsed.data, request.user, {
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent'] ?? null,
+        });
+        return reply.status(201).send(result);
       } catch (err) {
         if (err instanceof AppError) {
           return reply.status(err.statusCode).send({ error: err.message, code: err.code });
