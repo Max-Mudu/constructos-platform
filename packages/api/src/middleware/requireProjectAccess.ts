@@ -20,6 +20,8 @@ declare module 'fastify' {
  *  - company_admin / finance_officer: any project in their company
  *  - all other roles: must have an active row in project_members
  *  - site_supervisor: project_members row may be site-scoped — still grants project-level read
+ *  - when the route has a :siteId param, that site must belong to the project
+ *    (and the user's company), else 404 'Site not found'
  */
 export async function requireProjectAccess(
   request: FastifyRequest,
@@ -68,6 +70,23 @@ export async function requireProjectAccess(
       });
       const err = new ForbiddenError('You do not have access to this project');
       reply.status(403).send({ error: err.message, code: err.code });
+      return;
+    }
+  }
+
+  // Routes mounted under /projects/:projectId/sites/:siteId/... — the site must
+  // belong to this project and company. One generic 404 for every failure mode
+  // (wrong project, other tenant, nonexistent) so nothing is disclosed.
+  // Site-supervisor site scoping stays in the services (getAccessibleSiteIds).
+  const { siteId } = request.params as { siteId?: string };
+  if (siteId !== undefined) {
+    const site = await prisma.jobSite.findFirst({
+      where: { id: siteId, projectId, companyId: user.companyId },
+      select: { id: true },
+    });
+    if (!site) {
+      const err = new NotFoundError('Site');
+      reply.status(404).send({ error: err.message, code: err.code });
       return;
     }
   }

@@ -204,6 +204,17 @@ async function resolveContractorAccess(
   }
 }
 
+/**
+ * Where-clause fragment for records addressed by id: a contractor-role actor
+ * only sees records whose contractor is linked to them, so anything else is
+ * reported as not found. Empty for every other role.
+ */
+function contractorOwnership(actor: RequestUser) {
+  return actor.role === 'contractor'
+    ? { contractor: { userId: actor.id, companyId: actor.companyId } }
+    : {};
+}
+
 // ─── Work Packages ────────────────────────────────────────────────────────────
 
 export async function listWorkPackages(
@@ -249,7 +260,7 @@ export async function getWorkPackage(
   await checkSiteAccess(siteId, projectId, actor);
 
   const pkg = await prisma.workPackage.findFirst({
-    where: { id: packageId, projectId, siteId, companyId: actor.companyId },
+    where: { id: packageId, projectId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
     select: PACKAGE_SELECT,
   });
   if (!pkg) throw new NotFoundError('Work package');
@@ -314,12 +325,10 @@ export async function updateWorkPackage(
   await checkSiteAccess(siteId, projectId, actor);
 
   const before = await prisma.workPackage.findFirst({
-    where: { id: packageId, projectId, siteId, companyId: actor.companyId },
+    where: { id: packageId, projectId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
     select: PACKAGE_SELECT,
   });
   if (!before) throw new NotFoundError('Work package');
-
-  await resolveContractorAccess(before.contractorId, actor);
 
   const updated = await prisma.workPackage.update({
     where: { id: packageId },
@@ -360,7 +369,7 @@ export async function deleteWorkPackage(
   await checkSiteAccess(siteId, projectId, actor);
 
   const pkg = await prisma.workPackage.findFirst({
-    where: { id: packageId, projectId, siteId, companyId: actor.companyId },
+    where: { id: packageId, projectId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
     select: PACKAGE_SELECT,
   });
   if (!pkg) throw new NotFoundError('Work package');
@@ -429,7 +438,7 @@ export async function getTask(
   await checkSiteAccess(siteId, projectId, actor);
 
   const task = await prisma.scheduleTask.findFirst({
-    where: { id: taskId, projectId, siteId, companyId: actor.companyId },
+    where: { id: taskId, projectId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
     select: TASK_SELECT,
   });
   if (!task) throw new NotFoundError('Schedule task');
@@ -527,7 +536,7 @@ export async function updateTask(
   await checkSiteAccess(siteId, projectId, actor);
 
   const before = await prisma.scheduleTask.findFirst({
-    where: { id: taskId, projectId, siteId, companyId: actor.companyId },
+    where: { id: taskId, projectId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
     select: TASK_SELECT,
   });
   if (!before) throw new NotFoundError('Schedule task');
@@ -647,7 +656,7 @@ export async function getTaskActivity(
   await checkSiteAccess(siteId, projectId, actor);
 
   const task = await prisma.scheduleTask.findFirst({
-    where: { id: taskId, projectId, siteId, companyId: actor.companyId },
+    where: { id: taskId, projectId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
     select: { id: true },
   });
   if (!task) throw new NotFoundError('Schedule task');
@@ -672,7 +681,7 @@ export async function deleteTask(
   await checkSiteAccess(siteId, projectId, actor);
 
   const task = await prisma.scheduleTask.findFirst({
-    where: { id: taskId, projectId, siteId, companyId: actor.companyId },
+    where: { id: taskId, projectId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
     select: { id: true, title: true },
   });
   if (!task) throw new NotFoundError('Schedule task');
@@ -704,9 +713,13 @@ export async function addDependency(
 ) {
   await checkSiteAccess(siteId, projectId, actor);
 
-  // Verify both tasks exist in the same site
+  // Verify both tasks exist in the same site. A contractor may only add
+  // dependencies to a task they own.
   const [task, depTask] = await Promise.all([
-    prisma.scheduleTask.findFirst({ where: { id: taskId,          siteId, companyId: actor.companyId }, select: { id: true } }),
+    prisma.scheduleTask.findFirst({
+      where: { id: taskId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
+      select: { id: true },
+    }),
     prisma.scheduleTask.findFirst({ where: { id: dependsOnTaskId, siteId, companyId: actor.companyId }, select: { id: true } }),
   ]);
   if (!task)    throw new NotFoundError('Schedule task');
@@ -736,7 +749,7 @@ export async function removeDependency(
       taskId,
       dependsOnTaskId,
       companyId: actor.companyId,
-      task: { companyId: actor.companyId, projectId, siteId },
+      task: { companyId: actor.companyId, projectId, siteId, ...contractorOwnership(actor) },
     },
     select: { id: true },
   });
@@ -756,7 +769,7 @@ export async function listMilestones(
   await checkSiteAccess(siteId, projectId, actor);
 
   const task = await prisma.scheduleTask.findFirst({
-    where: { id: taskId, projectId, siteId, companyId: actor.companyId },
+    where: { id: taskId, projectId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
     select: { id: true },
   });
   if (!task) throw new NotFoundError('Schedule task');
@@ -778,7 +791,7 @@ export async function createMilestone(
   await checkSiteAccess(siteId, projectId, actor);
 
   const task = await prisma.scheduleTask.findFirst({
-    where: { id: taskId, projectId, siteId, companyId: actor.companyId },
+    where: { id: taskId, projectId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
     select: { id: true },
   });
   if (!task) throw new NotFoundError('Schedule task');
@@ -822,8 +835,15 @@ export async function updateMilestone(
 ) {
   await checkSiteAccess(siteId, projectId, actor);
 
+  // The milestone's task must be in the caller's company and in the project
+  // and site named in the URL — the authorised route alone does not prove it.
   const before = await prisma.scheduleMilestone.findFirst({
-    where: { id: milestoneId, taskId, companyId: actor.companyId },
+    where: {
+      id: milestoneId,
+      taskId,
+      companyId: actor.companyId,
+      task: { companyId: actor.companyId, projectId, siteId, ...contractorOwnership(actor) },
+    },
     select: MILESTONE_SELECT,
   });
   if (!before) throw new NotFoundError('Milestone');
@@ -867,12 +887,30 @@ export async function deleteMilestone(
   await checkSiteAccess(siteId, projectId, actor);
 
   const milestone = await prisma.scheduleMilestone.findFirst({
-    where: { id: milestoneId, taskId, companyId: actor.companyId },
+    where: {
+      id: milestoneId,
+      taskId,
+      companyId: actor.companyId,
+      task: { companyId: actor.companyId, projectId, siteId, ...contractorOwnership(actor) },
+    },
     select: MILESTONE_SELECT,
   });
   if (!milestone) throw new NotFoundError('Milestone');
 
   await prisma.scheduleMilestone.delete({ where: { id: milestoneId } });
+
+  await prisma.auditLog.create({
+    data: {
+      companyId:     actor.companyId,
+      userId:        actor.id,
+      userEmail:     actor.email,
+      userRole:      actor.role,
+      action:        'delete',
+      entityType:    'schedule_milestone',
+      entityId:      milestoneId,
+      changesBefore: milestone as object,
+    },
+  });
 }
 
 // ─── Weekly Plans ─────────────────────────────────────────────────────────────
@@ -918,6 +956,16 @@ export async function createWeeklyPlan(
     select: { id: true },
   });
   if (!contractor) throw new NotFoundError('Contractor');
+
+  // Every referenced task must belong to this company, project and site. All
+  // are checked before anything is written, and an inaccessible task gets the
+  // same 404 as a nonexistent one.
+  const taskIds = [...new Set(input.items.map((item) => item.taskId))];
+  // A contractor may only plan tasks they own.
+  const ownTaskCount = await prisma.scheduleTask.count({
+    where: { id: { in: taskIds }, companyId: actor.companyId, projectId, siteId, ...contractorOwnership(actor) },
+  });
+  if (ownTaskCount !== taskIds.length) throw new NotFoundError('Schedule task');
 
   // Normalise weekStartDate to Monday
   const weekStart = new Date(input.weekStartDate);
@@ -967,7 +1015,7 @@ export async function getWeeklyPlan(
   await checkSiteAccess(siteId, projectId, actor);
 
   const plan = await prisma.weeklyPlan.findFirst({
-    where: { id: planId, projectId, siteId, companyId: actor.companyId },
+    where: { id: planId, projectId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
     select: WEEKLY_PLAN_SELECT,
   });
   if (!plan) throw new NotFoundError('Weekly plan');
