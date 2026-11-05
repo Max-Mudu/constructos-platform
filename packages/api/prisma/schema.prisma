@@ -194,6 +194,17 @@ enum WorkerEmploymentStatus {
   suspended
 }
 
+enum DailyReportStatus {
+  draft
+  final
+}
+
+enum DailyReportExtractionStatus {
+  not_requested
+  succeeded
+  failed
+}
+
 // ─── Companies & Users ───────────────────────────────────────────────────────
 
 model Company {
@@ -203,6 +214,8 @@ model Company {
   country   String?
   currency  String   @default("USD")
   timezone  String   @default("UTC")
+  // Private storage key of the company logo (used on daily report PDFs).
+  logoKey   String?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -223,6 +236,7 @@ model Company {
   pushTokens              PushToken[]
   siteInventoryItems      SiteInventory[]
   inventoryTransactions   InventoryTransaction[]
+  dailyReports            DailyReport[]
 
   @@map("companies")
 }
@@ -282,6 +296,11 @@ model User {
   inventoryTransactions   InventoryTransaction[]   @relation("InventoryTransactionPerformedBy")
   scheduleActivities      ScheduleActivity[]       @relation("ScheduleActivityUser")
   passwordResetTokens     PasswordResetToken[]
+  dailyReportsPrepared    DailyReport[]            @relation("DailyReportPreparedBy")
+  dailyReportsFinalised   DailyReport[]            @relation("DailyReportFinalisedBy")
+  dailyReportPhotos       DailyReportPhoto[]       @relation("DailyReportPhotoUploadedBy")
+  dailyReportRevisions    DailyReportRevision[]    @relation("DailyReportRevisionFinalisedBy")
+  dailyReportReopenings   DailyReportRevision[]    @relation("DailyReportRevisionReopenedBy")
 
   @@index([defaultProjectId])
   @@index([defaultSiteId])
@@ -351,6 +370,7 @@ model Project {
   scheduleTasks          ScheduleTask[]
   weeklyPlans            WeeklyPlan[]
   consultantInstructions ConsultantInstruction[]
+  dailyReports           DailyReport[]
 
   @@map("projects")
 }
@@ -383,6 +403,7 @@ model JobSite {
   invoices               Invoice[]
   siteInventoryItems     SiteInventory[]
   inventoryTransactions  InventoryTransaction[]
+  dailyReports           DailyReport[]
 
   @@map("job_sites")
 }
@@ -1379,4 +1400,97 @@ model InventoryTransaction {
   @@index([companyId])
   @@index([deliveryId])
   @@map("inventory_transactions")
+}
+
+// ─── Daily Site Reports ──────────────────────────────────────────────────────
+// No money fields anywhere: content is validated by the strict zod schema in
+// src/services/daily-report/content.schema.ts. The AI writes only ai* fields.
+
+model DailyReport {
+  id                   String                      @id @default(uuid())
+  companyId            String
+  projectId            String
+  siteId               String
+  reportDate           DateTime                    @db.Date
+  reportNumber         Int // per-site sequence, assigned at creation
+  status               DailyReportStatus           @default(draft)
+  revision             Int                         @default(0)
+  rawInput             String                      @default("") @db.Text
+  aiDraft              Json? // { draft, unsupportedNumbers }
+  aiModel              String?
+  aiPromptVersion      String?
+  aiUsage              Json?
+  extractionStatus     DailyReportExtractionStatus @default(not_requested)
+  extractionError      String? // error code only, never model text
+  content              Json
+  contentSchemaVersion Int                         @default(1)
+  preparedById         String
+  finalisedById        String?
+  finalisedAt          DateTime?
+  pdfFileKey           String?
+  contentHash          String?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+
+  company     Company               @relation(fields: [companyId], references: [id])
+  project     Project               @relation(fields: [projectId], references: [id])
+  site        JobSite               @relation(fields: [siteId], references: [id])
+  preparedBy  User                  @relation("DailyReportPreparedBy", fields: [preparedById], references: [id])
+  finalisedBy User?                 @relation("DailyReportFinalisedBy", fields: [finalisedById], references: [id])
+  photos      DailyReportPhoto[]
+  revisions   DailyReportRevision[]
+
+  @@unique([siteId, reportDate])
+  @@unique([siteId, reportNumber])
+  @@index([companyId, projectId, siteId, reportDate])
+  @@map("daily_reports")
+}
+
+model DailyReportPhoto {
+  id            String   @id @default(uuid())
+  companyId     String
+  dailyReportId String
+  fileKey       String   @unique
+  fileName      String
+  fileType      String
+  fileSizeBytes Int
+  sha256        String
+  width         Int?
+  height        Int?
+  caption       String   @default("")
+  sortOrder     Int      @default(0)
+  uploadedById  String
+  createdAt     DateTime @default(now())
+
+  dailyReport DailyReport @relation(fields: [dailyReportId], references: [id], onDelete: Cascade)
+  uploadedBy  User        @relation("DailyReportPhotoUploadedBy", fields: [uploadedById], references: [id])
+
+  @@index([dailyReportId, sortOrder])
+  @@index([companyId])
+  @@map("daily_report_photos")
+}
+
+model DailyReportRevision {
+  id                   String    @id @default(uuid())
+  companyId            String
+  dailyReportId        String
+  revision             Int
+  content              Json
+  contentSchemaVersion Int
+  photos               Json // [{ photoId, fileKey, sha256, caption, sortOrder }]
+  pdfFileKey           String
+  contentHash          String
+  finalisedById        String
+  finalisedAt          DateTime
+  reopenedById         String?
+  reopenedAt           DateTime?
+  reopenReason         String?
+
+  dailyReport DailyReport @relation(fields: [dailyReportId], references: [id], onDelete: Cascade)
+  finalisedBy User        @relation("DailyReportRevisionFinalisedBy", fields: [finalisedById], references: [id])
+  reopenedBy  User?       @relation("DailyReportRevisionReopenedBy", fields: [reopenedById], references: [id])
+
+  @@unique([dailyReportId, revision])
+  @@index([companyId])
+  @@map("daily_report_revisions")
 }

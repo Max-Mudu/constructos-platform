@@ -48,6 +48,19 @@ const config: Config = {
           'active-foreground': 'hsl(var(--sidebar-active-foreground))',
           muted:      'hsl(var(--sidebar-muted))',
         },
+        // Status colours — defined by scoped themes (e.g. .theme-daily)
+        success: {
+          DEFAULT:    'hsl(var(--success))',
+          foreground: 'hsl(var(--success-foreground))',
+        },
+        warning: {
+          DEFAULT:    'hsl(var(--warning))',
+          foreground: 'hsl(var(--warning-foreground))',
+        },
+        info: {
+          DEFAULT:    'hsl(var(--info))',
+          foreground: 'hsl(var(--info-foreground))',
+        },
         // Gold accent — executive premium highlight
         gold: {
           DEFAULT:    'hsl(var(--gold))',

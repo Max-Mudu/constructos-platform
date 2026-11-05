@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { prisma } from '../../src/utils/prisma';
 import { hashPassword } from '../../src/utils/hash';
 import { UserRole } from '@prisma/client';
+import { emptyContent } from '../../src/services/daily-report/content.schema';
 
 export interface TestCompany {
   id: string;
@@ -495,6 +496,9 @@ export async function createTestScheduleTask(
  *
  * Dependency chain (child → parent):
  *   auditLog          → company, user
+ *   dailyReportRev.   → dailyReport, user
+ *   dailyReportPhoto  → dailyReport, user
+ *   dailyReport       → company, project, jobSite, user
  *   notification      → company, user
  *   deliveryPhoto     → deliveryRecord
  *   deliveryDocument  → deliveryRecord
@@ -530,6 +534,11 @@ export async function clearDatabase(): Promise<void> {
   await prisma.auditLog.deleteMany();
   await prisma.notificationPreference.deleteMany();
   await prisma.notification.deleteMany();
+  // Daily reports reference company, project, job site and users (RESTRICT);
+  // photos and revisions cascade from the report but are deleted explicitly.
+  await prisma.dailyReportRevision.deleteMany();
+  await prisma.dailyReportPhoto.deleteMany();
+  await prisma.dailyReport.deleteMany();
   // Inventory before job sites: inventory_transactions.inventoryId/siteId and
   // site_inventory.siteId are all RESTRICT, so job_sites cannot be deleted while
   // either table holds rows. Transactions first — they reference site_inventory.
@@ -819,4 +828,87 @@ export async function createTestInvoice(
     },
   });
   return { id: invoice.id, companyId: invoice.companyId, projectId: invoice.projectId };
+}
+
+// ─── Daily report fixtures ────────────────────────────────────────────────────
+
+export interface TestDailyReport {
+  id:           string;
+  companyId:    string;
+  projectId:    string;
+  siteId:       string;
+  reportNumber: number;
+  reportDate:   string; // YYYY-MM-DD
+}
+
+/**
+ * Creates a daily report row directly (bypasses the API). Content defaults to
+ * the empty V1 content. reportNumber defaults to max+1 for the site.
+ */
+export async function createTestDailyReport(
+  companyId: string,
+  projectId: string,
+  siteId: string,
+  preparedById: string,
+  overrides: Partial<{
+    reportDate:   string;
+    reportNumber: number;
+    status:       import('@prisma/client').DailyReportStatus;
+    revision:     number;
+    rawInput:     string;
+    content:      Record<string, unknown>;
+  }> = {},
+): Promise<TestDailyReport> {
+  const reportDate = overrides.reportDate ?? '2026-04-07';
+  const reportNumber = overrides.reportNumber ?? ((await prisma.dailyReport.aggregate({
+    where: { siteId }, _max: { reportNumber: true },
+  }))._max.reportNumber ?? 0) + 1;
+  const report = await prisma.dailyReport.create({
+    data: {
+      companyId,
+      projectId,
+      siteId,
+      preparedById,
+      reportDate:   new Date(`${reportDate}T00:00:00.000Z`),
+      reportNumber,
+      status:       overrides.status   ?? 'draft',
+      revision:     overrides.revision ?? 0,
+      rawInput:     overrides.rawInput ?? '',
+      content:      (overrides.content ?? emptyContent()) as object,
+    },
+  });
+  return { id: report.id, companyId, projectId, siteId, reportNumber, reportDate };
+}
+
+/**
+ * Real, decodable 8×6 images (synthetic solid colours), so tests stay valid
+ * with a normaliser that actually decodes and re-encodes photos.
+ */
+export const TEST_JPEG_BYTES = Buffer.from(
+  '/9j/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAGAAgDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAAAP/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAVAQEBAAAAAAAAAAAAAAAAAAADBP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AACgD//Z',
+  'base64',
+);
+export const TEST_PNG_BYTES = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAGCAIAAABxZ0isAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVQImWMQOaGBFTEMpAQARegwwa8teTsAAAAASUVORK5CYII=',
+  'base64',
+);
+
+/** Raw multipart/form-data body with one file part. */
+export function buildMultipartFile(
+  filename: string,
+  contentType: string,
+  content: Buffer,
+  fieldName = 'file',
+): { body: Buffer; headers: Record<string, string> } {
+  const boundary = `----DailyReportBoundary${Math.random().toString(36).slice(2)}`;
+  const body = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="${fieldName}"; filename="${filename}"\r\n` +
+      `Content-Type: ${contentType}\r\n\r\n`,
+    ),
+    content,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+  return { body, headers: { 'content-type': `multipart/form-data; boundary=${boundary}` } };
 }

@@ -1,0 +1,91 @@
+/*
+ * Daily Report — scoped light theme.
+ * Redefines the same CSS variable names as globals.css, so every token-based
+ * class (bg-background, text-foreground, border-border, bg-primary …) turns
+ * light inside .theme-daily without touching the rest of the app.
+ * HSL values are converted from the approved palette (hex in comments).
+ */
+.theme-daily {
+  /* Surfaces */
+  --background: 220 18% 97%;            /* #F5F6F8 workspace */
+  --foreground: 221 39% 11%;            /* #111827 primary text */
+  --card: 0 0% 100%;                    /* #FFFFFF cards */
+  --card-foreground: 221 39% 11%;
+  --muted: 220 18% 97%;
+  --muted-foreground: 215 14% 34%;      /* #4B5563 secondary text */
+  --text-tertiary: 221 13% 46%;         /* #667085 meta text */
+  --secondary: 220 18% 97%;
+  --secondary-foreground: 221 39% 11%;
+
+  /* Primary (amber-brown) */
+  --primary: 39 82% 32%;                /* #94650F */
+  --primary-hover: 38 77% 28%;          /* #7D5510 */
+  --primary-foreground: 0 0% 100%;
+  --accent: 41 76% 94%;                 /* #FBF3E2 primary soft */
+  --accent-foreground: 38 77% 28%;
+
+  /* Status */
+  --success: 142 72% 29%;               /* #15803D */
+  --success-foreground: 0 0% 100%;
+  --warning: 26 90% 37%;                /* #B45309 */
+  --warning-foreground: 0 0% 100%;
+  --destructive: 0 74% 45%;             /* #C81E1E */
+  --destructive-foreground: 0 0% 100%;
+  --info: 221 83% 53%;                  /* #2563EB */
+  --info-foreground: 0 0% 100%;
+
+  /* Chrome */
+  --border: 217 17% 91%;                /* #E3E6EB */
+  --input: 217 17% 91%;
+  --ring: 39 82% 32%;
+  --gold: 39 82% 32%;
+  --gold-foreground: 0 0% 100%;
+
+  /* Top bar */
+  --sidebar: 222 36% 11%;               /* #121826 */
+  --sidebar-foreground: 0 0% 100%;
+  --sidebar-border: 222 25% 20%;
+  --sidebar-muted: 218 15% 70%;
+
+  --radius: 0.75rem;
+  color-scheme: light;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Keep the page light behind the wrapper (overscroll, short pages). */
+html:has(.theme-daily),
+body:has(.theme-daily) {
+  background-color: #F5F6F8;
+}
+
+/* Inputs: 16px text stops Android/iOS zooming on focus. */
+.theme-daily input,
+.theme-daily textarea,
+.theme-daily select {
+  font-size: 16px;
+}
+
+.theme-daily input::placeholder,
+.theme-daily textarea::placeholder {
+  color: hsl(var(--text-tertiary));
+}
+
+.theme-daily :focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+@keyframes dr-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+.theme-daily .dr-indeterminate {
+  animation: dr-indeterminate 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .theme-daily .dr-indeterminate,
+  .theme-daily .animate-spin {
+    animation-duration: 3s;
+  }
+}

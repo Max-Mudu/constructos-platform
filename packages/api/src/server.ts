@@ -35,8 +35,16 @@ import { reportRoutes } from './routes/report.routes';
 import { eventsRoutes } from './routes/events.routes';
 import { activityRoutes } from './routes/activity.routes';
 import { mobileRoutes } from './routes/mobile.routes';
+import { dailyReportRoutes } from './routes/daily-report.routes';
+import { fileRoutes } from './routes/files.routes';
 import { prisma } from './utils/prisma';
 import { canAccessUploadedFile } from './services/file-access.service';
+import { StorageDriver } from './services/storage/types';
+import { getStorageDriver } from './services/storage';
+import { ReportExtractor } from './services/daily-report/extractor/types';
+import { getReportExtractor } from './services/daily-report/extractor';
+import { RenderDailyReportPdf } from './services/daily-report/pdf/types';
+import { renderDailyReportPdf } from './services/daily-report/pdf/renderer';
 
 /**
  * Returns the path part of a URL — no query string, no fragment.
@@ -89,6 +97,12 @@ export const loggerOptions = {
 export interface BuildAppOptions {
   /** Test hook: send logs to this stream (enables logging even under test). */
   logStream?: NodeJS.WritableStream;
+  /** Test hook: private object storage (default: getStorageDriver()). */
+  storage?: StorageDriver;
+  /** Test hook: daily report AI extractor (default: getReportExtractor()). */
+  reportExtractor?: ReportExtractor;
+  /** Test hook: daily report PDF renderer (default: renderDailyReportPdf). */
+  renderPdf?: RenderDailyReportPdf;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -143,8 +157,41 @@ export async function buildApp(options: BuildAppOptions = {}) {
     secret: env.JWT_SECRET,
   });
 
+  // ── Daily report dependencies ────────────────────────────────────────────
+  // Resolved lazily on first use, so a misconfigured driver only fails the
+  // routes that need it and test suites that never touch them are unaffected.
+  let storage = options.storage;
+  let reportExtractor = options.reportExtractor;
+  app.decorate('storage', {
+    getter: () => (storage ??= getStorageDriver()),
+  });
+  app.decorate('reportExtractor', {
+    getter: () => (reportExtractor ??= getReportExtractor()),
+  });
+  app.decorate('renderPdf', options.renderPdf ?? renderDailyReportPdf);
+
+  // ── Global error handler ─────────────────────────────────────────────────
+  // Set before any route plugin is registered: Fastify copies the parent's
+  // error handler into each plugin context at registration time, so a handler
+  // set afterwards would leave every route on the default handler, which
+  // echoes internal error messages on a 500.
+  app.setErrorHandler((error, request, reply) => {
+    app.log.error({
+      err:    error,
+      method: request.method,
+      url:    stripQueryString(request.url), // never log ?token= (SSE)
+      userId: (request.user as { id?: string } | null | undefined)?.id,
+    }, 'Unhandled server error');
+    const statusCode = error.statusCode ?? 500;
+    reply.status(statusCode).send({
+      error: statusCode >= 500 ? 'Internal server error' : error.message,
+      code: statusCode >= 500 ? 'INTERNAL_ERROR' : (error.code ?? 'REQUEST_ERROR'),
+    });
+  });
+
   // ── Routes ───────────────────────────────────────────────────────────────
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
+  await app.register(fileRoutes, { prefix: '/api/v1/files' });
   await app.register(companyRoutes, { prefix: '/api/v1/companies' });
   await app.register(projectRoutes, { prefix: '/api/v1/projects' });
   await app.register(jobsiteRoutes, { prefix: '/api/v1/projects/:projectId/sites' });
@@ -169,6 +216,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(eventsRoutes,          { prefix: '/api/v1/events' });
   await app.register(activityRoutes,        { prefix: '/api/v1/activity' });
   await app.register(mobileRoutes,          { prefix: '/api/v1' });
+  await app.register(dailyReportRoutes,     { prefix: '/api/v1/projects/:projectId/sites/:siteId/daily-reports' });
 
   // ── Serve uploaded files ──────────────────────────────────────────────────
   // Requires authentication plus the same company, role, project-membership,
@@ -224,21 +272,6 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.setNotFoundHandler((request, reply) => {
     request.log.info({ method: request.method, url: stripQueryString(request.url) }, 'Route not found');
     return reply.status(404).send({ error: 'Route not found', code: 'NOT_FOUND' });
-  });
-
-  // ── Global error handler ─────────────────────────────────────────────────
-  app.setErrorHandler((error, request, reply) => {
-    app.log.error({
-      err:    error,
-      method: request.method,
-      url:    stripQueryString(request.url), // never log ?token= (SSE)
-      userId: (request.user as { id?: string } | null | undefined)?.id,
-    }, 'Unhandled server error');
-    const statusCode = error.statusCode ?? 500;
-    reply.status(statusCode).send({
-      error: statusCode === 500 ? 'Internal server error' : error.message,
-      code: 'INTERNAL_ERROR',
-    });
   });
 
   return app;

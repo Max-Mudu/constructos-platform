@@ -40,6 +40,15 @@ export const NAV_ITEMS: NavItem[] = [
 
   // ── Site Operations ────────────────────────────────────────────────────────
   {
+    // Daily Site Report (mobile-first, served by the (daily) route group).
+    label: 'Daily Report',
+    href: '/daily',
+    icon: 'ClipboardPen',
+    roles: ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer', 'viewer'],
+    requiresFinance: false,
+    group: 'Site Operations',
+  },
+  {
     label: 'Labour',
     href: '/labour',
     icon: 'HardHat',

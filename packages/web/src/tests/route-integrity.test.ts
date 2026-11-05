@@ -13,19 +13,26 @@ import * as path from 'path';
 import { NAV_ITEMS } from '@/components/sidebar/nav-config';
 
 const APP_DIR = path.resolve(__dirname, '..', 'app', '(app)');
+const DAILY_DIR = path.resolve(__dirname, '..', 'app', '(daily)');
+
+/**
+ * Route groups that serve pages. Next route groups do not prefix URLs, so an
+ * href like "/daily" may live in any of them.
+ */
+const ROUTE_GROUP_DIRS = [APP_DIR, DAILY_DIR];
 
 /**
  * Resolves a route href like "/projects" to the expected page.tsx path
- * inside src/app/(app)/.
+ * inside the given route group directory (default src/app/(app)/).
  */
-function resolvePagePath(href: string): string {
+function resolvePagePath(href: string, groupDir: string = APP_DIR): string {
   // Strip leading slash and any query/hash
   const clean = href.replace(/^\//, '').split('?')[0].split('#')[0];
-  return path.join(APP_DIR, clean, 'page.tsx');
+  return path.join(groupDir, clean, 'page.tsx');
 }
 
 function pageExists(href: string): boolean {
-  return fs.existsSync(resolvePagePath(href));
+  return ROUTE_GROUP_DIRS.some((dir) => fs.existsSync(resolvePagePath(href, dir)));
 }
 
 // ── Sidebar nav items ─────────────────────────────────────────────────────────
@@ -95,6 +102,36 @@ describe('Dynamic route page files exist', () => {
 
   it.each(dynamicRoutes)('%s page.tsx exists', (_name, filePath) => {
     expect(fs.existsSync(filePath)).toBe(true);
+  });
+});
+
+// ── Daily Report route group ──────────────────────────────────────────────────
+
+describe('Daily Report routes exist under app/(daily)', () => {
+  it('/daily resolves to a page.tsx', () => {
+    expect(pageExists('/daily')).toBe(true);
+    expect(fs.existsSync(resolvePagePath('/daily', DAILY_DIR))).toBe(true);
+  });
+
+  it('/daily is not also defined under app/(app) (no route-group collision)', () => {
+    expect(fs.existsSync(resolvePagePath('/daily', APP_DIR))).toBe(false);
+  });
+
+  const dailyRoutes: Array<[string, string]> = [
+    ['/daily layout',           path.join(DAILY_DIR, 'layout.tsx')],
+    ['/daily site home',        path.join(DAILY_DIR, 'daily', '[projectId]', '[siteId]', 'page.tsx')],
+    ['/daily report layout',    path.join(DAILY_DIR, 'daily', '[projectId]', '[siteId]', '[reportId]', 'layout.tsx')],
+    ['/daily report capture',   path.join(DAILY_DIR, 'daily', '[projectId]', '[siteId]', '[reportId]', 'page.tsx')],
+    ['/daily report review',    path.join(DAILY_DIR, 'daily', '[projectId]', '[siteId]', '[reportId]', 'review', 'page.tsx')],
+    ['/daily report share',     path.join(DAILY_DIR, 'daily', '[projectId]', '[siteId]', '[reportId]', 'share', 'page.tsx')],
+  ];
+
+  it.each(dailyRoutes)('%s file exists', (_name, filePath) => {
+    expect(fs.existsSync(filePath)).toBe(true);
+  });
+
+  it('a nav href that exists nowhere still fails to resolve (negative control)', () => {
+    expect(pageExists('/daily-does-not-exist')).toBe(false);
   });
 });
 

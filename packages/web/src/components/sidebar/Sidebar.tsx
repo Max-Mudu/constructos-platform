@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Building2, HardHat, ClipboardCheck, ClipboardList, Target,
   Truck, UserCheck, FileStack, PieChart, Receipt, Lock,
   ScrollText, Settings, LogOut, Menu, X, Bell, Layers, Package, CalendarDays,
-  BarChart2,
+  BarChart2, ClipboardPen,
 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi } from '@/lib/api';
@@ -20,7 +20,7 @@ import { useSSE } from '@/providers/SSEProvider';
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   LayoutDashboard, Building2, HardHat, ClipboardCheck, ClipboardList, Target,
   Truck, UserCheck, FileStack, PieChart, Receipt, Lock,
-  ScrollText, Settings, Bell, Layers, Package, CalendarDays, BarChart2,
+  ScrollText, Settings, Bell, Layers, Package, CalendarDays, BarChart2, ClipboardPen,
 };
 
 function NavIcon({ name, className }: { name: string; className?: string }) {

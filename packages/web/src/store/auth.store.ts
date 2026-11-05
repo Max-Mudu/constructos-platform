@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import { AuthUser } from '@/lib/types';
+import { clearAllDailyNotesBackups } from '@/lib/daily-notes-storage';
 
 // ─── localStorage keys ────────────────────────────────────────────────────────
 
@@ -57,11 +58,13 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   clearAuth: () => {
     persistToStorage(null, null);
+    clearAllDailyNotesBackups(); // shared phones: never leave unsaved site notes behind
     set({ user: null, accessToken: null, isBootstrapping: false, isHydrated: true, sessionExpired: false });
   },
 
   expireSession: () => {
     persistToStorage(null, null);
+    clearAllDailyNotesBackups();
     set({ user: null, accessToken: null, isBootstrapping: false, isHydrated: true, sessionExpired: true });
   },
 
