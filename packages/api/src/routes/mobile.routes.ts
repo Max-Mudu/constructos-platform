@@ -1,8 +1,12 @@
 /**
  * Mobile-friendly global list endpoints.
- * Provides company-scoped, paginated, searchable lists of labour and delivery
- * records without requiring a projectId/siteId prefix.
- * Used by the mobile app where the supervisor/PM browses across all sites.
+ * Provides paginated, searchable lists of labour and delivery records without
+ * requiring a projectId/siteId prefix. Results are limited to the caller's read
+ * scope: company-wide roles see every company project; other roles see only
+ * projects they are an active member of, and site_supervisors only their
+ * assigned sites. An out-of-scope projectId/siteId returns 404.
+ * Labour wage fields (dailyRate, currency) are financial and are omitted unless
+ * canViewFinancialData(user) — see report.service.
  */
 import { FastifyInstance } from 'fastify';
 import { Prisma, AcceptanceStatus } from '@prisma/client';
@@ -10,6 +14,7 @@ import { authenticate } from '../middleware/authenticate';
 import { requireRole } from '../middleware/requireRole';
 import { prisma } from '../utils/prisma';
 import { handleError } from '../utils/errors';
+import { canViewFinancialData, resolveReadScope, scopeWhere } from '../services/report.service';
 
 const LABOUR_VIEW_ROLES    = ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer'] as const;
 const DELIVERY_VIEW_ROLES  = ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer'] as const;
@@ -20,7 +25,7 @@ export async function mobileRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ─────────────────────────────────────────────────────────────────────────
   // GET /api/v1/labour
-  // Company-scoped labour list with search + pagination.
+  // Scoped labour list with search + pagination.
   // Query: projectId? siteId? workerId? date? startDate? endDate? search? limit? offset?
   // ─────────────────────────────────────────────────────────────────────────
   fastify.get(
@@ -53,10 +58,11 @@ export async function mobileRoutes(fastify: FastifyInstance): Promise<void> {
           dateFilter = { date: range };
         }
 
-        const where = {
+        const scope = await resolveReadScope(request.user, { projectId, siteId });
+
+        const where: Prisma.LabourEntryWhereInput = {
           companyId,
-          ...(projectId && { projectId }),
-          ...(siteId    && { siteId    }),
+          ...scopeWhere(scope),
           ...(workerId  && { workerId  }),
           ...dateFilter,
           ...(search && {
@@ -82,8 +88,15 @@ export async function mobileRoutes(fastify: FastifyInstance): Promise<void> {
           prisma.labourEntry.count({ where }),
         ]);
 
+        // Wage fields are financial: omit them for callers without finance visibility.
+        const showWages = canViewFinancialData(request.user);
+        const visibleEntries = showWages
+          ? entries
+          : entries.map(({ dailyRate: _rate, currency: _currency, ...rest }) => rest);
+
         return reply.send({
-          entries,
+          entries: visibleEntries,
+          financialFieldsIncluded: showWages,
           pagination: { total, limit, offset, hasMore: offset + entries.length < total },
         });
       } catch (err) { return handleError(err, reply); }
@@ -92,7 +105,7 @@ export async function mobileRoutes(fastify: FastifyInstance): Promise<void> {
 
   // ─────────────────────────────────────────────────────────────────────────
   // GET /api/v1/deliveries
-  // Company-scoped delivery list with search + pagination.
+  // Scoped delivery list with search + pagination.
   // Query: projectId? siteId? date? search? acceptanceStatus? limit? offset?
   // ─────────────────────────────────────────────────────────────────────────
   fastify.get(
@@ -117,10 +130,11 @@ export async function mobileRoutes(fastify: FastifyInstance): Promise<void> {
           dateFilter = { deliveryDate: { gte: d, lt: next } };
         }
 
+        const scope = await resolveReadScope(request.user, { projectId, siteId });
+
         const where: Prisma.DeliveryRecordWhereInput = {
           companyId,
-          ...(projectId && { projectId }),
-          ...(siteId    && { siteId    }),
+          ...scopeWhere(scope),
           ...(acceptanceStatus && {
             acceptanceStatus: acceptanceStatus as AcceptanceStatus,
           }),

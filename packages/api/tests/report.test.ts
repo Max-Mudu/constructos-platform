@@ -278,7 +278,8 @@ describe('GET /reports/invoices', () => {
     expect(summaryMap['Overdue']).toBe('1');
   });
 
-  it('contractor role can access invoice report', async () => {
+  // Owner policy: contractors have no financial report access (previously asserted 200).
+  it('contractor role cannot access invoice report', async () => {
     const { company } = await createTestCompany(app, 'rpt-inv-ctr');
     const user = await createTestUser(app, company.id, 'contractor', 'rpt-inv-ctr');
     const res  = await app.inject({
@@ -286,7 +287,7 @@ describe('GET /reports/invoices', () => {
       url:     '/api/v1/reports/invoices',
       headers: { authorization: `Bearer ${user.accessToken}` },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(403);
   });
 
   it('site_supervisor cannot access invoice report', async () => {

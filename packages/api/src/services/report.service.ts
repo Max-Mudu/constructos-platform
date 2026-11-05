@@ -1,5 +1,6 @@
 import { prisma } from '../utils/prisma';
-import { ForbiddenError, NotFoundError, ValidationError } from '../utils/errors';
+import { AppError, ForbiddenError, NotFoundError, ValidationError } from '../utils/errors';
+import { getAccessibleProjectIds, getAccessibleSiteIds } from '../middleware/requireProjectAccess';
 import { RequestUser } from '../types';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -35,8 +36,9 @@ export type ReportType =
 
 const REPORT_ROLES: Record<ReportType, string[]> = {
   'labour':         ['company_admin', 'finance_officer', 'project_manager', 'site_supervisor'],
+  // Financial reports: contractor / consultant / site_supervisor never allowed.
   'budget':         ['company_admin', 'finance_officer', 'project_manager'],
-  'invoices':       ['company_admin', 'finance_officer', 'project_manager', 'contractor', 'consultant'],
+  'invoices':       ['company_admin', 'finance_officer', 'project_manager'],
   'deliveries':     ['company_admin', 'finance_officer', 'project_manager', 'site_supervisor'],
   'contractors':    ['company_admin', 'project_manager', 'site_supervisor'],
   'consultants':    ['company_admin', 'project_manager', 'consultant'],
@@ -44,11 +46,203 @@ const REPORT_ROLES: Record<ReportType, string[]> = {
   'daily-site-report':  ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer'],
 };
 
+/**
+ * Reports that are wholly financial (invoice values, budget / spend figures).
+ * Besides the role gate, the caller must pass canViewFinancialData() (same
+ * canViewFinance model as requireFinanceAccess); project_managers are further
+ * limited to member projects by the project scope below.
+ *
+ * The labour report is operational but carries wage fields (Daily Rate,
+ * Currency, Total Cost): those are stripped for callers failing
+ * canViewFinancialData() — see labourReport and the mobile /labour list.
+ */
+const FINANCIAL_REPORTS: ReadonlySet<ReportType> = new Set<ReportType>([
+  'invoices', 'budget', 'project-health',
+]);
+
+const FINANCE_COMPANY_WIDE_ROLES: ReadonlySet<string> = new Set([
+  'super_admin', 'company_admin', 'finance_officer',
+]);
+
+/**
+ * Whether the caller may see money: company_admin / finance_officer (and
+ * super_admin) always; project_manager only with canViewFinance. Every other
+ * role — including a site_supervisor carrying the flag — never.
+ * Never inferred from project membership.
+ */
+export function canViewFinancialData(actor: RequestUser): boolean {
+  if (FINANCE_COMPANY_WIDE_ROLES.has(actor.role)) return true;
+  return actor.role === 'project_manager' && actor.canViewFinance === true;
+}
+
+export interface ReportRequestContext {
+  ipAddress?: string;
+  userAgent?: string;
+}
+
 export function assertReportAccess(type: ReportType, actor: RequestUser): void {
   const allowed = REPORT_ROLES[type];
   if (!allowed.includes(actor.role)) {
     throw new ForbiddenError(`Role '${actor.role}' cannot access the ${type} report`);
   }
+}
+
+/**
+ * Finance-flag check for financial reports, equivalent to requireFinanceAccess:
+ * denials and successful accesses are both audit-logged.
+ */
+async function assertFinancialReportAccess(
+  type: ReportType,
+  actor: RequestUser,
+  ctx: ReportRequestContext,
+): Promise<void> {
+  if (!FINANCIAL_REPORTS.has(type)) return;
+
+  const allowed = canViewFinancialData(actor);
+
+  await prisma.auditLog.create({
+    data: {
+      companyId:  actor.companyId,
+      userId:     actor.id,
+      userEmail:  actor.email,
+      userRole:   actor.role,
+      action:     allowed ? 'view_finance' : 'permission_denied',
+      entityType: 'finance',
+      entityId:   `report:${type}`,
+      ipAddress:  ctx.ipAddress,
+      userAgent:  ctx.userAgent,
+    },
+  });
+
+  if (!allowed) {
+    throw new AppError(403, 'Finance access denied', 'FINANCE_ACCESS_DENIED');
+  }
+}
+
+// ─── Project / site scope ─────────────────────────────────────────────────────
+
+/**
+ * The set of projects/sites a caller may read in a report or list.
+ *  - projectIds === null  → every project in the caller's company
+ *  - siteRestrictions     → per-project site allow-lists (site_supervisor only)
+ *  - projectId / siteId   → validated, in-scope filters supplied by the caller
+ */
+export interface ReadScope {
+  companyId:        string;
+  projectIds:       string[] | null;
+  siteRestrictions: Map<string, string[]>;
+  projectId?:       string;
+  siteId?:          string;
+}
+
+/**
+ * Resolves and validates the caller's read scope.
+ * A supplied projectId/siteId that is outside the caller's company, outside
+ * their memberships, outside their assigned sites, or (for siteId) not inside
+ * the supplied project → NotFoundError (404, never reveals existence).
+ */
+export async function resolveReadScope(
+  actor: RequestUser,
+  requested: { projectId?: string; siteId?: string },
+): Promise<ReadScope> {
+  const { companyId } = actor;
+  const memberProjectIds = await getAccessibleProjectIds(companyId, actor.id, actor.role);
+
+  const inProjectScope = (id: string): boolean =>
+    memberProjectIds === null || memberProjectIds.includes(id);
+
+  let projectId: string | undefined;
+  if (requested.projectId) {
+    const project = await prisma.project.findFirst({
+      where:  { id: requested.projectId, companyId },
+      select: { id: true },
+    });
+    if (!project || !inProjectScope(project.id)) throw new NotFoundError('Project');
+    projectId = project.id;
+  }
+
+  let siteId: string | undefined;
+  if (requested.siteId) {
+    const site = await prisma.jobSite.findFirst({
+      where:  { id: requested.siteId, companyId, ...(projectId && { projectId }) },
+      select: { id: true, projectId: true },
+    });
+    if (!site || !inProjectScope(site.projectId)) throw new NotFoundError('Site');
+    const allowedSites = await getAccessibleSiteIds(site.projectId, actor.id, actor.role);
+    if (allowedSites !== null && !allowedSites.includes(site.id)) throw new NotFoundError('Site');
+    siteId    = site.id;
+    projectId = site.projectId;
+  }
+
+  // Per-project site allow-lists for site-scoped roles (site_supervisor).
+  const siteRestrictions = new Map<string, string[]>();
+  if (!siteId && memberProjectIds !== null) {
+    const candidates = projectId ? [projectId] : memberProjectIds;
+    for (const pid of candidates) {
+      const allowedSites = await getAccessibleSiteIds(pid, actor.id, actor.role);
+      if (allowedSites !== null) siteRestrictions.set(pid, allowedSites);
+    }
+  }
+
+  return { companyId, projectIds: memberProjectIds, siteRestrictions, projectId, siteId };
+}
+
+type IdFilter = string | { in: string[] };
+interface ScopeClause { projectId?: IdFilter; siteId?: IdFilter }
+export type ScopeWhere = ScopeClause & { AND?: Array<{ OR: ScopeClause[] }> };
+
+/**
+ * Prisma `where` fragment restricting a model with projectId (+ optional siteId)
+ * columns to the scope. Spread it into the model's where clause together with
+ * `companyId`. Uses an AND wrapper when an OR is needed so it never collides
+ * with a caller's own OR.
+ */
+export function scopeWhere(
+  scope: ReadScope,
+  opts: { siteColumn?: boolean } = { siteColumn: true },
+): ScopeWhere {
+  const siteColumn = opts.siteColumn !== false;
+
+  if (!siteColumn) {
+    // Project-level data (no site column): project membership is sufficient,
+    // matching requireProjectAccess (a site-scoped membership grants project-level read).
+    if (scope.projectId) return { projectId: scope.projectId };
+    return scope.projectIds === null ? {} : { projectId: { in: scope.projectIds } };
+  }
+
+  if (scope.siteId) return { projectId: scope.projectId, siteId: scope.siteId };
+
+  const restrictedClause = (pid: string): ScopeClause => {
+    const sites = scope.siteRestrictions.get(pid);
+    return sites ? { projectId: pid, siteId: { in: sites } } : { projectId: pid };
+  };
+
+  if (scope.projectId) return restrictedClause(scope.projectId);
+  if (scope.projectIds === null) return {};
+
+  const unrestricted = scope.projectIds.filter((pid) => !scope.siteRestrictions.has(pid));
+  const restricted   = scope.projectIds.filter((pid) =>  scope.siteRestrictions.has(pid));
+  if (restricted.length === 0) return { projectId: { in: unrestricted } };
+
+  return {
+    AND: [{
+      OR: [
+        { projectId: { in: unrestricted } },
+        ...restricted.map(restrictedClause),
+      ],
+    }],
+  };
+}
+
+/** Same as scopeWhere, for the Project model itself (keyed by `id`). */
+function projectScopeWhere(scope: ReadScope): { id?: IdFilter } {
+  if (scope.projectId) return { id: scope.projectId };
+  if (scope.projectIds === null) return {};
+  return { id: { in: scope.projectIds } };
+}
+
+function scopedFilters(filters: ReportFilters, scope: ReadScope): ReportFilters {
+  return { ...filters, projectId: scope.projectId, siteId: scope.siteId };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -85,6 +279,7 @@ function buildActiveFilters(filters: ReportFilters): Record<string, string> {
 export async function labourReport(
   actor: RequestUser,
   filters: ReportFilters,
+  scope: ReadScope,
 ): Promise<ReportData> {
   const { companyId } = actor;
   const dateRange = buildDateFilter(filters);
@@ -92,8 +287,7 @@ export async function labourReport(
   const entries = await prisma.labourEntry.findMany({
     where: {
       companyId,
-      ...(filters.projectId && { projectId: filters.projectId }),
-      ...(filters.siteId    && { siteId: filters.siteId }),
+      ...scopeWhere(scope),
       ...(dateRange          && { date: dateRange }),
     },
     include: {
@@ -103,15 +297,25 @@ export async function labourReport(
   });
 
   const totalHours = entries.reduce((s, e) => s + Number(e.hoursWorked), 0);
-  const totalCost  = entries.reduce((s, e) => s + Number(e.dailyRate), 0);
+
+  // Wage / rate / cost fields are financial: only for canViewFinancialData() callers.
+  const showWages = canViewFinancialData(actor);
+
+  const summary = [
+    { label: 'Total Entries',  value: String(entries.length) },
+    { label: 'Total Hours',    value: fmt(totalHours, 1) },
+  ];
+  if (showWages) {
+    const totalCost = entries.reduce((s, e) => s + Number(e.dailyRate), 0);
+    summary.push({ label: 'Total Cost', value: fmt(totalCost) });
+  }
 
   const rows = entries.map((e) => [
     fmtDate(e.date),
     `${e.worker.firstName} ${e.worker.lastName}`,
     e.worker.trade ?? '',
     fmt(Number(e.hoursWorked), 1),
-    fmt(Number(e.dailyRate)),
-    e.currency,
+    ...(showWages ? [fmt(Number(e.dailyRate)), e.currency] : []),
     e.notes ?? '',
   ]);
 
@@ -120,12 +324,10 @@ export async function labourReport(
     subtitle:    `Company labour entries${filters.projectId ? ' for project' : ''}`,
     generatedAt: new Date().toISOString(),
     filters:     buildActiveFilters(filters),
-    summary: [
-      { label: 'Total Entries',  value: String(entries.length) },
-      { label: 'Total Hours',    value: fmt(totalHours, 1) },
-      { label: 'Total Cost',     value: fmt(totalCost) },
-    ],
-    columns: ['Date', 'Worker', 'Trade', 'Hours', 'Daily Rate', 'Currency', 'Notes'],
+    summary,
+    columns: showWages
+      ? ['Date', 'Worker', 'Trade', 'Hours', 'Daily Rate', 'Currency', 'Notes']
+      : ['Date', 'Worker', 'Trade', 'Hours', 'Notes'],
     rows,
   };
 }
@@ -133,13 +335,14 @@ export async function labourReport(
 export async function budgetReport(
   actor: RequestUser,
   filters: ReportFilters,
+  scope: ReadScope,
 ): Promise<ReportData> {
   const { companyId } = actor;
 
   const budgets = await prisma.budget.findMany({
     where: {
       companyId,
-      ...(filters.projectId && { projectId: filters.projectId }),
+      ...scopeWhere(scope, { siteColumn: false }),
     },
     include: {
       project: { select: { name: true } },
@@ -194,6 +397,7 @@ export async function budgetReport(
 export async function invoiceReport(
   actor: RequestUser,
   filters: ReportFilters,
+  scope: ReadScope,
 ): Promise<ReportData> {
   const { companyId } = actor;
   const dateRange = buildDateFilter(filters);
@@ -201,8 +405,7 @@ export async function invoiceReport(
   const invoices = await prisma.invoice.findMany({
     where: {
       companyId,
-      ...(filters.projectId && { projectId: filters.projectId }),
-      ...(filters.siteId    && { siteId: filters.siteId }),
+      ...scopeWhere(scope),
       ...(dateRange          && { issueDate: dateRange }),
     },
     include: {
@@ -259,6 +462,7 @@ export async function invoiceReport(
 export async function deliveryReport(
   actor: RequestUser,
   filters: ReportFilters,
+  scope: ReadScope,
 ): Promise<ReportData> {
   const { companyId } = actor;
   const dateRange = buildDateFilter(filters);
@@ -266,8 +470,7 @@ export async function deliveryReport(
   const deliveries = await prisma.deliveryRecord.findMany({
     where: {
       companyId,
-      ...(filters.projectId && { projectId: filters.projectId }),
-      ...(filters.siteId    && { siteId: filters.siteId }),
+      ...scopeWhere(scope),
       ...(dateRange          && { deliveryDate: dateRange }),
     },
     include: {
@@ -319,6 +522,7 @@ export async function deliveryReport(
 export async function contractorReport(
   actor: RequestUser,
   filters: ReportFilters,
+  scope: ReadScope,
 ): Promise<ReportData> {
   const { companyId } = actor;
 
@@ -326,7 +530,8 @@ export async function contractorReport(
     where: { companyId, isActive: true },
     include: {
       schedules: {
-        where: { companyId, status: 'active' },
+        // Contractor schedules have no site column: count only in-scope projects.
+        where: { companyId, status: 'active', ...scopeWhere(scope, { siteColumn: false }) },
         select: { id: true, projectId: true },
       },
     },
@@ -365,6 +570,7 @@ export async function contractorReport(
 export async function consultantReport(
   actor: RequestUser,
   filters: ReportFilters,
+  scope: ReadScope,
 ): Promise<ReportData> {
   const { companyId } = actor;
   const dateRange = buildDateFilter(filters);
@@ -372,8 +578,7 @@ export async function consultantReport(
   const instructions = await prisma.consultantInstruction.findMany({
     where: {
       companyId,
-      ...(filters.projectId && { projectId: filters.projectId }),
-      ...(filters.siteId    && { siteId: filters.siteId }),
+      ...scopeWhere(scope),
       ...(dateRange          && { issuedDate: dateRange }),
     },
     include: {
@@ -425,12 +630,13 @@ export async function consultantReport(
 export async function projectHealthReport(
   actor: RequestUser,
   filters: ReportFilters,
+  scope: ReadScope,
 ): Promise<ReportData> {
   const { companyId } = actor;
 
   const projectWhere = {
     companyId,
-    ...(filters.projectId && { id: filters.projectId }),
+    ...projectScopeWhere(scope),
   };
 
   const projects = await prisma.project.findMany({
@@ -546,15 +752,22 @@ export async function projectHealthReport(
 
 // ─── Daily Site Report ────────────────────────────────────────────────────────
 
-export async function dailySiteReport(
-  actor: RequestUser,
+function assertDailySiteReportParams(
   filters: ReportFilters,
-): Promise<ReportData> {
-  const { companyId } = actor;
-
+): asserts filters is ReportFilters & { projectId: string; siteId: string; startDate: string } {
   if (!filters.projectId) throw new ValidationError('projectId is required for daily-site-report');
   if (!filters.siteId)    throw new ValidationError('siteId is required for daily-site-report');
   if (!filters.startDate) throw new ValidationError('startDate (the report date) is required for daily-site-report');
+}
+
+export async function dailySiteReport(
+  actor: RequestUser,
+  filters: ReportFilters,
+  scope: ReadScope,
+): Promise<ReportData> {
+  const { companyId } = actor;
+
+  assertDailySiteReportParams(filters);
 
   const { projectId, siteId, startDate } = filters;
 
@@ -891,18 +1104,30 @@ export async function generateReport(
   type: ReportType,
   actor: RequestUser,
   filters: ReportFilters,
+  ctx: ReportRequestContext = {},
 ): Promise<ReportData> {
+  // 1. Role gate  2. finance flag (financial reports)  3. project / site scope
   assertReportAccess(type, actor);
+  await assertFinancialReportAccess(type, actor, ctx);
+
+  // Required-parameter validation runs on the caller's raw filters (422 before scope).
+  if (type === 'daily-site-report') assertDailySiteReportParams(filters);
+
+  const scope = await resolveReadScope(actor, {
+    projectId: filters.projectId,
+    siteId:    filters.siteId,
+  });
+  const f = scopedFilters(filters, scope);
 
   switch (type) {
-    case 'labour':         return labourReport(actor, filters);
-    case 'budget':         return budgetReport(actor, filters);
-    case 'invoices':       return invoiceReport(actor, filters);
-    case 'deliveries':     return deliveryReport(actor, filters);
-    case 'contractors':    return contractorReport(actor, filters);
-    case 'consultants':    return consultantReport(actor, filters);
-    case 'project-health':      return projectHealthReport(actor, filters);
-    case 'daily-site-report':  return dailySiteReport(actor, filters);
+    case 'labour':         return labourReport(actor, f, scope);
+    case 'budget':         return budgetReport(actor, f, scope);
+    case 'invoices':       return invoiceReport(actor, f, scope);
+    case 'deliveries':     return deliveryReport(actor, f, scope);
+    case 'contractors':    return contractorReport(actor, f, scope);
+    case 'consultants':    return consultantReport(actor, f, scope);
+    case 'project-health':      return projectHealthReport(actor, f, scope);
+    case 'daily-site-report':  return dailySiteReport(actor, f, scope);
     default:
       throw new NotFoundError('Report type');
   }

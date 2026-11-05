@@ -46,7 +46,12 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
 
         const filters: ReportFilters = { projectId, siteId, startDate, endDate };
 
-        const data = await generateReport(type, request.user, filters);
+        // Authorization (role gate, finance flag, project/site scope) is enforced in
+        // generateReport before any data is read, so every format gets the same outcome.
+        const data = await generateReport(type, request.user, filters, {
+          ipAddress: request.ip,
+          userAgent: request.headers['user-agent'],
+        });
 
         if (format === 'csv') {
           const buf = toCSV(data);
