@@ -729,14 +729,20 @@ export async function removeDependency(
 ) {
   await checkSiteAccess(siteId, projectId, actor);
 
-  const dep = await prisma.scheduleDependency.findUnique({
-    where: { taskId_dependsOnTaskId: { taskId, dependsOnTaskId } },
+  // Scope the lookup to the caller's company and to the project/site in the
+  // URL — the authorised route alone does not prove the dependency is there.
+  const dep = await prisma.scheduleDependency.findFirst({
+    where: {
+      taskId,
+      dependsOnTaskId,
+      companyId: actor.companyId,
+      task: { companyId: actor.companyId, projectId, siteId },
+    },
+    select: { id: true },
   });
   if (!dep) throw new NotFoundError('Dependency');
 
-  await prisma.scheduleDependency.delete({
-    where: { taskId_dependsOnTaskId: { taskId, dependsOnTaskId } },
-  });
+  await prisma.scheduleDependency.delete({ where: { id: dep.id } });
 }
 
 // ─── Milestones ───────────────────────────────────────────────────────────────
