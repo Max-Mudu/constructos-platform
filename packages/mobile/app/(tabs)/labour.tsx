@@ -114,6 +114,13 @@ function CreateLabourModal({
   defaultSiteId?:    string | null;
 }) {
   const hasDefaultContext = !!(defProjId && defSiteId);
+  // Mirrors the API's canViewFinancialData. Without it the server derives the
+  // rate from the worker's daily wage, so the form neither asks for nor sends one.
+  const authUser = useAuthStore((s) => s.user);
+  const canSetRate = !!authUser && (
+    ['super_admin', 'company_admin', 'finance_officer'].includes(authUser.role)
+    || (authUser.role === 'project_manager' && authUser.canViewFinance === true)
+  );
   const [projects, setProjects] = useState<Project[]>([]);
   const [sites, setSites] = useState<JobSite[]>([]);
   const [workers, setWorkers] = useState<Worker[]>([]);
@@ -159,7 +166,7 @@ function CreateLabourModal({
     }
 
     const dailyRate = parseFloat(rate);
-    if (isNaN(dailyRate) || dailyRate <= 0) {
+    if (canSetRate && (isNaN(dailyRate) || dailyRate <= 0)) {
       Alert.alert('Validation', 'Enter a valid daily rate');
       return;
     }
@@ -172,7 +179,7 @@ function CreateLabourModal({
       workerId,
       date,
       hoursWorked: parseFloat(hours) || 8,
-      dailyRate,
+      ...(canSetRate && { dailyRate }),
       notes: notes || undefined,
     };
 
@@ -271,13 +278,15 @@ function CreateLabourModal({
             keyboardType="decimal-pad"
             placeholder="8"
           />
-          <Input
-            label="Daily Rate"
-            value={rate}
-            onChangeText={setRate}
-            keyboardType="decimal-pad"
-            placeholder="1500"
-          />
+          {canSetRate && (
+            <Input
+              label="Daily Rate"
+              value={rate}
+              onChangeText={setRate}
+              keyboardType="decimal-pad"
+              placeholder="1500"
+            />
+          )}
           <Input
             label="Notes (optional)"
             value={notes}

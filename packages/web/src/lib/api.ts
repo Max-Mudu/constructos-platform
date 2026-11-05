@@ -380,7 +380,9 @@ export const labourApi = {
     workerId: string;
     date: string;
     hoursWorked: number;
-    dailyRate: number;
+    // Only honoured for callers with financial access; otherwise the server
+    // derives the rate from the worker's wage record.
+    dailyRate?: number;
     currency?: string;
     notes?: string;
   }) =>

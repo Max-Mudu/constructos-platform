@@ -2,7 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { authenticate } from '../middleware/authenticate';
 import { requireRole } from '../middleware/requireRole';
-import { requireProjectAccess } from '../middleware/requireProjectAccess';
+import { requireProjectAccess, getAccessibleSiteIds } from '../middleware/requireProjectAccess';
 import * as deliveryService from '../services/delivery.service';
 import { NotFoundError, handleError } from '../utils/errors';
 import {
@@ -78,6 +78,21 @@ const VIEW_ROLES   = ['company_admin', 'project_manager', 'site_supervisor', 'fi
 const WRITE_ROLES  = ['company_admin', 'project_manager', 'site_supervisor'] as const;
 // Only admin/PM can delete deliveries AND their attached files
 const DELETE_ROLES = ['company_admin', 'project_manager'] as const;
+
+/**
+ * Site-supervisor site scoping for the file routes, which query Prisma directly
+ * instead of going through delivery.service (checkSiteAccess). Returns false when
+ * the actor is a site-restricted supervisor not assigned to this site; callers
+ * must then answer exactly as for a missing delivery/file (no existence oracle).
+ */
+async function canAccessSite(
+  projectId: string,
+  siteId: string,
+  user: { id: string; role: import('@prisma/client').UserRole },
+): Promise<boolean> {
+  const siteIds = await getAccessibleSiteIds(projectId, user.id, user.role);
+  return siteIds === null || siteIds.includes(siteId);
+}
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
@@ -183,6 +198,10 @@ export async function deliveryRoutes(fastify: FastifyInstance): Promise<void> {
         projectId: string; siteId: string; deliveryId: string;
       };
 
+      if (!(await canAccessSite(projectId, siteId, request.user))) {
+        return reply.status(404).send({ error: 'Delivery record not found', code: 'NOT_FOUND' });
+      }
+
       // Verify delivery belongs to this company/project/site
       const delivery = await prisma.deliveryRecord.findFirst({
         where: { id: deliveryId, projectId, siteId, companyId: request.user.companyId },
@@ -269,6 +288,10 @@ export async function deliveryRoutes(fastify: FastifyInstance): Promise<void> {
         projectId: string; siteId: string; deliveryId: string; photoId: string;
       };
 
+      if (!(await canAccessSite(projectId, siteId, request.user))) {
+        throw new NotFoundError('Photo');
+      }
+
       const photo = await prisma.deliveryPhoto.findFirst({
         where: {
           id: photoId,
@@ -313,6 +336,10 @@ export async function deliveryRoutes(fastify: FastifyInstance): Promise<void> {
       const { projectId, siteId, deliveryId } = request.params as {
         projectId: string; siteId: string; deliveryId: string;
       };
+
+      if (!(await canAccessSite(projectId, siteId, request.user))) {
+        return reply.status(404).send({ error: 'Delivery record not found', code: 'NOT_FOUND' });
+      }
 
       const delivery = await prisma.deliveryRecord.findFirst({
         where: { id: deliveryId, projectId, siteId, companyId: request.user.companyId },
@@ -398,6 +425,10 @@ export async function deliveryRoutes(fastify: FastifyInstance): Promise<void> {
       const { projectId, siteId, deliveryId, documentId } = request.params as {
         projectId: string; siteId: string; deliveryId: string; documentId: string;
       };
+
+      if (!(await canAccessSite(projectId, siteId, request.user))) {
+        throw new NotFoundError('Document');
+      }
 
       const document = await prisma.deliveryDocument.findFirst({
         where: {

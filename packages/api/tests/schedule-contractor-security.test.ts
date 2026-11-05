@@ -354,16 +354,21 @@ describe('Contractor ownership — weekly plans', () => {
     expect(await prisma.weeklyPlan.count()).toBe(before);
   });
 
-  it('PM may still build a plan for one contractor using any contractor\'s site task — 201 (no rule added for non-contractors)', async () => {
+  // Owner decision D: every task in a weekly plan must belong to the plan's
+  // contractor for every role, so a PM can no longer mix in another
+  // contractor's task (previously 201).
+  it('PM cannot build a plan for one contractor using another contractor\'s site task — 404, nothing created', async () => {
     const w = await seedWorld('consec-wp-pm');
     const pm = await createTestUser(app, w.company.id, 'project_manager', 'consec-wp-pm');
     await assignUserToProject(w.company.id, w.project.id, pm.id);
+    const before = await prisma.weeklyPlan.count();
 
     const res = await app.inject({
       method: 'POST', url: `${w.base}/weekly-plans`,
       headers: { authorization: `Bearer ${pm.accessToken}` },
       payload: { contractorId: w.own.id, weekStartDate: '2026-04-13', items: [{ taskId: w.otherTask.id }] },
     });
-    expect(res.statusCode).toBe(201);
+    expect(res.statusCode).toBe(404);
+    expect(await prisma.weeklyPlan.count()).toBe(before);
   });
 });

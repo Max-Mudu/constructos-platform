@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { NotFoundError, ForbiddenError } from '../utils/errors';
+import { AppError, NotFoundError, ForbiddenError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
 import { emitToCompany } from './event-emitter.service';
@@ -12,7 +12,9 @@ export interface CreateLabourEntryInput {
   workerId: string;
   date: string;        // "YYYY-MM-DD"
   hoursWorked: number;
-  dailyRate: number;
+  /** Honoured only for finance-authorised callers; otherwise derived from the worker. */
+  dailyRate?: number;
+  /** Honoured only for finance-authorised callers supplying dailyRate. */
   currency?: string;
   notes?: string;
 }
@@ -84,6 +86,29 @@ function presentEntry(entry: LabourEntryRecord, actor: RequestUser): LabourEntry
   return rest;
 }
 
+// ─── Who may CHOOSE a rate (write policy) ─────────────────────────────────────
+//
+// A pay rate is only ever written from a trusted source:
+//   - Callers passing canViewFinancialData(actor) may supply dailyRate (and
+//     currency) explicitly. Every labour route runs requireProjectAccess, so a
+//     project_manager reaching here is an active member of the project.
+//   - Everyone else (site_supervisor, project_manager without canViewFinance)
+//     may record operational entries but a dailyRate / currency they submit is
+//     IGNORED — on create the rate is derived from Worker.dailyWage / currency,
+//     on update the stored rate and currency are left untouched.
+//   - When no explicit rate is honoured and the worker has no daily wage on
+//     record the create is rejected (422 WORKER_WAGE_MISSING) — never stored as 0.
+
+export class WorkerWageMissingError extends AppError {
+  constructor() {
+    super(
+      422,
+      'This worker has no daily wage on record; ask a finance user to set it',
+      'WORKER_WAGE_MISSING',
+    );
+  }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function checkSiteAccess(
@@ -102,10 +127,10 @@ async function validateWorkerOnSite(
   siteId: string,
   projectId: string,
   companyId: string,
-): Promise<void> {
+): Promise<{ dailyWage: Prisma.Decimal | null; currency: string }> {
   const worker = await prisma.worker.findFirst({
     where: { id: workerId, companyId },
-    select: { id: true },
+    select: { id: true, dailyWage: true, currency: true },
   });
   if (!worker) throw new NotFoundError('Worker');
 
@@ -116,6 +141,27 @@ async function validateWorkerOnSite(
   if (!assignment) {
     throw new ForbiddenError('Worker is not assigned to this site');
   }
+  return { dailyWage: worker.dailyWage, currency: worker.currency };
+}
+
+/**
+ * Resolves the rate/currency to store on a new entry (see write policy above).
+ * An explicit rate is honoured only for finance-authorised callers; it is
+ * paired with the submitted currency, else the worker's currency. Otherwise the
+ * worker's wage AND currency are used together, whatever was submitted.
+ */
+function resolveCreateRate(
+  input: CreateLabourEntryInput,
+  worker: { dailyWage: Prisma.Decimal | null; currency: string },
+  actor: RequestUser,
+): { dailyRate: Prisma.Decimal | number; currency: string } {
+  if (canViewFinancialData(actor) && input.dailyRate !== undefined) {
+    return { dailyRate: input.dailyRate, currency: input.currency ?? worker.currency };
+  }
+  if (worker.dailyWage === null || !worker.dailyWage.greaterThan(0)) {
+    throw new WorkerWageMissingError();
+  }
+  return { dailyRate: worker.dailyWage, currency: worker.currency };
 }
 
 // ─── Service functions ────────────────────────────────────────────────────────
@@ -177,7 +223,8 @@ export async function createLabourEntry(
   actor: RequestUser,
 ) {
   await checkSiteAccess(siteId, projectId, actor);
-  await validateWorkerOnSite(input.workerId, siteId, projectId, actor.companyId);
+  const worker = await validateWorkerOnSite(input.workerId, siteId, projectId, actor.companyId);
+  const { dailyRate, currency } = resolveCreateRate(input, worker, actor);
 
   const entry = await prisma.labourEntry.create({
     data: {
@@ -188,8 +235,8 @@ export async function createLabourEntry(
       registeredById: actor.id,
       date:           new Date(input.date),
       hoursWorked:    input.hoursWorked,
-      dailyRate:      input.dailyRate,
-      currency:       input.currency ?? 'KES',
+      dailyRate,
+      currency,
       notes:          input.notes,
     },
     select: ENTRY_SELECT,
@@ -231,12 +278,16 @@ export async function updateLabourEntry(
   });
   if (!before) throw new NotFoundError('Labour entry');
 
+  // Write policy: rate/currency changes are honoured only for finance-authorised
+  // callers; for anyone else they are ignored and the stored values kept.
+  const mayWriteRate = canViewFinancialData(actor);
+
   const updated = await prisma.labourEntry.update({
     where: { id: entryId },
     data: {
       ...(input.hoursWorked !== undefined && { hoursWorked: input.hoursWorked }),
-      ...(input.dailyRate   !== undefined && { dailyRate:   input.dailyRate }),
-      ...(input.currency    !== undefined && { currency:    input.currency }),
+      ...(mayWriteRate && input.dailyRate !== undefined && { dailyRate: input.dailyRate }),
+      ...(mayWriteRate && input.currency  !== undefined && { currency:  input.currency }),
       ...(input.notes       !== undefined && { notes:       input.notes }),
     },
     select: ENTRY_SELECT,

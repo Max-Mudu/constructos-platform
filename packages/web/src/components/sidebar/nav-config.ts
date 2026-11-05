@@ -8,6 +8,11 @@ export interface NavItem {
   roles: UserRole[] | null;
   /** if true, only shown when user.canViewFinance === true */
   requiresFinance: boolean;
+  /**
+   * if true, only shown to users with financial permission
+   * (see hasFinancialNavPermission). Used for internal Invoices and Budget.
+   */
+  requiresFinancialPermission?: boolean;
   /** visual separator above this item */
   group?: string;
 }
@@ -126,14 +131,16 @@ export const NAV_ITEMS: NavItem[] = [
     icon: 'PieChart',
     roles: ['company_admin', 'finance_officer', 'project_manager'],
     requiresFinance: false,
+    requiresFinancialPermission: true,
     group: 'Finance',
   },
   {
     label: 'Invoices',
     href: '/invoices',
     icon: 'Receipt',
-    roles: ['company_admin', 'finance_officer', 'project_manager', 'contractor', 'consultant'],
+    roles: ['company_admin', 'finance_officer', 'project_manager'],
     requiresFinance: false,
+    requiresFinancialPermission: true,
   },
   {
     label: 'Reports',
@@ -183,8 +190,33 @@ export const NAV_ITEMS: NavItem[] = [
 ];
 
 /**
+ * Financial permission for internal finance navigation (Invoices, Budget).
+ * Mirrors the backend rule: super_admin, company_admin and finance_officer
+ * always; project_manager only when canViewFinance === true; all other roles
+ * never (the canViewFinance flag does not grant it to them).
+ */
+export function hasFinancialNavPermission(
+  role: UserRole,
+  canViewFinance: boolean,
+): boolean {
+  switch (role) {
+    case 'super_admin':
+    case 'company_admin':
+    case 'finance_officer':
+      return true;
+    case 'project_manager':
+      return canViewFinance === true;
+    default:
+      return false;
+  }
+}
+
+/**
  * Filters NAV_ITEMS to what the given user is allowed to see.
  * This is pure logic — no React, no side effects — so it is fully testable.
+ *
+ * NOTE: hiding navigation is a UX convenience, NOT an authorization control.
+ * The backend enforces access on every route; never rely on this for security.
  */
 export function getVisibleNavItems(
   role: UserRole,
@@ -193,6 +225,11 @@ export function getVisibleNavItems(
   return NAV_ITEMS.filter((item) => {
     // Finance-gated items: role must be allowed AND canViewFinance must be true
     if (item.requiresFinance && !canViewFinance) return false;
+
+    // Internal finance items (Invoices, Budget): financial permission required
+    if (item.requiresFinancialPermission && !hasFinancialNavPermission(role, canViewFinance)) {
+      return false;
+    }
 
     // Role check: null means all roles are allowed
     if (item.roles === null) return true;

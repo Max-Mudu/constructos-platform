@@ -1,5 +1,5 @@
 import { prisma } from '../utils/prisma';
-import { NotFoundError, ForbiddenError, ValidationError } from '../utils/errors';
+import { AppError, NotFoundError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { Prisma, WorkerEmploymentStatus } from '@prisma/client';
 import { getAccessibleProjectIds } from '../middleware/requireProjectAccess';
@@ -78,8 +78,17 @@ const WORKER_SELECT = {
 //     assignment on a project the PM is an active member of (a worker is a
 //     company-level record, so "member projects only" is decided per worker).
 // Everyone else gets the record with those two keys OMITTED (never 0/null).
-// Audit-log snapshots keep the full record. Who may read or write a worker is
-// unchanged.
+// Audit-log snapshots keep the full record.
+//
+// WRITING dailyWage / currency follows the same rule (assertMayWriteWage):
+//   - company_admin / finance_officer / super_admin: any worker in the company;
+//   - project_manager with canViewFinance: only a worker with an active
+//     assignment on a project the PM is an active member of — so never on
+//     create, where the worker has no project yet;
+//   - everyone else: never.
+// A create/update that INCLUDES either key without that authorisation is
+// rejected with 403 FINANCE_ACCESS_DENIED; writes omitting both keys are
+// unaffected.
 
 type WorkerFinancialKey = 'dailyWage' | 'currency';
 
@@ -139,7 +148,39 @@ async function presentWorker<T extends WorkerRecord>(
   return view!;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+function includesWageFields(input: { dailyWage?: unknown; currency?: unknown }): boolean {
+  return input.dailyWage !== undefined || input.currency !== undefined;
+}
+
+/**
+ * Throws 403 FINANCE_ACCESS_DENIED unless the actor may write wage fields of
+ * `workerId` (an existing worker) or of a worker being created (`null`).
+ */
+async function assertMayWriteWage(actor: RequestUser, workerId: string | null): Promise<void> {
+  const deny = () => new AppError(403, 'Finance access denied: you cannot set or change worker pay rates', 'FINANCE_ACCESS_DENIED');
+  if (!canViewFinancialData(actor)) throw deny();
+
+  if (workerId === null) {
+    // No project exists for a new worker, so only company-wide finance roles qualify.
+    const projectIds = await getAccessibleProjectIds(actor.companyId, actor.id, actor.role);
+    if (projectIds !== null) throw deny();
+    return;
+  }
+  const allowed = await wageVisibleWorkerIds(actor, [workerId]);
+  if (!allowed.has(workerId)) throw deny();
+}
+
+// ─── Visibility scope (PII) ───────────────────────────────────────────────────
+//
+// Which workers a caller may see or edit at all:
+//   - company-wide roles (super_admin / company_admin / finance_officer): all
+//     workers in the company;
+//   - site_supervisor: workers actively assigned to a site the supervisor is
+//     explicitly (siteId) assigned to;
+//   - any other role (project_manager): workers actively assigned to a project
+//     the caller is an active member of.
+// Used by listWorkers, getWorker, updateWorker and deactivateWorker. List
+// filters (?projectId= / ?siteId=) are ANDed with it, so they can only narrow.
 
 /**
  * Returns all site IDs a supervisor is explicitly assigned to across ALL projects.
@@ -152,30 +193,23 @@ async function getSupervisorAllSiteIds(userId: string): Promise<string[]> {
   return memberships.map((m) => m.siteId as string);
 }
 
+/** Prisma condition restricting workers to the actor's scope; `{}` when company-wide. */
+async function workerScopeWhere(actor: RequestUser): Promise<Prisma.WorkerWhereInput> {
+  if (actor.role === 'site_supervisor') {
+    const siteIds = await getSupervisorAllSiteIds(actor.id);
+    return { assignments: { some: { siteId: { in: siteIds }, removedAt: null } } };
+  }
+  const projectIds = await getAccessibleProjectIds(actor.companyId, actor.id, actor.role);
+  if (projectIds === null) return {};
+  return { assignments: { some: { projectId: { in: projectIds }, removedAt: null } } };
+}
+
 // ─── Service functions ────────────────────────────────────────────────────────
 
 export async function listWorkers(actor: RequestUser, filters: ListWorkersFilters = {}) {
-  // Build scope filter based on role
-  let assignmentFilter: object | undefined;
-
-  if (actor.role === 'site_supervisor') {
-    const siteIds = await getSupervisorAllSiteIds(actor.id);
-    assignmentFilter = {
-      assignments: {
-        some: { siteId: { in: siteIds }, removedAt: null },
-      },
-    };
-  } else if (actor.role === 'project_manager') {
-    const projectIds = await getAccessibleProjectIds(actor.companyId, actor.id, actor.role);
-    if (projectIds !== null) {
-      assignmentFilter = {
-        assignments: {
-          some: { projectId: { in: projectIds }, removedAt: null },
-        },
-      };
-    }
-  }
-  // company_admin, finance_officer: no additional scoping
+  // Role scope; the query filters below are ANDed with it (they used to share
+  // the `assignments` key and overwrite it, widening a PM/supervisor's scope).
+  const scopeFilter = await workerScopeWhere(actor);
 
   // Build search / filter conditions
   const searchFilter = filters.search
@@ -201,12 +235,7 @@ export async function listWorkers(actor: RequestUser, filters: ListWorkersFilter
   const workers = await prisma.worker.findMany({
     where: {
       companyId: actor.companyId,
-      ...assignmentFilter,
-      ...searchFilter,
-      ...tradeFilter,
-      ...activeFilter,
-      ...siteFilter,
-      ...projectFilter,
+      AND: [scopeFilter, searchFilter, tradeFilter, activeFilter, siteFilter, projectFilter],
     },
     select:  WORKER_SELECT,
     orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
@@ -217,7 +246,7 @@ export async function listWorkers(actor: RequestUser, filters: ListWorkersFilter
 
 export async function getWorker(workerId: string, actor: RequestUser) {
   const worker = await prisma.worker.findFirst({
-    where: { id: workerId, companyId: actor.companyId },
+    where: { id: workerId, companyId: actor.companyId, AND: [await workerScopeWhere(actor)] },
     select: {
       ...WORKER_SELECT,
       assignments: {
@@ -238,6 +267,8 @@ export async function getWorker(workerId: string, actor: RequestUser) {
 }
 
 export async function createWorker(input: CreateWorkerInput, actor: RequestUser) {
+  if (includesWageFields(input)) await assertMayWriteWage(actor, null);
+
   const worker = await prisma.worker.create({
     data: {
       companyId:            actor.companyId,
@@ -279,10 +310,11 @@ export async function updateWorker(
   actor: RequestUser,
 ) {
   const before = await prisma.worker.findFirst({
-    where: { id: workerId, companyId: actor.companyId },
+    where: { id: workerId, companyId: actor.companyId, AND: [await workerScopeWhere(actor)] },
     select: WORKER_SELECT,
   });
   if (!before) throw new NotFoundError('Worker');
+  if (includesWageFields(input)) await assertMayWriteWage(actor, workerId);
 
   const updated = await prisma.worker.update({
     where: { id: workerId },
@@ -326,7 +358,7 @@ export async function updateWorker(
 
 export async function deactivateWorker(workerId: string, actor: RequestUser) {
   const worker = await prisma.worker.findFirst({
-    where: { id: workerId, companyId: actor.companyId },
+    where: { id: workerId, companyId: actor.companyId, AND: [await workerScopeWhere(actor)] },
     select: WORKER_SELECT,
   });
   if (!worker) throw new NotFoundError('Worker');

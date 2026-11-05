@@ -8,15 +8,24 @@ import { handleError } from '../utils/errors';
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
+// dailyRate / currency are optional and are honoured ONLY for callers passing
+// canViewFinancialData (company_admin / finance_officer / super_admin, or a
+// project_manager with canViewFinance on a member project). For anyone else
+// (site_supervisor, project_manager without the flag) a submitted rate or
+// currency is deliberately IGNORED: the service derives both from the trusted
+// Worker.dailyWage / currency on create, and keeps the stored values on update.
+// A worker with no daily wage on record → 422 WORKER_WAGE_MISSING (never 0).
+// See labour.service.ts "Who may CHOOSE a rate".
 const createEntrySchema = z.object({
   workerId:    z.string().uuid(),
   date:        z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD'),
   hoursWorked: z.number().positive().max(24),
-  dailyRate:   z.number().positive(),
-  currency:    z.string().length(3).default('KES'),
+  dailyRate:   z.number().positive().optional(),
+  currency:    z.string().length(3).optional(),
   notes:       z.string().max(2000).optional(),
 });
 
+// dailyRate / currency: ignored for non-finance callers (see above).
 const updateEntrySchema = z.object({
   hoursWorked: z.number().positive().max(24).optional(),
   dailyRate:   z.number().positive().optional(),

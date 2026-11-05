@@ -7,8 +7,10 @@
  * allowed to read labour/worker data gets the non-financial fields only — the
  * financial keys are omitted (never sent as 0/null).
  *
- * Writes are unchanged: who may write and what is required stay the same; only
- * the response to a non-finance writer no longer echoes the financial fields.
+ * Responses to a non-finance writer never echo the financial fields. Who may
+ * CHOOSE a rate/wage is covered by wage-write-policy.test.ts: non-finance labour
+ * writers get the rate derived from the worker (submitted values ignored), and
+ * worker wage fields need financial authorisation.
  */
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/server';
@@ -209,8 +211,9 @@ describe('labour list / detail — wage fields', () => {
 
 // ─── Labour writes ────────────────────────────────────────────────────────────
 
-describe('labour writes — semantics unchanged, response not echoing rates', () => {
-  it('supervisor still creates with a dailyRate; rate stored but not echoed', async () => {
+describe('labour writes — response not echoing rates', () => {
+  // Owner decision A: a supervisor's submitted rate is ignored; derived from W1.
+  it('supervisor creates; submitted dailyRate ignored, worker rate stored, not echoed', async () => {
     const res = await req(w.sup, 'POST', labourUrl(w.p1, w.s1), {
       workerId: w.w1, date: nextDate(), hoursWorked: 6, dailyRate: 1700, currency: 'USD',
     });
@@ -220,15 +223,19 @@ describe('labour writes — semantics unchanged, response not echoing rates', ()
     expect(entry.hoursWorked).toBe('6');
 
     const row = await prisma.labourEntry.findUniqueOrThrow({ where: { id: entry.id } });
-    expect(row.dailyRate.toString()).toBe('1700');
+    expect(row.dailyRate.toString()).toBe('1500');
     expect(row.currency).toBe('USD');
   });
 
-  it('supervisor create still requires dailyRate (unchanged) — 422', async () => {
+  // Owner decision A: dailyRate is no longer required from a supervisor.
+  it('supervisor create without dailyRate — 201, rate derived from the worker', async () => {
     const res = await req(w.sup, 'POST', labourUrl(w.p1, w.s1), {
       workerId: w.w1, date: nextDate(), hoursWorked: 6,
     });
-    expect(res.statusCode).toBe(422);
+    expect(res.statusCode).toBe(201);
+    expectNoLabourFinance(res.json().entry);
+    const row = await prisma.labourEntry.findUniqueOrThrow({ where: { id: res.json().entry.id } });
+    expect(row.dailyRate.toString()).toBe('1500');
   });
 
   it('PM without flag: update response does not echo the rate; rate untouched', async () => {
@@ -239,7 +246,8 @@ describe('labour writes — semantics unchanged, response not echoing rates', ()
     expect(row.dailyRate.toString()).toBe('1500');
   });
 
-  it('supervisor may still change the rate (unchanged); not echoed', async () => {
+  // Owner decision A: a supervisor's rate change is ignored.
+  it('supervisor rate change is ignored; rate kept, not echoed', async () => {
     const created = await req(w.admin, 'POST', labourUrl(w.p1, w.s1), {
       workerId: w.w1, date: nextDate(), hoursWorked: 8, dailyRate: 1500,
     });
@@ -250,7 +258,7 @@ describe('labour writes — semantics unchanged, response not echoing rates', ()
     expect(res.statusCode).toBe(200);
     expectNoLabourFinance(res.json().entry);
     const row = await prisma.labourEntry.findUniqueOrThrow({ where: { id } });
-    expect(row.dailyRate.toString()).toBe('1600');
+    expect(row.dailyRate.toString()).toBe('1500');
   });
 
   it('company_admin create and PM+flag update echo the rate', async () => {
@@ -317,10 +325,10 @@ describe('worker list / detail / site workers — wage fields', () => {
     expect((res.json().workers as Json[]).map((x) => x['id'])).not.toContain(w.w2);
   });
 
-  it('PM+flag: worker only on a non-member project — detail readable (unchanged) but no wage', async () => {
+  // Worker detail now has the same scope as the list (see worker-scope.test.ts).
+  it('PM+flag: worker only on a non-member project — 404 (outside scope)', async () => {
     const res = await req(w.pmFin, 'GET', `/workers/${w.w2}`);
-    expect(res.statusCode).toBe(200);
-    expectNoWorkerFinance(res.json().worker);
+    expect(res.statusCode).toBe(404);
   });
 
   it('company_admin/finance_officer see W2 wage company-wide', async () => {
@@ -346,16 +354,22 @@ describe('worker list / detail / site workers — wage fields', () => {
 
 // ─── Worker writes ────────────────────────────────────────────────────────────
 
-describe('worker writes — semantics unchanged, response not echoing wage', () => {
-  it('PM without flag may still create with dailyWage; stored but not echoed', async () => {
+describe('worker writes — response not echoing wage', () => {
+  // Owner decision B: wage fields need financial authorisation.
+  it('PM without flag creating with dailyWage — 403 FINANCE_ACCESS_DENIED', async () => {
     const res = await req(w.pmNoFin, 'POST', '/workers', {
       firstName: 'Kamau', lastName: 'Njoroge', trade: 'Welder', dailyWage: 2100, currency: 'KES',
     });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('FINANCE_ACCESS_DENIED');
+  });
+
+  it('PM without flag creating without wage fields — 201, no wage echoed', async () => {
+    const res = await req(w.pmNoFin, 'POST', '/workers', {
+      firstName: 'Kamau', lastName: 'Njoroge', trade: 'Welder',
+    });
     expect(res.statusCode).toBe(201);
     expectNoWorkerFinance(res.json().worker);
-    const row = await prisma.worker.findUniqueOrThrow({ where: { id: res.json().worker.id } });
-    expect(row.dailyWage?.toString()).toBe('2100');
-    expect(row.currency).toBe('KES');
   });
 
   it('PM without flag: update response has no wage; wage untouched', async () => {

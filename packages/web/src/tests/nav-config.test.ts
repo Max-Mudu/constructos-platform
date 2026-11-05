@@ -86,8 +86,8 @@ describe('getVisibleNavItems — project_manager', () => {
     expect(v).toContain('Attendance');
   });
 
-  it('sees Budget', () => {
-    expect(labels('project_manager')).toContain('Budget');
+  it('sees Budget when canViewFinance=true (decision E)', () => {
+    expect(labels('project_manager', true)).toContain('Budget');
   });
 
   it('does NOT see Client Finance regardless of canViewFinance', () => {
@@ -135,12 +135,12 @@ describe('getVisibleNavItems — site_supervisor', () => {
 // ─── contractor ───────────────────────────────────────────────────────────────
 
 describe('getVisibleNavItems — contractor', () => {
-  it('sees Dashboard, Projects, Contractors, Invoices', () => {
+  it('sees Dashboard, Projects, Contractors (Invoices hidden per decision E)', () => {
     const v = labels('contractor');
     expect(v).toContain('Dashboard');
     expect(v).toContain('Projects');
     expect(v).toContain('Contractors');
-    expect(v).toContain('Invoices');
+    expect(v).not.toContain('Invoices');
   });
 
   it('does NOT see Labour', () => {
@@ -282,6 +282,67 @@ describe('getVisibleNavItems — Reports', () => {
     const reportsItem = NAV_ITEMS.find((i) => i.label === 'Reports');
     expect(reportsItem).toBeDefined();
     expect(reportsItem!.requiresFinance).toBe(false);
+  });
+});
+
+// ─── Invoices / Budget financial-permission gate (owner decision E) ──────────
+// Mirrors the backend rule: company_admin / finance_officer always;
+// project_manager only with canViewFinance=true; every other role never.
+// Navigation hiding is UX only — the backend is the authorization control.
+
+describe('Invoices and Budget — financial permission gate', () => {
+  const alwaysFinancial: UserRole[] = ['company_admin', 'finance_officer'];
+  const neverFinancial: UserRole[] = [
+    'contractor', 'consultant', 'site_supervisor', 'viewer', 'worker',
+  ];
+
+  describe.each(alwaysFinancial)('%s', (role) => {
+    it.each([false, true])('sees Invoices and Budget (canViewFinance=%s)', (flag) => {
+      const v = labels(role, flag);
+      expect(v).toContain('Invoices');
+      expect(v).toContain('Budget');
+    });
+  });
+
+  it('project_manager WITH canViewFinance=true sees Invoices and Budget', () => {
+    const v = labels('project_manager', true);
+    expect(v).toContain('Invoices');
+    expect(v).toContain('Budget');
+  });
+
+  it('project_manager WITHOUT canViewFinance sees neither Invoices nor Budget', () => {
+    const v = labels('project_manager', false);
+    expect(v).not.toContain('Invoices');
+    expect(v).not.toContain('Budget');
+  });
+
+  describe.each(neverFinancial)('%s', (role) => {
+    it.each([false, true])(
+      'sees neither Invoices nor Budget (canViewFinance=%s)',
+      (flag) => {
+        const v = labels(role, flag);
+        expect(v).not.toContain('Invoices');
+        expect(v).not.toContain('Budget');
+      },
+    );
+  });
+
+  it('viewer with canViewFinance=true still sees neither Invoices nor Budget', () => {
+    const v = labels('viewer', true);
+    expect(v).not.toContain('Invoices');
+    expect(v).not.toContain('Budget');
+  });
+
+  it('does not change Reports visibility for contractor/consultant/site_supervisor', () => {
+    for (const role of ['contractor', 'consultant', 'site_supervisor'] as UserRole[]) {
+      expect(labels(role, false)).toContain('Reports');
+    }
+  });
+
+  it('Client Finance keeps its existing gate (CA/FO + flag only; PM never)', () => {
+    expect(labels('company_admin', true)).toContain('Client Finance');
+    expect(labels('finance_officer', false)).not.toContain('Client Finance');
+    expect(labels('project_manager', true)).not.toContain('Client Finance');
   });
 });
 

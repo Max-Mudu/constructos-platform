@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { labourApi, workerApi, ApiError } from '@/lib/api';
 import { Worker } from '@/lib/types';
+import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
@@ -18,6 +19,12 @@ const CURRENCIES = ['USD', 'EUR', 'GBP', 'ZAR', 'AED', 'NGN', 'KES', 'GHS'];
 export default function NewLabourEntryPage() {
   const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>()!;
   const router = useRouter();
+  const user = useAuthStore((s) => s.user);
+  // Mirrors the API's canViewFinancialData. Without it the server derives the
+  // rate from the worker's wage and ignores any submitted rate, so the form
+  // neither asks for nor shows one.
+  const canSetRate = !!user && (['super_admin', 'company_admin', 'finance_officer'].includes(user.role)
+    || (user.role === 'project_manager' && user.canViewFinance));
 
   const [siteWorkers, setSiteWorkers] = useState<Worker[]>([]);
   const [form, setForm] = useState({
@@ -73,12 +80,15 @@ export default function NewLabourEntryPage() {
     setFieldErrors({});
 
     try {
+      // dailyRate/currency are sent only by finance users.
       await labourApi.create(projectId, siteId, {
         workerId:    form.workerId,
         date:        form.date,
         hoursWorked: Number(form.hoursWorked),
-        dailyRate:   Number(form.dailyRate),
-        currency:    form.currency,
+        ...(canSetRate && {
+          dailyRate: Number(form.dailyRate),
+          currency:  form.currency,
+        }),
         notes:       form.notes || undefined,
       });
       router.push(`/projects/${projectId}/sites/${siteId}/labour`);
@@ -95,7 +105,7 @@ export default function NewLabourEntryPage() {
   }
 
   const estimatedWage =
-    form.hoursWorked && form.dailyRate
+    canSetRate && form.hoursWorked && form.dailyRate
       ? ((Number(form.hoursWorked) / 8) * Number(form.dailyRate)).toLocaleString(undefined, {
           maximumFractionDigits: 0,
         })
@@ -175,9 +185,9 @@ export default function NewLabourEntryPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Hours & Rate</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">{canSetRate ? 'Hours & Rate' : 'Hours'}</CardTitle></CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className={canSetRate ? 'grid grid-cols-2 gap-4' : undefined}>
               <div>
                 <label className="block text-sm font-medium mb-1">
                   Hours Worked <span className="text-destructive">*</span>
@@ -197,38 +207,42 @@ export default function NewLabourEntryPage() {
                 )}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Daily Rate <span className="text-destructive">*</span>
-                </label>
-                <input
-                  type="number"
-                  value={form.dailyRate}
-                  onChange={(e) => set('dailyRate', e.target.value)}
-                  min="0"
-                  step="1"
-                  required
-                  placeholder="1500"
-                  className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                />
-                {fieldErrors.dailyRate && (
-                  <p className="text-xs text-destructive mt-1">{fieldErrors.dailyRate[0]}</p>
-                )}
-              </div>
+              {canSetRate && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Daily Rate <span className="text-destructive">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={form.dailyRate}
+                    onChange={(e) => set('dailyRate', e.target.value)}
+                    min="0"
+                    step="1"
+                    required
+                    placeholder="1500"
+                    className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  {fieldErrors.dailyRate && (
+                    <p className="text-xs text-destructive mt-1">{fieldErrors.dailyRate[0]}</p>
+                  )}
+                </div>
+              )}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium mb-1">Currency</label>
-              <select
-                value={form.currency}
-                onChange={(e) => set('currency', e.target.value)}
-                className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                {CURRENCIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
+            {canSetRate && (
+              <div>
+                <label className="block text-sm font-medium mb-1">Currency</label>
+                <select
+                  value={form.currency}
+                  onChange={(e) => set('currency', e.target.value)}
+                  className="w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {CURRENCIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {estimatedWage && (
               <div className="bg-muted rounded-md px-4 py-3 text-sm">

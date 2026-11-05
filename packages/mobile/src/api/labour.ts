@@ -30,7 +30,9 @@ export const labourApi = {
     workerId:    string;
     date:        string;
     hoursWorked: number;
-    dailyRate:   number;
+    // Sent only by finance users. For anyone else the API ignores a submitted
+    // rate/currency and derives both from the worker's daily wage.
+    dailyRate?:  number;
     currency?:   string;
     notes?:      string;
   }): Promise<LabourEntry> => {

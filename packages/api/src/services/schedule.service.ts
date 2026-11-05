@@ -215,6 +215,24 @@ function contractorOwnership(actor: RequestUser) {
     : {};
 }
 
+/**
+ * A task may only be attached to a work package in the same company, project
+ * and site; a contractor-role actor may additionally only use their own
+ * package. Anything else gets the same 404 as a nonexistent package.
+ */
+async function assertAttachableWorkPackage(
+  workPackageId: string,
+  projectId: string,
+  siteId: string,
+  actor: RequestUser,
+) {
+  const pkg = await prisma.workPackage.findFirst({
+    where: { id: workPackageId, projectId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
+    select: { id: true },
+  });
+  if (!pkg) throw new NotFoundError('Work package');
+}
+
 // ─── Work Packages ────────────────────────────────────────────────────────────
 
 export async function listWorkPackages(
@@ -461,18 +479,15 @@ export async function createTask(
   if (!contractor) throw new NotFoundError('Contractor');
 
   if (input.workPackageId) {
-    const pkg = await prisma.workPackage.findFirst({
-      where: { id: input.workPackageId, siteId, companyId: actor.companyId },
-      select: { id: true },
-    });
-    if (!pkg) throw new NotFoundError('Work package');
+    await assertAttachableWorkPackage(input.workPackageId, projectId, siteId, actor);
   }
 
-  // Validate dependency task IDs
+  // Validate dependency task IDs. Dependencies may point at another
+  // contractor's task, provided it is in the same company, project and site.
   const depIds = input.dependsOnTaskIds ?? [];
   if (depIds.length > 0) {
     const depTasks = await prisma.scheduleTask.findMany({
-      where: { id: { in: depIds }, siteId, companyId: actor.companyId },
+      where: { id: { in: depIds }, projectId, siteId, companyId: actor.companyId },
       select: { id: true },
     });
     if (depTasks.length !== depIds.length) throw new NotFoundError('Dependency task');
@@ -555,11 +570,7 @@ export async function updateTask(
   }
 
   if (input.workPackageId) {
-    const pkg = await prisma.workPackage.findFirst({
-      where: { id: input.workPackageId, siteId, companyId: actor.companyId },
-      select: { id: true },
-    });
-    if (!pkg) throw new NotFoundError('Work package');
+    await assertAttachableWorkPackage(input.workPackageId, projectId, siteId, actor);
   }
 
   const updated = await prisma.scheduleTask.update({
@@ -713,14 +724,18 @@ export async function addDependency(
 ) {
   await checkSiteAccess(siteId, projectId, actor);
 
-  // Verify both tasks exist in the same site. A contractor may only add
-  // dependencies to a task they own.
+  // Verify both tasks exist in the same company, project and site. A
+  // contractor may only add dependencies to a task they own, but the task it
+  // depends on may belong to another contractor.
   const [task, depTask] = await Promise.all([
     prisma.scheduleTask.findFirst({
-      where: { id: taskId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
+      where: { id: taskId, projectId, siteId, companyId: actor.companyId, ...contractorOwnership(actor) },
       select: { id: true },
     }),
-    prisma.scheduleTask.findFirst({ where: { id: dependsOnTaskId, siteId, companyId: actor.companyId }, select: { id: true } }),
+    prisma.scheduleTask.findFirst({
+      where: { id: dependsOnTaskId, projectId, siteId, companyId: actor.companyId },
+      select: { id: true },
+    }),
   ]);
   if (!task)    throw new NotFoundError('Schedule task');
   if (!depTask) throw new NotFoundError('Dependency task');
@@ -957,13 +972,20 @@ export async function createWeeklyPlan(
   });
   if (!contractor) throw new NotFoundError('Contractor');
 
-  // Every referenced task must belong to this company, project and site. All
-  // are checked before anything is written, and an inaccessible task gets the
-  // same 404 as a nonexistent one.
+  // Every referenced task must belong to this company, project and site, and
+  // to the plan's contractor (for every role). All are checked before anything
+  // is written, and an inaccessible task gets the same 404 as a nonexistent one.
   const taskIds = [...new Set(input.items.map((item) => item.taskId))];
   // A contractor may only plan tasks they own.
   const ownTaskCount = await prisma.scheduleTask.count({
-    where: { id: { in: taskIds }, companyId: actor.companyId, projectId, siteId, ...contractorOwnership(actor) },
+    where: {
+      id: { in: taskIds },
+      companyId: actor.companyId,
+      projectId,
+      siteId,
+      contractorId: input.contractorId,
+      ...contractorOwnership(actor),
+    },
   });
   if (ownTaskCount !== taskIds.length) throw new NotFoundError('Schedule task');
 

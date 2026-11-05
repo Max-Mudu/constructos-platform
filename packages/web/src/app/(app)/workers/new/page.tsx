@@ -23,6 +23,11 @@ const CURRENCIES = ['USD', 'EUR', 'GBP', 'ZAR', 'AED', 'NGN', 'KES', 'GHS'];
 export default function NewWorkerPage() {
   const router = useRouter();
   const { user } = useAuthStore();
+  // Setting a wage on a NEW worker needs company-wide finance access (the API
+  // returns 403 FINANCE_ACCESS_DENIED otherwise: a project_manager, even with
+  // canViewFinance, has no project to scope a brand-new worker to). Everyone
+  // else gets no pay fields and sends neither dailyWage nor currency.
+  const canSetWage = !!user && ['super_admin', 'company_admin', 'finance_officer'].includes(user.role);
 
   const [form, setForm] = useState({
     firstName: '',
@@ -55,7 +60,7 @@ export default function NewWorkerPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.currency) { setError('Currency is still loading — please try again'); return; }
+    if (canSetWage && !form.currency) { setError('Currency is still loading — please try again'); return; }
     setSubmitting(true);
     setError('');
     setFieldErrors({});
@@ -64,19 +69,23 @@ export default function NewWorkerPage() {
       const payload: Record<string, unknown> = {
         firstName: form.firstName,
         lastName:  form.lastName,
-        currency:  form.currency,
       };
+      if (canSetWage) {
+        payload.currency = form.currency;
+        if (form.dailyWage) payload.dailyWage = Number(form.dailyWage);
+      }
       if (form.email)                payload.email                = form.email;
       if (form.phone)                payload.phone                = form.phone;
       if (form.idNumber)             payload.idNumber             = form.idNumber;
       if (form.trade)                payload.trade                = form.trade;
-      if (form.dailyWage)            payload.dailyWage            = Number(form.dailyWage);
       if (form.emergencyContactName) payload.emergencyContactName = form.emergencyContactName;
       if (form.emergencyContactPhone) payload.emergencyContactPhone = form.emergencyContactPhone;
       if (form.notes)                payload.notes                = form.notes;
 
       const { worker } = await workerApi.create(payload as Parameters<typeof workerApi.create>[0]);
-      router.push(`/workers/${worker.id}`);
+      // Non company-wide roles only see workers assigned to their projects/sites,
+      // so a just-created (unassigned) worker's detail page would 404 for them.
+      router.push(canSetWage ? `/workers/${worker.id}` : '/workers');
     } catch (e) {
       if (e instanceof ApiError) {
         if (e.details) setFieldErrors(e.details);
@@ -151,28 +160,30 @@ export default function NewWorkerPage() {
           </CardContent>
         </Card>
 
-        {/* Pay */}
-        <Card>
-          <CardHeader><CardTitle className="text-base">Pay Rate</CardTitle></CardHeader>
-          <CardContent className="grid grid-cols-2 gap-4">
-            <Input
-              label="Daily Wage"
-              type="number"
-              value={form.dailyWage}
-              onChange={(e) => set('dailyWage', e.target.value)}
-              placeholder="1500"
-              error={fieldErrors.dailyWage?.[0]}
-            />
-            <Select
-              label="Currency"
-              value={form.currency}
-              onChange={(e) => set('currency', e.target.value)}
-            >
-              {!form.currency && <option value="" disabled>Loading…</option>}
-              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </Select>
-          </CardContent>
-        </Card>
+        {/* Pay — finance users only */}
+        {canSetWage && (
+          <Card>
+            <CardHeader><CardTitle className="text-base">Pay Rate</CardTitle></CardHeader>
+            <CardContent className="grid grid-cols-2 gap-4">
+              <Input
+                label="Daily Wage"
+                type="number"
+                value={form.dailyWage}
+                onChange={(e) => set('dailyWage', e.target.value)}
+                placeholder="1500"
+                error={fieldErrors.dailyWage?.[0]}
+              />
+              <Select
+                label="Currency"
+                value={form.currency}
+                onChange={(e) => set('currency', e.target.value)}
+              >
+                {!form.currency && <option value="" disabled>Loading…</option>}
+                {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </Select>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Emergency contact */}
         <Card>

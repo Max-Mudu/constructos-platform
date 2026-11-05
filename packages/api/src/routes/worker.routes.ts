@@ -10,6 +10,10 @@ import { handleError } from '../utils/errors';
 
 const EMPLOYMENT_STATUSES = ['active', 'inactive', 'suspended'] as const;
 
+// dailyWage / currency are FINANCIAL: including either requires financial
+// authorisation (see worker.service.ts assertMayWriteWage) → otherwise 403
+// FINANCE_ACCESS_DENIED. currency has no schema default so an omitted value is
+// distinguishable from a submitted one; the service defaults it to 'USD'.
 const createWorkerSchema = z.object({
   firstName:            z.string().min(1).max(100),
   lastName:             z.string().min(1).max(100),
@@ -18,7 +22,7 @@ const createWorkerSchema = z.object({
   idNumber:             z.string().max(100).optional(),
   trade:                z.string().max(100).optional(),
   dailyWage:            z.number().positive().optional(),
-  currency:             z.string().length(3).default('USD'),
+  currency:             z.string().length(3).optional(),
   employmentStatus:     z.enum(EMPLOYMENT_STATUSES).default('active'),
   emergencyContactName:  z.string().max(100).optional(),
   emergencyContactPhone: z.string().max(30).optional(),
