@@ -45,6 +45,12 @@ const listUsersQuerySchema = z.object({
   offset:   z.coerce.number().int().min(0).max(100_000).default(0),
 });
 
+const userIdParamsSchema = z.object({ id: z.string().uuid() });
+
+// Only the status flag; anything else in the body is rejected outright so a
+// client cannot believe it changed a role or company through this route.
+const setUserStatusSchema = z.object({ isActive: z.boolean() }).strict();
+
 const updateCompanySchema = z.object({
   name: z.string().min(2).max(255).optional(),
   country: z.string().max(100).optional(),
@@ -139,6 +145,42 @@ export async function companyRoutes(fastify: FastifyInstance): Promise<void> {
           userAgent: request.headers['user-agent'] ?? null,
         });
         return reply.status(201).send(result);
+      } catch (err) {
+        if (err instanceof AppError) {
+          return reply.status(err.statusCode).send({ error: err.message, code: err.code });
+        }
+        throw err;
+      }
+    },
+  );
+
+  // PATCH /api/v1/companies/me/users/:id/status — company_admin only
+  fastify.patch(
+    '/me/users/:id/status',
+    { preHandler: [authenticate, requireRole('company_admin')] },
+    async (request, reply) => {
+      const params = userIdParamsSchema.safeParse(request.params);
+      if (!params.success) {
+        // A malformed id cannot exist in any company.
+        return reply.status(404).send({ error: 'User not found', code: 'NOT_FOUND' });
+      }
+      const parsed = setUserStatusSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(422).send({
+          error: 'Validation failed',
+          code: 'VALIDATION_ERROR',
+          details: parsed.error.flatten().fieldErrors,
+        });
+      }
+
+      try {
+        const result = await userService.setCompanyUserStatus(
+          params.data.id,
+          parsed.data.isActive,
+          request.user,
+          { ipAddress: request.ip, userAgent: request.headers['user-agent'] ?? null },
+        );
+        return reply.send(result);
       } catch (err) {
         if (err instanceof AppError) {
           return reply.status(err.statusCode).send({ error: err.message, code: err.code });
