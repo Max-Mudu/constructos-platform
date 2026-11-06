@@ -37,13 +37,54 @@ function pageExists(href: string): boolean {
 
 // ── Sidebar nav items ─────────────────────────────────────────────────────────
 
+/**
+ * Site-context shortcuts. Sidebar.tsx (since 4c456a3 / eb268b2) does not link
+ * these hrefs directly: it hides them unless the user has a default project and
+ * site, and then links to /projects/:projectId/sites/:siteId<href>. The list is
+ * read from Sidebar.tsx itself so this test follows the real link logic instead
+ * of a hand-maintained copy.
+ */
+const SIDEBAR_SRC = fs.readFileSync(
+  path.resolve(__dirname, '..', 'components', 'sidebar', 'Sidebar.tsx'),
+  'utf8',
+);
+
+function siteContextShortcutHrefs(): string[] {
+  const m = SIDEBAR_SRC.match(/const isDefaultsShortcut\s*=\s*([^;]+);/);
+  if (!m) throw new Error('isDefaultsShortcut not found in Sidebar.tsx — update route-integrity.test.ts');
+  return Array.from(m[1].matchAll(/item\.href === '([^']+)'/g), (x) => x[1]);
+}
+
+const SITE_CONTEXT_SHORTCUTS = new Set(siteContextShortcutHrefs());
+
+/** The page a sidebar link actually points at, for a user with defaults set. */
+function sidebarTargetExists(href: string): boolean {
+  if (SITE_CONTEXT_SHORTCUTS.has(href)) {
+    return pageExists(`/projects/[projectId]/sites/[siteId]${href}`);
+  }
+  return pageExists(href);
+}
+
 describe('Sidebar nav links — all hrefs resolve to a real page.tsx', () => {
+  it('site-context shortcut list was parsed from Sidebar.tsx (positive control)', () => {
+    expect(Array.from(SITE_CONTEXT_SHORTCUTS).sort()).toEqual(
+      ['/attendance', '/deliveries', '/inventory', '/labour', '/schedules'],
+    );
+  });
+
   it.each(NAV_ITEMS.map((item) => [item.label, item.href]))(
     '%s (%s) has a corresponding page.tsx',
     (_label, href) => {
-      expect(pageExists(href as string)).toBe(true);
+      expect(sidebarTargetExists(href as string)).toBe(true);
     },
   );
+
+  it('a site-context shortcut with no site-scoped page fails to resolve (negative control)', () => {
+    expect(pageExists('/projects/[projectId]/sites/[siteId]/no-such-page')).toBe(false);
+    // /inventory has no top-level page; only the site-scoped one exists.
+    expect(pageExists('/inventory')).toBe(false);
+    expect(sidebarTargetExists('/inventory')).toBe(true);
+  });
 });
 
 // ── Critical app routes ───────────────────────────────────────────────────────

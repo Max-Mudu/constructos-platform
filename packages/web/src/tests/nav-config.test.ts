@@ -70,8 +70,11 @@ describe('getVisibleNavItems — finance_officer', () => {
     expect(labels('finance_officer')).not.toContain('Audit Logs');
   });
 
-  it('does NOT see Settings', () => {
-    expect(labels('finance_officer')).not.toContain('Settings');
+  it('sees personal Settings', () => {
+    // Settings became a personal page (default workspace + notification
+    // preferences, PATCH /auth/me/defaults is authenticate-only) in de89f78,
+    // which changed its nav roles from [company_admin] to null.
+    expect(labels('finance_officer')).toContain('Settings');
   });
 });
 
@@ -99,8 +102,11 @@ describe('getVisibleNavItems — project_manager', () => {
     expect(labels('project_manager')).not.toContain('Audit Logs');
   });
 
-  it('does NOT see Settings', () => {
-    expect(labels('project_manager')).not.toContain('Settings');
+  it('sees personal Settings', () => {
+    // Settings became a personal page (default workspace + notification
+    // preferences, PATCH /auth/me/defaults is authenticate-only) in de89f78,
+    // which changed its nav roles from [company_admin] to null.
+    expect(labels('project_manager')).toContain('Settings');
   });
 });
 
@@ -155,10 +161,13 @@ describe('getVisibleNavItems — contractor', () => {
     expect(labels('contractor', true)).not.toContain('Client Finance');
   });
 
-  it('does NOT see Audit Logs or Settings', () => {
+  it('does NOT see Audit Logs, but does see personal Settings', () => {
     const v = labels('contractor');
     expect(v).not.toContain('Audit Logs');
-    expect(v).not.toContain('Settings');
+    // Settings became a personal page (default workspace + notification
+    // preferences, PATCH /auth/me/defaults is authenticate-only) in de89f78,
+    // which changed its nav roles from [company_admin] to null.
+    expect(v).toContain('Settings');
   });
 });
 
@@ -220,7 +229,32 @@ describe('getVisibleNavItems — viewer', () => {
     expect(v).not.toContain('Budget');
     expect(v).not.toContain('Invoices');
     expect(v).not.toContain('Client Finance');
-    expect(v).not.toContain('Settings');
+    expect(v).not.toContain('Audit Logs');
+  });
+
+  it('sees personal Settings', () => {
+    // Settings became a personal page (default workspace + notification
+    // preferences, PATCH /auth/me/defaults is authenticate-only) in de89f78,
+    // which changed its nav roles from [company_admin] to null.
+    expect(labels('viewer')).toContain('Settings');
+  });
+});
+
+// ─── Settings (personal) vs Audit Logs (admin) ───────────────────────────────
+
+describe('Settings is personal for every role; Audit Logs stays admin-only', () => {
+  const allRoles: UserRole[] = [
+    'company_admin', 'finance_officer', 'project_manager', 'site_supervisor',
+    'contractor', 'consultant', 'worker', 'viewer',
+  ];
+  const nonAdminRoles = allRoles.filter((r) => r !== 'company_admin');
+
+  it.each(allRoles)('%s sees Settings', (role) => {
+    expect(labels(role)).toContain('Settings');
+  });
+
+  it.each(nonAdminRoles)('%s does NOT see Audit Logs (even with canViewFinance=true)', (role) => {
+    expect(labels(role, true)).not.toContain('Audit Logs');
   });
 });
 
