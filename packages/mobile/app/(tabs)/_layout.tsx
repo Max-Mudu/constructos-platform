@@ -1,16 +1,14 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../src/store/auth.store';
 import { UserRole } from '../../src/types';
 
+const TAB_BAR_HEIGHT         = 60;
+const TAB_BAR_PADDING_BOTTOM = 8;
+
 const commonOptions = {
-  tabBarStyle: {
-    backgroundColor: '#1e293b',
-    borderTopColor:  '#334155',
-    height:          60,
-    paddingBottom:   8,
-  },
   tabBarActiveTintColor:   '#3b82f6',
   tabBarInactiveTintColor: '#64748b',
   tabBarLabelStyle: { fontSize: 11, fontWeight: '600' as const },
@@ -124,13 +122,26 @@ function getTabsForRole(role: UserRole, canViewFinance: boolean): TabConfig[] {
 
 export default function TabLayout() {
   const user = useAuthStore((s) => s.user);
+  // A fixed height puts the labels under the iOS home indicator / Android
+  // gesture bar, so grow the bar by the bottom safe-area inset.
+  const insets = useSafeAreaInsets();
   if (!user) return null;
+
+  const screenOptions = {
+    ...commonOptions,
+    tabBarStyle: {
+      backgroundColor: '#1e293b',
+      borderTopColor:  '#334155',
+      height:          TAB_BAR_HEIGHT + insets.bottom,
+      paddingBottom:   TAB_BAR_PADDING_BOTTOM + insets.bottom,
+    },
+  };
 
   const visibleTabs = getTabsForRole(user.role, user.canViewFinance);
   const visibleNames = new Set(visibleTabs.map((t) => t.name));
 
   return (
-    <Tabs screenOptions={commonOptions}>
+    <Tabs screenOptions={screenOptions}>
       {ALL_TABS.map((name) => {
         const config = visibleTabs.find((t) => t.name === name);
         return (

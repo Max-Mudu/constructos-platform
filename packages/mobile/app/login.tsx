@@ -4,37 +4,11 @@ import {
   ScrollView, TouchableOpacity, Alert, TextInput, Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
-import Constants from 'expo-constants';
 import { useAuthStore } from '../src/store/auth.store';
 import { authApi } from '../src/api/auth';
 import { notificationsApi } from '../src/api/notifications';
-
-// ─── Push notification registration ───────────────────────────────────────────
-
-async function registerForPushNotifications(): Promise<string | null> {
-  if (!Device.isDevice) return null;
-
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  let finalStatus = existing;
-
-  if (existing !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-
-  if (finalStatus !== 'granted') return null;
-
-  // Pass projectId explicitly so token registration works in development builds
-  // and EAS managed builds. The value comes from app.json extra.eas.projectId.
-  const projectId =
-    (Constants.expoConfig?.extra?.eas?.projectId as string | undefined) ?? undefined;
-  const tokenData = await Notifications.getExpoPushTokenAsync(
-    projectId ? { projectId } : undefined,
-  );
-  return tokenData.data;
-}
+import { registerForPushNotifications } from '../src/utils/push';
+import { API_BASE_URL } from '../src/constants/api';
 
 // ─── Login screen ─────────────────────────────────────────────────────────────
 
@@ -89,9 +63,10 @@ export default function LoginScreen() {
 
       router.replace('/(tabs)');
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-        'Login failed. Please check your credentials.';
+      const response = (err as { response?: { data?: { error?: string } } })?.response;
+      const message = !response
+        ? `Cannot reach the server. Check your connection and try again.${__DEV__ ? `\n\nAPI: ${API_BASE_URL}` : ''}`
+        : response.data?.error ?? 'Login failed. Please check your credentials.';
       Alert.alert('Login Failed', message);
     } finally {
       setLoading(false);
@@ -101,7 +76,9 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       style={L.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      // Android already resizes the window for the keyboard (adjustResize);
+      // 'height' on top of that makes the form jump.
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
         contentContainerStyle={L.scroll}
@@ -223,6 +200,7 @@ export default function LoginScreen() {
 
         {/* ── FOOTER ────────────────────────────────────────────────── */}
         <Text style={L.footer}>ConstructOS · Site Management Platform</Text>
+        {__DEV__ ? <Text style={L.devApi}>API: {API_BASE_URL}</Text> : null}
 
       </ScrollView>
     </KeyboardAvoidingView>
@@ -418,4 +396,5 @@ const L = StyleSheet.create({
     fontWeight: '500',
     letterSpacing: 0.5,
   },
+  devApi: { color: '#3d6090', fontSize: 10, textAlign: 'center', marginTop: 6 },
 });
