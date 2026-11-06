@@ -40,19 +40,27 @@ export const deliveriesApi = {
     supplierId?:        string;
   }): Promise<DeliveryRecord> => {
     const { projectId, siteId, ...body } = data;
-    const res = await apiClient.post<{ record: DeliveryRecord }>(
+    // API responds 201 { delivery }.
+    const res = await apiClient.post<{ delivery: DeliveryRecord }>(
       `/projects/${projectId}/sites/${siteId}/deliveries`,
       body,
     );
-    return res.data.record;
+    return res.data.delivery;
   },
 
-  uploadPhoto: async (deliveryId: string, fileUri: string): Promise<unknown> => {
+  /** POST /projects/:projectId/sites/:siteId/deliveries/:deliveryId/photos (multipart, field "file"). */
+  uploadPhoto: async (
+    projectId:  string,
+    siteId:     string,
+    deliveryId: string,
+    fileUri:    string,
+    mimeType = 'image/jpeg',
+  ): Promise<unknown> => {
     return uploadFile(
-      `/deliveries/${deliveryId}/photos`,
+      `/projects/${projectId}/sites/${siteId}/deliveries/${deliveryId}/photos`,
       fileUri,
-      'photo',
-      'image/jpeg',
+      'file',
+      mimeType,
     );
   },
 };

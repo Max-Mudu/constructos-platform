@@ -4,10 +4,10 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert, Linking, TextInput,
+  ActivityIndicator, Alert, TextInput,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as FileSystem from 'expo-file-system';
+import { openLocalFile } from '../../src/utils/openFile';
 import { useAuthStore } from '../../src/store/auth.store';
 import { reportsApi, ReportType, ReportFormat, ReportData } from '../../src/api/reports';
 import { projectsApi } from '../../src/api/projects';
@@ -800,12 +800,7 @@ export default function ReportsScreen() {
     setDownloading(key);
     try {
       const localUri = await reportsApi.downloadFile(type, format);
-      try {
-        const contentUri = await FileSystem.getContentUriAsync(localUri);
-        await Linking.openURL(contentUri);
-      } catch {
-        await Linking.openURL(localUri);
-      }
+      await openLocalFile(localUri, format === 'pdf' ? 'application/pdf' : 'text/csv');
     } catch (err) {
       const msg = (err as Error).message ?? 'Download failed';
       Alert.alert('Download Failed', msg);

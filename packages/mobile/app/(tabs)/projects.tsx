@@ -30,12 +30,14 @@ import { Badge } from '../../src/components/Badge';
 import { Input } from '../../src/components/Input';
 import { LoadingSpinner } from '../../src/components/LoadingSpinner';
 import { EmptyState } from '../../src/components/EmptyState';
+import { API_ORIGIN } from '../../src/constants/api';
 import {
   Project, JobSite, Drawing, Instruction,
   InstructionType, InstructionPriority,
 } from '../../src/types';
 
-const BASE_URL = process.env['EXPO_PUBLIC_API_URL']?.replace('/api/v1', '') ?? 'http://10.0.2.2:3000';
+// Uploaded file paths (/uploads/...) are served from the API origin.
+const BASE_URL = API_ORIGIN;
 
 const PROJECT_STATUS: Record<string, { label: string; color: string; accent: string }> = {
   active:    { label: 'In Progress', color: '#3b82f6', accent: '#1d4ed8' },
@@ -834,7 +836,6 @@ export default function ProjectsScreen() {
       // File not cached — download it now.
       try {
         const token = await getAccessToken();
-        console.log('[openPdf] URL:', pdfUrl);
         console.log('[openPdf] token present:', !!token);
 
         const result = await FileSystem.downloadAsync(pdfUrl, localUri, {

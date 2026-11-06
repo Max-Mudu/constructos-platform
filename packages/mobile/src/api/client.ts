@@ -102,19 +102,19 @@ export async function uploadFile(
   fieldName: string,
   mimeType = 'image/jpeg',
 ): Promise<unknown> {
-  const token = await getAccessToken();
   const formData = new FormData();
   formData.append(fieldName, {
     uri:  fileUri,
-    name: fileUri.split('/').pop() ?? 'upload.jpg',
+    name: fileUri.split('/').pop() || 'upload.jpg',
     type: mimeType,
   } as unknown as Blob);
 
+  // Authorization is attached (and refreshed on 401) by the interceptors.
+  // Camera photos are several MB; site connections are slow, so allow longer
+  // than the 15 s JSON default.
   const res = await apiClient.post(url, formData, {
-    headers: {
-      'Content-Type':  'multipart/form-data',
-      Authorization:   `Bearer ${token}`,
-    },
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 120_000,
   });
   return res.data;
 }
