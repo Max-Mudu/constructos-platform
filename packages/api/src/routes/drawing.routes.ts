@@ -182,7 +182,7 @@ export async function drawingRoutes(fastify: FastifyInstance): Promise<void> {
           return reply.status(422).send({ error: 'Invalid status', code: 'VALIDATION_ERROR' });
         }
 
-        const stored = await storeFile(buffer, data.filename, data.mimetype, 'drawings');
+        const stored = await storeFile(buffer, data.filename, data.mimetype, 'drawings', fastify.uploadStorage);
 
         const revision = await drawingService.uploadRevision(drawingId, projectId, {
           revisionNumber,

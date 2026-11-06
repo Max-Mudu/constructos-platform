@@ -4,6 +4,13 @@ import { hashPassword } from '../../src/utils/hash';
 import { UserRole } from '@prisma/client';
 import { emptyContent } from '../../src/services/daily-report/content.schema';
 
+/** Unique suffix for fixture identifiers: Date.now() alone collides when fixtures are created within the same millisecond. */
+let fixtureSeq = 0;
+function uniq(): string {
+  fixtureSeq += 1;
+  return `${Date.now()}-${process.pid}-${fixtureSeq}`;
+}
+
 /**
  * Every fixture user gets the password 'TestPass1'. Hashing it is deliberately
  * slow (bcrypt, 12 rounds: ~0.25 s on a CI runner, ~0.9 s on a dev laptop), and
@@ -636,7 +643,7 @@ export async function createTestDrawing(
       companyId,
       projectId,
       siteId:       overrides.siteId       ?? null,
-      drawingNumber: overrides.drawingNumber ?? `DWG-${Date.now()}`,
+      drawingNumber: overrides.drawingNumber ?? `DWG-${uniq()}`,
       title:        overrides.title         ?? 'Test Drawing',
       discipline:   overrides.discipline    ?? null,
       createdById,
@@ -657,7 +664,7 @@ export async function createTestRevision(
       companyId,
       revisionNumber: overrides.revisionNumber ?? 'A',
       fileUrl:        '/uploads/drawings/test.pdf',
-      fileKey:        `drawings/test-${Date.now()}.pdf`,
+      fileKey:        `drawings/test-${uniq()}.pdf`,
       fileName:       'test.pdf',
       fileSizeBytes:  1024,
       fileType:       'application/pdf',
@@ -831,7 +838,7 @@ export async function createTestInvoice(
     data: {
       companyId,
       projectId,
-      invoiceNumber:  overrides.invoiceNumber  ?? `INV-${Date.now()}`,
+      invoiceNumber:  overrides.invoiceNumber  ?? `INV-${uniq()}`,
       vendorType:     overrides.vendorType     ?? 'contractor',
       vendorName:     overrides.vendorName     ?? 'Test Vendor Ltd',
       subtotal:       overrides.subtotal       ?? 10000,
