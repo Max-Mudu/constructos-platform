@@ -6,8 +6,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 import { useAuthStore } from '../src/store/auth.store';
-import { getAccessToken, getRefreshToken } from '../src/auth/secureStorage';
+import { getAccessToken, getCachedUser, getRefreshToken } from '../src/auth/secureStorage';
 import { authApi } from '../src/api/auth';
+import { AuthUser } from '../src/types';
+import { notificationsApi } from '../src/api/notifications';
+import { registerForPushNotifications } from '../src/utils/push';
+import { isFirstLaunchOfInstall } from '../src/utils/localData';
 import { SSEProvider } from '../src/providers/SSEProvider';
 
 // Display notifications while the app is in the foreground.
@@ -23,11 +27,18 @@ Notifications.setNotificationHandler({
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const segments = useSegments();
-  const { user, setAuth, clearAuth, setLoading, isLoading } = useAuthStore();
+  const { user, restoreSession, clearAuth, setLoading, isLoading } = useAuthStore();
 
   useEffect(() => {
     async function bootstrap() {
       try {
+        // iOS Keychain outlives an uninstall; never resurrect a session that
+        // belonged to a previous install of the app.
+        if (await isFirstLaunchOfInstall()) {
+          await clearAuth();
+          return;
+        }
+
         const [accessToken, refreshToken] = await Promise.all([
           getAccessToken(),
           getRefreshToken(),
@@ -38,15 +49,27 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // Try restoring session with a /me call; refresh if needed
+        // Restore with /me. An expired access token is refreshed by the axios
+        // interceptor inside this call (rotating the stored pair). Do NOT
+        // refresh again here or write back the pair read above: re-using a
+        // rotated refresh token makes the API revoke every session.
         try {
           const me = await authApi.me();
-          await setAuth(me, accessToken, refreshToken);
-        } catch {
-          try {
-            const result = await authApi.refresh(refreshToken);
-            await setAuth(result.user, result.accessToken, result.refreshToken);
-          } catch {
+          await restoreSession(me);
+          // Expo push tokens can change (reinstall, OS restore); the API
+          // upserts, so re-registering on every restored session is safe.
+          void registerForPushNotifications()
+            .then((token) => (token ? notificationsApi.registerPushToken(token, 'expo') : undefined))
+            .catch(() => { /* non-fatal */ });
+        } catch (err) {
+          const status = (err as { response?: { status?: number } })?.response?.status;
+          if (status === undefined || status >= 500) {
+            // Offline or API down: keep the tokens. Open with the last known
+            // profile if there is one; the server re-checks on the next call.
+            const cached = await getCachedUser<AuthUser>();
+            if (cached) await restoreSession(cached, { offline: true });
+          } else {
+            // 401 (refresh rejected — interceptor already signed out), 403, …
             await clearAuth();
           }
         }

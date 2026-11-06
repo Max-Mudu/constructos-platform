@@ -4,9 +4,9 @@ import {
   Modal, FlatList, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants';
 import { useAuthStore } from '../../src/store/auth.store';
+import { getExpoPushToken } from '../../src/utils/push';
+import { clearQueue, getQueue } from '../../src/utils/offlineQueue';
 import { authApi } from '../../src/api/auth';
 import { notificationsApi } from '../../src/api/notifications';
 import { getRefreshToken } from '../../src/auth/secureStorage';
@@ -163,9 +163,13 @@ export default function ProfileScreen() {
 
   // ── Logout ──────────────────────────────────────────────────────────────
   async function handleLogout() {
+    const pending = (await getQueue().catch(() => [])).length;
     Alert.alert(
       'Log Out',
-      'Are you sure you want to log out?',
+      pending > 0
+        ? `You have ${pending} unsynced ${pending === 1 ? 'entry' : 'entries'} saved offline. ` +
+          'Logging out deletes them from this device. Log out anyway?'
+        : 'Are you sure you want to log out?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -175,17 +179,15 @@ export default function ProfileScreen() {
             setLoggingOut(true);
             try {
               try {
-                const projectId =
-                  (Constants.expoConfig?.extra?.eas?.projectId as string | undefined) ?? undefined;
-                const tokenData = await Notifications.getExpoPushTokenAsync(
-                  projectId ? { projectId } : undefined,
-                );
-                await notificationsApi.unregisterPushToken(tokenData.data);
+                const pushToken = await getExpoPushToken();
+                if (pushToken) await notificationsApi.unregisterPushToken(pushToken);
               } catch { /* non-fatal */ }
 
               const refreshToken = await getRefreshToken();
               if (refreshToken) await authApi.logout(refreshToken).catch(() => {});
             } finally {
+              // Before clearAuth: clearQueue removes the current user's ops.
+              await clearQueue().catch(() => {});
               await clearAuth();
               router.replace('/login');
               setLoggingOut(false);
