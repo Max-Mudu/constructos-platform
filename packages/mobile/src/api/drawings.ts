@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { DRAWINGS_CACHE_PREFIX } from '../utils/localData';
 import { apiClient } from './client';
 import { Drawing, DrawingRevision } from '../types';

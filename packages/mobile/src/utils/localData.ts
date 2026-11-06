@@ -2,7 +2,7 @@
  * Company data the app keeps on the device outside the API, and its cleanup.
  * No imports from api/ or store/ so the auth store can call it without cycles.
  */
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export const DRAWINGS_CACHE_PREFIX = 'drawings_cache_';
 const INSTALL_MARKER = 'constructos_install_marker';
