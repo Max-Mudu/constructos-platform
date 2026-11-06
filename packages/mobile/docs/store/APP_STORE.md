@@ -31,7 +31,7 @@ constructos-ios-001
 ConstructOS is a complete construction site management platform built for field teams, supervisors, and project managers.
 
 ATTENDANCE TRACKING
-Mark worker attendance in seconds. Supervisors can bulk-check in entire crews. GPS-verified check-ins ensure accuracy. Full history and export to CSV.
+Mark worker attendance in seconds. Supervisors can bulk-check in entire crews. Full history and export to CSV.
 
 LABOUR MANAGEMENT
 Log daily labour entries by trade, hours, and rate. Filter by project, site, or date range. Export detailed labour cost reports for invoicing and payroll.
@@ -152,7 +152,7 @@ Complete the age rating questionnaire:
 - Contains ads: No
 - Gambling: No
 - Mature/violent content: No
-- Location data: Yes (attendance verification only)
+- Location data: No (the app does not access device location)
 
 ---
 

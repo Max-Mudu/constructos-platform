@@ -38,7 +38,7 @@ By using ConstructOS, you agree to the collection and use of information as desc
 ### 2.5 Device and Technical Data
 - Push notification token (for delivering alerts to your device)
 - App version and operating system (for error reporting)
-- We do **not** collect precise GPS coordinates unless explicitly enabled for attendance verification by your company administrator
+- The App does **not** access or collect your device location
 
 ---
 

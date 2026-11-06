@@ -81,7 +81,7 @@ eas build --profile production --platform ios
 ### Android (Google Play)
 
 1. Obtain a Google service account JSON key from Google Play Console.
-2. Place it at `packages/mobile/google-service-account.json` (gitignored).
+2. Place it at `packages/mobile/google-service-account.json`. **This file is NOT git-ignored yet.** Add it to a `.gitignore` before you put the key there, and never commit it.
 3. Ensure `app.json > android.package` matches Play Console.
 4. Submit:
 
@@ -107,11 +107,15 @@ eas submit --profile production --platform ios
 
 ## Environment Variables
 
-| Variable | Development | Production |
-|---|---|---|
-| `EXPO_PUBLIC_API_URL` | `http://10.0.2.2:3000/api/v1` | `https://api.your-domain.com/api/v1` |
+`EXPO_PUBLIC_API_URL` must be an HTTPS URL that ends in `/api/v1`.
 
-Update `EXPO_PUBLIC_API_URL` in `eas.json > build.production.env` before production builds.
+| Profile | Where the value comes from |
+|---|---|
+| `development`, `preview`, `preview-simulator` | EAS environment variable (`eas env:create --environment preview --name EXPO_PUBLIC_API_URL ...`) |
+| `production` | `eas.json > build.production.env` (currently the offline Railway URL; the owner must update it) |
+| local `expo start` | `.env` or shell; the fallback `http://10.0.2.2:3001/api/v1` only works in the Android emulator |
+
+See `docs/IOS-READINESS.md` section 4 for the full API URL decision and the iOS build steps.
 
 ---
 
