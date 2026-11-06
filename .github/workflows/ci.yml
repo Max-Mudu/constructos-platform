@@ -61,15 +61,11 @@ jobs:
         run: npx prisma generate
       - name: Type-check
         run: npx tsc --noEmit -p .
+      # Tests run against the schema the migrations build, which is what
+      # production gets from `prisma migrate deploy`. The migrations job below
+      # fails if that schema differs from schema.prisma.
       - name: Apply migrations to the CI test database
         run: npx prisma migrate deploy
-      # The migrations job below fails if the migration history does not
-      # reproduce schema.prisma. Here we only bring the throwaway test DB up to
-      # schema.prisma so the test suite still runs while such drift exists.
-      # The database is empty and discarded after the job, so the data-loss
-      # prompt (e.g. for a new unique index) has nothing to lose.
-      - name: Sync any remaining schema.prisma drift into the test database
-        run: npx prisma db push --skip-generate --accept-data-loss
       - name: Test
         run: npx jest --ci --runInBand --forceExit
 
