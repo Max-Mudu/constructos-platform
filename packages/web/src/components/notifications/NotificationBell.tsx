@@ -7,6 +7,7 @@ import { notificationApi } from '@/lib/api';
 import { Notification } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useSSEEvent } from '@/hooks/useSSEEvent';
+import { notifyNotificationsChanged, onNotificationsChanged } from '@/lib/notifications-events';
 
 // ─── Type labels & icons ──────────────────────────────────────────────────────
 
@@ -129,6 +130,10 @@ export function NotificationBell({ className }: NotificationBellProps) {
 
   useSSEEvent('notification', handleNotificationEvent);
 
+  // ── Re-fetch when notifications change elsewhere (the /notifications page,
+  //    or the other bell: desktop sidebar and mobile header both mount one) ──
+  useEffect(() => onNotificationsChanged(refreshCount), [refreshCount]);
+
   // ── Load notifications when dropdown opens ─────────────────────────────────
   useEffect(() => {
     if (!open) return;
@@ -159,6 +164,7 @@ export function NotificationBell({ className }: NotificationBellProps) {
         prev.map((n) => (n.id === id ? r.notification : n)),
       );
       setUnreadCount((c) => Math.max(0, c - 1));
+      notifyNotificationsChanged();
     }).catch(() => {});
   }
 
@@ -168,6 +174,7 @@ export function NotificationBell({ className }: NotificationBellProps) {
     notificationApi.delete(id).then(() => {
       setNotifications((prev) => prev.filter((n) => n.id !== id));
       if (was && !was.isRead) setUnreadCount((c) => Math.max(0, c - 1));
+      notifyNotificationsChanged();
     }).catch(() => {});
   }
 
@@ -176,6 +183,7 @@ export function NotificationBell({ className }: NotificationBellProps) {
     notificationApi.markAllRead().then(() => {
       setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true, readAt: new Date().toISOString() })));
       setUnreadCount(0);
+      notifyNotificationsChanged();
     }).catch(() => {});
   }
 
