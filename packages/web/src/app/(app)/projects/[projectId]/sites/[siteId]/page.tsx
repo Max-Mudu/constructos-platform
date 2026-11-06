@@ -19,9 +19,10 @@ import { Select } from '@/components/ui/Select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Separator } from '@/components/ui/Separator';
 import Link from 'next/link';
+import { canEditSite } from '@/lib/projects-admin-api';
 import {
   ClipboardCheck, Target, Truck, Users, AlertCircle, MapPin, Plus, ClipboardList,
-  UserMinus, UserPlus, Package2,
+  UserMinus, UserPlus, Package2, Pencil,
 } from 'lucide-react';
 
 const ASSIGN_ROLES = new Set(['company_admin', 'project_manager']);
@@ -157,7 +158,14 @@ export default function SiteDetailPage() {
 
   return (
     <div className="animate-fade-in">
-      <StickyActionsRow title={site.name} />
+      <StickyActionsRow
+        title={site.name}
+        actions={canEditSite(user?.role) ? (
+          <Link href={`/projects/${projectId}/sites/${siteId}/edit`}>
+            <Button variant="outline" size="sm"><Pencil className="h-3.5 w-3.5" /> Edit Site</Button>
+          </Link>
+        ) : undefined}
+      />
 
       <div className="px-6 py-8 space-y-8">
         <div className="space-y-4">
