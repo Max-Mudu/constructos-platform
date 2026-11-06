@@ -11,7 +11,9 @@ import { Button } from '@/components/ui/Button';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Separator } from '@/components/ui/Separator';
-import { ArrowLeft, Building2, MapPin, ChevronRight, AlertCircle } from 'lucide-react';
+import { useAuthStore } from '@/store/auth.store';
+import { canCreateSite } from '@/lib/projects-admin-api';
+import { ArrowLeft, Building2, MapPin, ChevronRight, AlertCircle, Plus } from 'lucide-react';
 
 export default function SiteListPage() {
   const { projectId }         = useParams<{ projectId: string }>()!;
@@ -20,6 +22,7 @@ export default function SiteListPage() {
   const [sites, setSites]     = useState<JobSite[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState('');
+  const canAdd                = canCreateSite(useAuthStore((s) => s.user)?.role);
 
   useEffect(() => {
     if (!projectId) return;
@@ -73,10 +76,17 @@ export default function SiteListPage() {
           {project?.name ?? 'Back to Project'}
         </Link>
 
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Job Sites</h1>
-          {project && (
-            <p className="mt-1 text-sm text-muted-foreground">{project.name}</p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">Job Sites</h1>
+            {project && (
+              <p className="mt-1 text-sm text-muted-foreground">{project.name}</p>
+            )}
+          </div>
+          {canAdd && (
+            <Link href={`/projects/${projectId}/sites/new`}>
+              <Button><Plus className="h-4 w-4" /> Add Site</Button>
+            </Link>
           )}
         </div>
       </div>

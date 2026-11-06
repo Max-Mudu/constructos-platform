@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# No engines field or .nvmrc in the repo; the lockfile was produced with
+# Node 24 / npm 11 (current Active LTS).
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  api:
+    name: API (tsc + jest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: construction_platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Test-only dummy values for a throwaway CI database. Not real secrets.
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/construction_platform_test?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/construction_platform_test?schema=public
+      JWT_SECRET: ci-dummy-jwt-secret-not-a-real-secret-0000
+      JWT_REFRESH_SECRET: ci-dummy-refresh-secret-not-a-real-secret-00
+      STORAGE_DRIVER: local
+      DAILY_REPORT_AI_PROVIDER: fake
+    defaults:
+      run:
+        working-directory: packages/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --no-audit --no-fund
+      - name: Generate Prisma client
+        run: npx prisma generate
+      - name: Type-check
+        run: npx tsc --noEmit -p .
+      - name: Apply migrations to the CI test database
+        run: npx prisma migrate deploy
+      # The migrations job below fails if the migration history does not
+      # reproduce schema.prisma. Here we only bring the throwaway test DB up to
+      # schema.prisma so the test suite still runs while such drift exists.
+      # The database is empty and discarded after the job, so the data-loss
+      # prompt (e.g. for a new unique index) has nothing to lose.
+      - name: Sync any remaining schema.prisma drift into the test database
+        run: npx prisma db push --skip-generate --accept-data-loss
+      - name: Test
+        run: npx jest --ci --runInBand --forceExit
+
+  migrations:
+    name: API migrations match schema.prisma
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: construction_platform_migrations
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Throwaway CI database. Not a real secret.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/construction_platform_migrations?schema=public
+    defaults:
+      run:
+        working-directory: packages/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --no-audit --no-fund
+      - name: Apply all migrations to an empty database
+        run: npx prisma migrate deploy
+      # Production runs `prisma migrate deploy`, so anything in schema.prisma
+      # that no migration creates is missing in a freshly deployed database.
+      # Exit code 2 = drift; the SQL printed is what a new migration must add.
+      - name: Fail if the migrated database differs from schema.prisma
+        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script --exit-code
+
+  web:
+    name: Web (tsc + jest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: packages/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --no-audit --no-fund
+      - name: Type-check
+        run: npx tsc --noEmit -p .
+      - name: Test
+        run: npx jest --ci
+
+  mobile:
+    name: Mobile (tsc)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: packages/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --no-audit --no-fund
+      - name: Type-check
+        run: npx tsc --noEmit -p .

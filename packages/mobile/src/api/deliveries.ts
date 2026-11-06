@@ -11,16 +11,21 @@ export const deliveriesApi = {
     limit?:            number;
     offset?:           number;
   }): Promise<{ records: DeliveryRecord[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }> => {
-    const { projectId, siteId, ...rest } = params ?? {};
-    if (!projectId || !siteId) return { records: [], pagination: { total: 0, limit: 0, offset: 0, hasMore: false } };
-    const res = await apiClient.get<{ deliveries: DeliveryRecord[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>(
-      `/projects/${projectId}/sites/${siteId}/deliveries`,
-      { params: rest },
-    );
-    const deliveries = Array.isArray(res.data?.deliveries) ? res.data.deliveries : [];
+    const empty = { records: [], pagination: { total: 0, limit: 0, offset: 0, hasMore: false } };
+    if (!params?.projectId || !params.siteId) return empty;
+    // GET /api/v1/deliveries (mobile.routes) applies projectId/siteId scope,
+    // supplier search, date, acceptanceStatus and limit/offset server-side and
+    // includes photos. The site route ignores every query param and returns
+    // records without `photos`.
+    const res = await apiClient.get<{
+      records:     DeliveryRecord[];
+      pagination?: { total: number; limit: number; offset: number; hasMore: boolean };
+    }>('/deliveries', { params });
+    const records = (Array.isArray(res.data?.records) ? res.data.records : [])
+      .map((r) => ({ ...r, photos: Array.isArray(r.photos) ? r.photos : [] }));
     return {
-      records:    deliveries,
-      pagination: res.data.pagination ?? { total: deliveries.length, limit: deliveries.length, offset: 0, hasMore: false },
+      records,
+      pagination: res.data.pagination ?? { total: records.length, limit: records.length, offset: 0, hasMore: false },
     };
   },
 
@@ -40,19 +45,27 @@ export const deliveriesApi = {
     supplierId?:        string;
   }): Promise<DeliveryRecord> => {
     const { projectId, siteId, ...body } = data;
-    const res = await apiClient.post<{ record: DeliveryRecord }>(
+    // API responds 201 { delivery }.
+    const res = await apiClient.post<{ delivery: DeliveryRecord }>(
       `/projects/${projectId}/sites/${siteId}/deliveries`,
       body,
     );
-    return res.data.record;
+    return res.data.delivery;
   },
 
-  uploadPhoto: async (deliveryId: string, fileUri: string): Promise<unknown> => {
+  /** POST /projects/:projectId/sites/:siteId/deliveries/:deliveryId/photos (multipart, field "file"). */
+  uploadPhoto: async (
+    projectId:  string,
+    siteId:     string,
+    deliveryId: string,
+    fileUri:    string,
+    mimeType = 'image/jpeg',
+  ): Promise<unknown> => {
     return uploadFile(
-      `/deliveries/${deliveryId}/photos`,
+      `/projects/${projectId}/sites/${siteId}/deliveries/${deliveryId}/photos`,
       fileUri,
-      'photo',
-      'image/jpeg',
+      'file',
+      mimeType,
     );
   },
 };

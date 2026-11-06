@@ -198,6 +198,11 @@ function operationalHref(
   segment: string,
   u: { defaultProjectId: string | null; defaultSiteId: string | null } | null,
 ): string {
+  // These have hub pages that open the default site only if it is still
+  // reachable (and otherwise offer a site picker) — never a stale 403/404.
+  if (segment === 'attendance' || segment === 'labour' || segment === 'targets') {
+    return `/${segment}`;
+  }
   if (u?.defaultProjectId && u?.defaultSiteId) {
     return `/projects/${u.defaultProjectId}/sites/${u.defaultSiteId}/${segment}`;
   }

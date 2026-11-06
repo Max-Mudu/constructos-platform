@@ -214,6 +214,15 @@ export async function updateTarget(
     }
   }
 
+  // Same rule as createTarget: a linked worker must belong to this company.
+  if (input.workerId) {
+    const worker = await prisma.worker.findFirst({
+      where: { id: input.workerId, companyId: actor.companyId },
+      select: { id: true },
+    });
+    if (!worker) throw new NotFoundError('Worker');
+  }
+
   const updated = await prisma.dailyTarget.update({
     where: { id: targetId },
     data: {

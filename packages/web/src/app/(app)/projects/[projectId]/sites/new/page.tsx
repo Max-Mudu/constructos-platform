@@ -2,47 +2,42 @@
 
 import { useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import Link from 'next/link';
-import { siteApi, ApiError } from '@/lib/api';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Alert, AlertDescription } from '@/components/ui/Alert';
+import { formErrorState } from '@/lib/workflows-form-errors';
+import {
+  canCreateSite, emptySiteForm, siteAdminApi, siteCreatePayload, siteFormErrors,
+  type SiteFormValues,
+} from '@/lib/projects-admin-api';
+import { useAuthStore } from '@/store/auth.store';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { AlertCircle } from 'lucide-react';
+import { NotAllowed } from '@/components/projects/ProjectForm';
+import { SITE_INLINE_FIELDS, SiteForm } from '@/components/projects/SiteForm';
 
 export default function NewSitePage() {
   const router = useRouter();
   const { projectId } = useParams<{ projectId: string }>()!;
+  const user = useAuthStore((s) => s.user);
 
-  const [form, setForm] = useState({ name: '', address: '' });
+  const [form, setForm]               = useState<SiteFormValues>(emptySiteForm());
   const [submitting, setSubmitting]   = useState(false);
   const [error, setError]             = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
 
-  function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit() {
     if (!projectId) return;
+    const local = siteFormErrors(form);
+    if (Object.keys(local).length > 0) { setFieldErrors(local); setError(''); return; }
+
     setSubmitting(true);
     setError('');
     setFieldErrors({});
-
     try {
-      const payload: { name: string; address?: string } = { name: form.name };
-      if (form.address) payload.address = form.address;
-
-      const { site } = await siteApi.create(projectId, payload);
+      const { site } = await siteAdminApi.create(projectId, siteCreatePayload(form));
       router.push(`/projects/${projectId}/sites/${site.id}`);
     } catch (e) {
-      if (e instanceof ApiError) {
-        if (e.details) setFieldErrors(e.details);
-        else setError(e.message);
-      } else {
-        setError('Something went wrong');
-      }
+      const state = formErrorState(e, SITE_INLINE_FIELDS, 'Failed to add site');
+      setFieldErrors(state.fieldErrors);
+      setError(state.message);
     } finally {
       setSubmitting(false);
     }
@@ -57,44 +52,25 @@ export default function NewSitePage() {
       ]} />
       <PageHeader title="Add Job Site" subtitle="Add a new job site to this project." />
 
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+      {!canCreateSite(user?.role) ? (
+        <NotAllowed
+          message="Only a company admin or project manager can add job sites."
+          backHref={`/projects/${projectId}`}
+          backLabel="Back to Project"
+        />
+      ) : (
+        <SiteForm
+          values={form}
+          onChange={setForm}
+          onSubmit={() => void handleSubmit()}
+          fieldErrors={fieldErrors}
+          error={error}
+          submitting={submitting}
+          submitLabel="Add Site"
+          submittingLabel="Adding…"
+          cancelHref={`/projects/${projectId}`}
+        />
       )}
-
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <Card>
-          <CardHeader><CardTitle className="text-base">Site Details</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <Input
-              label="Site Name"
-              value={form.name}
-              onChange={(e) => set('name', e.target.value)}
-              required
-              placeholder="e.g. Block A Foundation"
-              error={fieldErrors.name?.[0]}
-            />
-            <Input
-              label="Address"
-              value={form.address}
-              onChange={(e) => set('address', e.target.value)}
-              placeholder="e.g. Westlands, Nairobi"
-              error={fieldErrors.address?.[0]}
-            />
-          </CardContent>
-        </Card>
-
-        <div className="flex gap-3 justify-end">
-          <Link href={`/projects/${projectId}`}>
-            <Button type="button" variant="outline">Cancel</Button>
-          </Link>
-          <Button type="submit" disabled={submitting}>
-            {submitting ? 'Adding…' : 'Add Site'}
-          </Button>
-        </div>
-      </form>
     </div>
   );
 }

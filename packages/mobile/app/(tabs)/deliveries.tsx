@@ -6,9 +6,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Modal,
   ScrollView, Image, RefreshControl, TextInput, ActivityIndicator,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { apiClient } from '../../src/api/client';
+import { getAccessToken } from '../../src/auth/secureStorage';
 import { deliveriesApi } from '../../src/api/deliveries';
 import { projectsApi } from '../../src/api/projects';
 import { useAuthStore } from '../../src/store/auth.store';
@@ -19,12 +21,14 @@ import { Input } from '../../src/components/Input';
 import { Badge } from '../../src/components/Badge';
 import { LoadingSpinner } from '../../src/components/LoadingSpinner';
 import { EmptyState } from '../../src/components/EmptyState';
+import { API_ORIGIN } from '../../src/constants/api';
 import {
   DeliveryRecord, InspectionStatus, AcceptanceStatus, Project, JobSite,
 } from '../../src/types';
 
 const PAGE_SIZE = 25;
-const BASE_URL  = process.env['EXPO_PUBLIC_API_URL']?.replace('/api/v1', '') ?? 'http://10.0.2.2:3000';
+// Uploaded file paths (/uploads/...) are served from the API origin.
+const BASE_URL  = API_ORIGIN;
 
 // ─── Option configs ───────────────────────────────────────────────────────────
 
@@ -80,6 +84,9 @@ function DeliveryDetailView({
   const [rejection,   setRejection]   = useState(record.rejectionReason  ?? '');
   const [discrepancy, setDiscrepancy] = useState(record.discrepancyNotes ?? '');
   const [saving,      setSaving]      = useState(false);
+  // GET /uploads/* requires a Bearer token, so <Image> must send one.
+  const [fileToken,   setFileToken]   = useState<string | null>(null);
+  useEffect(() => { void getAccessToken().then(setFileToken); }, []);
 
   const isDirty =
     inspection  !== record.inspectionStatus         ||
@@ -122,6 +129,7 @@ function DeliveryDetailView({
       style={DV.container}
       contentContainerStyle={DV.scroll}
       keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
     >
       {/* ── Back nav ──────────────────────────────────────────────── */}
       <TouchableOpacity style={DV.backBtn} onPress={onBack} activeOpacity={0.7}>
@@ -171,7 +179,7 @@ function DeliveryDetailView({
       </View>
 
       {/* ── Photos ────────────────────────────────────────────────── */}
-      {record.photos.length > 0 && (
+      {record.photos.length > 0 && fileToken && (
         <View style={DV.section}>
           <Text style={DV.sectionTitle}>Photos ({record.photos.length})</Text>
           <ScrollView
@@ -182,7 +190,10 @@ function DeliveryDetailView({
             {record.photos.map((p) => (
               <Image
                 key={p.id}
-                source={{ uri: p.fileUrl.startsWith('http') ? p.fileUrl : `${BASE_URL}${p.fileUrl}` }}
+                source={{
+                  uri: p.fileUrl.startsWith('http') ? p.fileUrl : `${BASE_URL}${p.fileUrl}`,
+                  headers: { Authorization: `Bearer ${fileToken}` },
+                }}
                 style={DV.photoThumb}
               />
             ))}
@@ -318,6 +329,7 @@ function CreateDeliveryModal({
   const [condition,    setCondition]    = useState('good');
   const [notes,        setNotes]        = useState('');
   const [photoUri,     setPhotoUri]     = useState<string | null>(null);
+  const [photoMime,    setPhotoMime]    = useState('image/jpeg');
   const [saving,       setSaving]       = useState(false);
 
   useEffect(() => {
@@ -338,7 +350,11 @@ function CreateDeliveryModal({
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8,
     });
-    if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
+    const asset = !result.canceled ? result.assets[0] : undefined;
+    if (asset) {
+      setPhotoUri(asset.uri);
+      setPhotoMime(asset.mimeType ?? 'image/jpeg');
+    }
   }
 
   async function save() {
@@ -355,13 +371,14 @@ function CreateDeliveryModal({
         quantityOrdered:    parseFloat(qtyOrdered)   || 1,
         quantityDelivered:  parseFloat(qtyDelivered) || 1,
         unitOfMeasure:      unit.trim() || 'units',
-        conditionOnArrival: condition,
+        // API enum: good | damaged | partial | incorrect
+        conditionOnArrival: condition.trim().toLowerCase() || 'good',
         receivedById:       user.id,
         comments:           notes || undefined,
       };
       const record = await deliveriesApi.create(payload);
       if (photoUri) {
-        try { await deliveriesApi.uploadPhoto(record.id, photoUri); }
+        try { await deliveriesApi.uploadPhoto(projectId, siteId, record.id, photoUri, photoMime); }
         catch { Alert.alert('Note', 'Delivery created but photo upload failed.'); }
       }
       onSaved(projectId, siteId); onClose();
@@ -375,8 +392,8 @@ function CreateDeliveryModal({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={styles.modal}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={styles.modal} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>New Delivery</Text>
           <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
@@ -439,7 +456,7 @@ function CreateDeliveryModal({
 
           <Button title="Create Delivery" onPress={save} loading={saving} style={{ marginTop: 16 }} />
         </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -517,30 +534,28 @@ export default function DeliveriesScreen() {
     const statusQ   = opts.statusF   ?? statusFilter;
     const newOffset = opts.reset ? 0 : offset;
 
+    // "Pending" means no acceptance decision yet (null), which the API's
+    // acceptanceStatus enum filter cannot express — filter that one locally.
+    const pendingOnly = statusQ === 'pending_inspection';
     try {
       const res      = await deliveriesApi.list({
         projectId:        pid,
         siteId:           sid,
         search:           searchQ || undefined,
-        acceptanceStatus: statusQ || undefined,
+        acceptanceStatus: statusQ && !pendingOnly ? statusQ : undefined,
         limit:  PAGE_SIZE,
         offset: newOffset,
       });
-      const fetched  = Array.isArray(res?.records) ? res.records : [];
+      const fetched = Array.isArray(res?.records) ? res.records : [];
+      const shown   = pendingOnly ? fetched.filter((d) => d.acceptanceStatus == null) : fetched;
+      const next    = [...(opts.reset || newOffset === 0 ? [] : (records ?? [])), ...shown];
 
-      // Backend ignores acceptanceStatus param — filter client-side
-      const filtered =
-        statusQ === ''                  ? fetched :
-        statusQ === 'pending_inspection'? fetched.filter((d) => d.acceptanceStatus == null) :
-                                          fetched.filter((d) => d.acceptanceStatus === statusQ);
-
-      if (opts.reset || newOffset === 0) {
-        setRecords(filtered);
-      } else {
-        setRecords((prev) => [...(prev ?? []), ...filtered]);
-      }
-      setTotal(filtered.length);
-      setOffset(newOffset + filtered.length);
+      setRecords(next);
+      // Server-side paging: advance by what the server returned.
+      setOffset(newOffset + fetched.length);
+      setTotal(pendingOnly
+        ? next.length + (res.pagination.hasMore ? 1 : 0) // remainder unknown until fetched
+        : res.pagination.total);
     } catch { /* non-fatal */ }
   }
 

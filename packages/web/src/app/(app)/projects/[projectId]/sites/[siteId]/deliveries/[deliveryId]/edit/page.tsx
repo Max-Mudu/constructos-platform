@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { deliveryApi, supplierApi, ApiError } from '@/lib/api';
+import { formErrorState } from '@/lib/workflows-form-errors';
+import { acceptancePatch } from '@/lib/workflows-delivery';
 import { DeliveryRecord, DeliveryCondition, InspectionStatus, AcceptanceStatus, Supplier } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -71,7 +73,7 @@ export default function EditDeliveryPage() {
   const [quantityDelivered, setQtyDelivered]      = useState('');
   const [conditionOnArrival, setCondition]        = useState<DeliveryCondition>('good');
   const [inspectionStatus, setInspection]         = useState<InspectionStatus>('pending');
-  const [acceptanceStatus, setAcceptance]         = useState<AcceptanceStatus>('accepted');
+  const [acceptanceStatus, setAcceptance]         = useState<AcceptanceStatus | ''>('');
   const [rejectionReason, setRejectionReason]     = useState('');
   const [discrepancyNotes, setDiscrepancyNotes]   = useState('');
   const [comments, setComments]                   = useState('');
@@ -102,7 +104,7 @@ export default function EditDeliveryPage() {
       setQtyDelivered(String(d.quantityDelivered));
       setCondition(d.conditionOnArrival);
       setInspection(d.inspectionStatus);
-      setAcceptance(d.acceptanceStatus);
+      setAcceptance((d.acceptanceStatus as AcceptanceStatus | null) ?? '');
       setRejectionReason(d.rejectionReason ?? '');
       setDiscrepancyNotes(d.discrepancyNotes ?? '');
       setComments(d.comments ?? '');
@@ -144,19 +146,16 @@ export default function EditDeliveryPage() {
         quantityDelivered:   Number(quantityDelivered),
         conditionOnArrival,
         inspectionStatus,
-        acceptanceStatus,
+        ...acceptancePatch(acceptanceStatus),
         rejectionReason:     nullIfEmpty(rejectionReason),
         discrepancyNotes:    nullIfEmpty(discrepancyNotes),
         comments:            nullIfEmpty(comments),
       });
       router.push(`/projects/${projectId}/sites/${siteId}/deliveries/${deliveryId}`);
     } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.details) setFieldErrors(err.details);
-        else setError(err.message);
-      } else {
-        setError('Failed to update delivery record');
-      }
+      const shown = formErrorState(err, ['supplierName', 'itemDescription'], 'Failed to update delivery record');
+      setFieldErrors(shown.fieldErrors);
+      setError(shown.message);
       setSubmitting(false);
     }
   }
@@ -429,9 +428,10 @@ export default function EditDeliveryPage() {
             <Field label="Acceptance Status">
               <select
                 value={acceptanceStatus}
-                onChange={(e) => setAcceptance(e.target.value as AcceptanceStatus)}
+                onChange={(e) => setAcceptance(e.target.value as AcceptanceStatus | '')}
                 className={selectCls}
               >
+                {acceptanceStatus === '' && <option value="">Not recorded</option>}
                 <option value="accepted">Accepted</option>
                 <option value="partially_accepted">Partially Accepted</option>
                 <option value="rejected">Rejected</option>

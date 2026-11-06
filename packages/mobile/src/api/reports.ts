@@ -1,6 +1,7 @@
 import { apiClient } from './client';
 import * as FileSystem from 'expo-file-system';
 import { getAccessToken } from '../auth/secureStorage';
+import { API_BASE_URL } from '../constants/api';
 
 export type ReportType =
   | 'labour'
@@ -33,8 +34,6 @@ export interface ReportData {
   rows:        string[][];
 }
 
-const BASE_URL = (process.env['EXPO_PUBLIC_API_URL'] ?? 'http://10.0.2.2:3000/api/v1').replace(/\/api\/v1$/, '');
-
 export const reportsApi = {
   /** Fetch report as JSON for in-app display. */
   getJson: async (type: ReportType, filters?: ReportFilters): Promise<ReportData> => {
@@ -53,7 +52,6 @@ export const reportsApi = {
     format: 'pdf' | 'csv',
     filters?: ReportFilters,
   ): Promise<string> => {
-    const token = await getAccessToken();
     const ext   = format === 'pdf' ? 'pdf' : 'csv';
     const dest  = FileSystem.cacheDirectory + `${type}-report.${ext}`;
 
@@ -63,13 +61,27 @@ export const reportsApi = {
     if (filters?.siteId)     params.set('siteId',      filters.siteId);
     if (filters?.startDate)  params.set('startDate',   filters.startDate);
     if (filters?.endDate)    params.set('endDate',      filters.endDate);
-    const url = `${BASE_URL}/api/v1/reports/${type}?${params.toString()}`;
+    const url = `${API_BASE_URL}/reports/${type}?${params.toString()}`;
 
-    const result = await FileSystem.downloadAsync(url, dest, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const download = async () => {
+      const token = await getAccessToken();
+      return FileSystem.downloadAsync(url, dest, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+    };
+
+    let result = await download();
+    if (result.status === 401) {
+      // downloadAsync bypasses the axios refresh interceptor. One cheap
+      // authenticated call lets the interceptor refresh an expired access
+      // token (or end the session if the refresh token is invalid); retry once.
+      await apiClient.get('/auth/me');
+      result = await download();
+    }
 
     if (result.status !== 200) {
+      // downloadAsync writes the error body to `dest`; don't leave it behind.
+      await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => {});
       throw new Error(`Failed to download report (${result.status})`);
     }
 

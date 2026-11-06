@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { scheduleApi, ApiError } from '@/lib/api';
 import { ScheduleTask, WorkPackage, ScheduleTaskStatus } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
+import { dateOnly, localToday } from '@/lib/workflows-dates';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StickyActionsRow } from '@/components/ui/StickyActionsRow';
@@ -92,6 +93,7 @@ export default function SchedulesPage() {
   const load = useCallback(() => {
     if (!projectId || !siteId) return;
     setLoading(true);
+    setError('');
     Promise.all([
       scheduleApi.listTasks(projectId, siteId),
       scheduleApi.listPackages(projectId, siteId),
@@ -117,11 +119,11 @@ export default function SchedulesPage() {
     ? Math.round(withProgress.reduce((s, t) => s + parseFloat(t.actualProgress ?? '0'), 0) / withProgress.length)
     : 0;
 
-  const today = useMemo(() => new Date().toISOString().split('T')[0]!, []);
+  const today = useMemo(() => localToday(), []);
 
   const riskSummary = useMemo(() => ({
-    overdue:    tasks.filter((t) => t.status !== 'completed' && t.plannedEndDate && t.plannedEndDate.split('T')[0]! < today).length,
-    dueToday:   tasks.filter((t) => t.status !== 'completed' && t.plannedEndDate && t.plannedEndDate.split('T')[0]! === today).length,
+    overdue:    tasks.filter((t) => t.status !== 'completed' && t.plannedEndDate && dateOnly(t.plannedEndDate) < today).length,
+    dueToday:   tasks.filter((t) => t.status !== 'completed' && t.plannedEndDate && dateOnly(t.plannedEndDate) === today).length,
     blocked:    tasks.filter((t) => t.status === 'blocked').length,
     delayed:    tasks.filter((t) => t.status === 'delayed').length,
     behindPlan: tasks.filter((t) => t.actualProgress !== null && t.plannedProgress !== null && parseFloat(t.actualProgress) < parseFloat(t.plannedProgress) - 10).length,
@@ -179,6 +181,9 @@ export default function SchedulesPage() {
           <div className="space-y-3">
             {[1, 2, 3].map((i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
           </div>
+        ) : error && tasks.length === 0 ? (
+          // A failed load (e.g. 403) is not an empty schedule — the error alert above says why.
+          null
         ) : tasks.length === 0 ? (
           <EmptyState
             icon={<ClipboardList className="h-12 w-12" />}

@@ -19,10 +19,10 @@
       "bundleIdentifier": "com.constructos.app",
       "buildNumber": "1",
       "infoPlist": {
-        "NSCameraUsageDescription": "ConstructOS uses the camera to photograph delivery receipts and site materials.",
-        "NSPhotoLibraryUsageDescription": "ConstructOS saves delivery photos and downloaded reports to your photo library.",
-        "NSPhotoLibraryAddUsageDescription": "ConstructOS saves delivery photos to your photo library.",
-        "NSLocationWhenInUseUsageDescription": "ConstructOS may use your location to verify on-site attendance check-ins."
+        "NSPhotoLibraryAddUsageDescription": "ConstructOS saves a file to your photo library only when you choose Save Image from the share sheet."
+      },
+      "config": {
+        "usesNonExemptEncryption": false
       }
     },
     "android": {
@@ -34,18 +34,34 @@
       "versionCode": 1,
       "permissions": [
         "CAMERA",
-        "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
-        "NOTIFICATIONS",
         "VIBRATE",
         "RECEIVE_BOOT_COMPLETED",
         "ACCESS_NETWORK_STATE",
         "INTERNET"
+      ],
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
       ]
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "ConstructOS keeps your sign-in in the iOS Keychain. Face ID is used only if a protected sign-in item on this device needs to be unlocked."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "ConstructOS uses the camera when you add a photo to a delivery record, for example to photograph a delivery receipt or the delivered materials.",
+          "photosPermission": "ConstructOS only accesses photos that you choose to attach to a delivery record. It does not browse or upload your photo library on its own.",
+          "microphonePermission": false
+        }
+      ],
       [
         "expo-notifications",
         {
