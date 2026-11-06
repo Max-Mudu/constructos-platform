@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, Bell, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, Bell, CheckCircle2, Users } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { projectApi, siteApi, authApi, ApiError } from '@/lib/api';
 import { Project, JobSite } from '@/lib/types';
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { canManageTeam } from '@/lib/team-roles';
 
 export default function SettingsPage() {
   const { user, accessToken, setAuth } = useAuthStore();
@@ -190,6 +191,35 @@ export default function SettingsPage() {
           </div>
         </div>
       </section>
+
+      {/* ── Team (company admins only — the API enforces this too) ────────────── */}
+      {canManageTeam(user?.role) && (
+        <section className="space-y-3">
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">Team</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Add people to your company and see what they can access.
+            </p>
+          </div>
+          <Link
+            href="/settings/team"
+            className="flex items-center gap-4 rounded-xl border border-border bg-card px-5 py-4 hover:bg-navy-elevated transition-colors group"
+          >
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 shrink-0">
+              <Users className="h-4 w-4 text-primary/70" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground">Team Members</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Manage who is in your company, their roles and project access.
+              </p>
+            </div>
+            <span className="text-sm text-muted-foreground/40 group-hover:text-muted-foreground transition-colors select-none">
+              →
+            </span>
+          </Link>
+        </section>
+      )}
 
       {/* ── Notifications ───────────────────────────────────────────────────── */}
       <section className="space-y-3">
