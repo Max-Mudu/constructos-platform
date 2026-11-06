@@ -45,23 +45,14 @@ export const schedulesApi = {
       endDate?: string;
     },
   ): Promise<ScheduleTask[]> => {
-    const possiblePaths = [
+    // The only list route (schedule.routes: GET /tasks under
+    // /projects/:projectId/sites/:siteId/schedule). Errors propagate: a 403,
+    // network failure or 5xx must not look like "no tasks".
+    const res = await apiClient.get<ScheduleListResponse>(
       `/projects/${projectId}/sites/${siteId}/schedule/tasks`,
-      `/projects/${projectId}/sites/${siteId}/schedules/tasks`,
-      `/projects/${projectId}/sites/${siteId}/schedule`,
-      `/projects/${projectId}/sites/${siteId}/schedules`,
-    ];
-
-    for (const path of possiblePaths) {
-      try {
-        const res = await apiClient.get<ScheduleListResponse>(path, { params });
-        return normalizeScheduleResponse(res.data);
-      } catch {
-        // Try next possible schedule route.
-      }
-    }
-
-    return [];
+      { params },
+    );
+    return normalizeScheduleResponse(res.data);
   },
 
   createTask: async (

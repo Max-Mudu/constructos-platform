@@ -7,6 +7,7 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Modal,
   ScrollView, RefreshControl, TextInput, ActivityIndicator,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useAuthStore } from '../../src/store/auth.store';
 import { attendanceApi } from '../../src/api/attendance';
@@ -15,6 +16,7 @@ import { workersApi } from '../../src/api/workers';
 import { enqueue, isNetworkError } from '../../src/utils/offlineQueue';
 import { useOfflineQueue } from '../../src/hooks/useOfflineQueue';
 import { AttendanceRecord, AttendanceStatus, Project, JobSite, Worker } from '../../src/types';
+import { useAppBarInset } from '../../src/hooks/useAppBarInset';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -45,6 +47,7 @@ function WorkerAttendance({
   defaultProjectId?: string | null;
   defaultSiteId?:    string | null;
 }) {
+  const appBarInset = useAppBarInset();
   const { pendingCount, isFlushing, flush } = useOfflineQueue();
   const hasDefaults = !!(defProjId && defSiteId);
 
@@ -117,7 +120,7 @@ function WorkerAttendance({
   if (loading) {
     return (
       <View style={W.root}>
-        <View style={W.appBar}>
+        <View style={[W.appBar, appBarInset]}>
           <Text style={W.appBarTitle}>My Attendance</Text>
           <Text style={W.appBarDate}>{today}</Text>
         </View>
@@ -131,7 +134,7 @@ function WorkerAttendance({
   if (doneOffline) {
     return (
       <View style={W.root}>
-        <View style={W.appBar}>
+        <View style={[W.appBar, appBarInset]}>
           <Text style={W.appBarTitle}>My Attendance</Text>
           <Text style={W.appBarDate}>{today}</Text>
         </View>
@@ -154,7 +157,7 @@ function WorkerAttendance({
   if (done) {
     return (
       <View style={W.root}>
-        <View style={W.appBar}>
+        <View style={[W.appBar, appBarInset]}>
           <Text style={W.appBarTitle}>My Attendance</Text>
           <Text style={W.appBarDate}>{today}</Text>
         </View>
@@ -181,7 +184,7 @@ function WorkerAttendance({
 
   return (
     <View style={W.root}>
-      <View style={W.appBar}>
+      <View style={[W.appBar, appBarInset]}>
         <Text style={W.appBarTitle}>My Attendance</Text>
         <Text style={W.appBarDate}>{today}</Text>
       </View>
@@ -338,8 +341,8 @@ function MarkAttendanceModal({
     : workers;
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={M.root}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={M.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
 
         {/* ── Header ───────────────────────────────────────────── */}
         <View style={M.header}>
@@ -515,7 +518,7 @@ function MarkAttendanceModal({
           </View>
 
         </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -529,6 +532,7 @@ function SupervisorAttendance({
   defaultProjectId?: string | null;
   defaultSiteId?:    string | null;
 }) {
+  const appBarInset = useAppBarInset();
   const hasDefaults = !!(defProjId && defSiteId);
 
   const [records,       setRecords]       = useState<AttendanceRecord[]>([]);
@@ -623,7 +627,7 @@ function SupervisorAttendance({
   if (loading) {
     return (
       <View style={S.root}>
-        <View style={S.appBar}>
+        <View style={[S.appBar, appBarInset]}>
           <Text style={S.appBarTitle}>Daily Attendance</Text>
           <Text style={S.appBarDate}>{today}</Text>
         </View>
@@ -637,7 +641,7 @@ function SupervisorAttendance({
   return (
     <View style={S.root}>
       {/* ── App bar ─────────────────────────────────────────────── */}
-      <View style={S.appBar}>
+      <View style={[S.appBar, appBarInset]}>
         <Text style={S.appBarTitle}>Daily Attendance</Text>
         <Text style={S.appBarDate}>{today}</Text>
       </View>

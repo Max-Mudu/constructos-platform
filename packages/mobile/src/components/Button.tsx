@@ -30,6 +30,10 @@ export function Button({
       disabled={isDisabled}
       style={[styles.base, styles[variant], isDisabled && styles.disabled, style]}
       activeOpacity={0.75}
+      // The label stays readable to screen readers while the spinner shows.
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
     >
       {loading ? (
         <ActivityIndicator

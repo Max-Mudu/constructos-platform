@@ -30,12 +30,15 @@ import { Badge } from '../../src/components/Badge';
 import { Input } from '../../src/components/Input';
 import { LoadingSpinner } from '../../src/components/LoadingSpinner';
 import { EmptyState } from '../../src/components/EmptyState';
+import { API_ORIGIN } from '../../src/constants/api';
 import {
   Project, JobSite, Drawing, Instruction,
   InstructionType, InstructionPriority,
 } from '../../src/types';
+import { useAppBarInset } from '../../src/hooks/useAppBarInset';
 
-const BASE_URL = process.env['EXPO_PUBLIC_API_URL']?.replace('/api/v1', '') ?? 'http://10.0.2.2:3000';
+// Uploaded file paths (/uploads/...) are served from the API origin.
+const BASE_URL = API_ORIGIN;
 
 const PROJECT_STATUS: Record<string, { label: string; color: string; accent: string }> = {
   active:    { label: 'In Progress', color: '#3b82f6', accent: '#1d4ed8' },
@@ -167,7 +170,7 @@ function InstructionCreateForm({
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.formPad} keyboardShouldPersistTaps="handled">
+    <ScrollView contentContainerStyle={styles.formPad} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
       <Text style={styles.formTitle}>New Instruction</Text>
 
       <Text style={styles.fieldLabel}>Type</Text>
@@ -214,6 +217,7 @@ function InstructionCreateForm({
 }
 
 export default function ProjectsScreen() {
+  const appBarInset = useAppBarInset();
   const router = useRouter();
   const user = useAuthStore((s) => s.user)!;
 
@@ -380,7 +384,7 @@ export default function ProjectsScreen() {
     return (
       <View style={P.root}>
         {/* ── App bar ─────────────────────────────────────────────── */}
-        <View style={P.appBar}>
+        <View style={[P.appBar, appBarInset]}>
           <View>
             <Text style={P.appBarTitle}>Active Projects</Text>
             <Text style={P.appBarSub}>{projects.length} project{projects.length !== 1 ? 's' : ''}</Text>
@@ -527,7 +531,7 @@ export default function ProjectsScreen() {
     return (
       <View style={SD.root}>
         {/* ── App bar with back ───────────────────────────────────── */}
-        <View style={SD.appBar}>
+        <View style={[SD.appBar, appBarInset]}>
           <TouchableOpacity
             style={SD.backBtn}
             onPress={goBack}
@@ -639,7 +643,7 @@ export default function ProjectsScreen() {
     return (
       <View style={DR.root}>
         {/* ── App bar ────────────────────────────────────────────── */}
-        <View style={DR.appBar}>
+        <View style={[DR.appBar, appBarInset]}>
           <TouchableOpacity
             style={DR.backBtn}
             onPress={goBack}
@@ -819,6 +823,7 @@ export default function ProjectsScreen() {
           }
           await Sharing.shareAsync(localUri, {
             mimeType: 'application/pdf',
+            UTI: 'com.adobe.pdf',
             dialogTitle: 'Open Drawing PDF',
           });
         } catch {
@@ -834,7 +839,6 @@ export default function ProjectsScreen() {
       // File not cached — download it now.
       try {
         const token = await getAccessToken();
-        console.log('[openPdf] URL:', pdfUrl);
         console.log('[openPdf] token present:', !!token);
 
         const result = await FileSystem.downloadAsync(pdfUrl, localUri, {
@@ -865,6 +869,7 @@ export default function ProjectsScreen() {
 
         await Sharing.shareAsync(result.uri, {
           mimeType: 'application/pdf',
+          UTI: 'com.adobe.pdf',
           dialogTitle: 'Open Drawing PDF',
         });
       } catch (err) {
@@ -883,7 +888,7 @@ export default function ProjectsScreen() {
     return (
       <View style={DD.root}>
         {/* ── App bar ────────────────────────────────────────────── */}
-        <View style={DD.appBar}>
+        <View style={[DD.appBar, appBarInset]}>
           <TouchableOpacity
             style={DD.backBtn}
             onPress={goBack}
@@ -1018,7 +1023,7 @@ export default function ProjectsScreen() {
     return (
       <View style={IL.root}>
         {/* ── App bar ─────────────────────────────────────────────── */}
-        <View style={IL.appBar}>
+        <View style={[IL.appBar, appBarInset]}>
           <TouchableOpacity
             style={IL.backBtn}
             onPress={goBack}
@@ -1173,7 +1178,7 @@ export default function ProjectsScreen() {
     return (
       <View style={IDT.root}>
         {/* ── App bar ─────────────────────────────────────────────── */}
-        <View style={IDT.appBar}>
+        <View style={[IDT.appBar, appBarInset]}>
           <TouchableOpacity
             style={IDT.backBtn}
             onPress={goBack}

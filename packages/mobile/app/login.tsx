@@ -4,37 +4,11 @@ import {
   ScrollView, TouchableOpacity, Alert, TextInput, Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
-import Constants from 'expo-constants';
 import { useAuthStore } from '../src/store/auth.store';
 import { authApi } from '../src/api/auth';
 import { notificationsApi } from '../src/api/notifications';
-
-// ─── Push notification registration ───────────────────────────────────────────
-
-async function registerForPushNotifications(): Promise<string | null> {
-  if (!Device.isDevice) return null;
-
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  let finalStatus = existing;
-
-  if (existing !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-
-  if (finalStatus !== 'granted') return null;
-
-  // Pass projectId explicitly so token registration works in development builds
-  // and EAS managed builds. The value comes from app.json extra.eas.projectId.
-  const projectId =
-    (Constants.expoConfig?.extra?.eas?.projectId as string | undefined) ?? undefined;
-  const tokenData = await Notifications.getExpoPushTokenAsync(
-    projectId ? { projectId } : undefined,
-  );
-  return tokenData.data;
-}
+import { registerForPushNotifications } from '../src/utils/push';
+import { API_BASE_URL, API_CONFIG_ERROR } from '../src/constants/api';
 
 // ─── Login screen ─────────────────────────────────────────────────────────────
 
@@ -89,9 +63,12 @@ export default function LoginScreen() {
 
       router.replace('/(tabs)');
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-        'Login failed. Please check your credentials.';
+      const response = (err as { response?: { data?: { error?: string } } })?.response;
+      const message = API_CONFIG_ERROR
+        ? API_CONFIG_ERROR
+        : !response
+        ? `Cannot reach the server. Check your connection and try again.${__DEV__ ? `\n\nAPI: ${API_BASE_URL}` : ''}`
+        : response.data?.error ?? 'Login failed. Please check your credentials.';
       Alert.alert('Login Failed', message);
     } finally {
       setLoading(false);
@@ -101,7 +78,9 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       style={L.root}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      // Android already resizes the window for the keyboard (adjustResize);
+      // 'height' on top of that makes the form jump.
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
         contentContainerStyle={L.scroll}
@@ -127,6 +106,12 @@ export default function LoginScreen() {
         </View>
 
         {/* ── LOGIN CARD ────────────────────────────────────────────── */}
+        {API_CONFIG_ERROR ? (
+          <View style={L.configError} accessibilityRole="alert">
+            <Text style={L.configErrorText}>{API_CONFIG_ERROR}</Text>
+          </View>
+        ) : null}
+
         <View style={L.card}>
           <View style={L.cardHeader}>
             <Text style={L.cardTitle}>Welcome back</Text>
@@ -142,6 +127,9 @@ export default function LoginScreen() {
                 value={email}
                 onChangeText={(v) => { setEmail(v); setErrors((e) => ({ ...e, email: undefined })); }}
                 placeholder="you@company.com"
+                accessibilityLabel="Work email"
+                textContentType="emailAddress"
+                autoComplete="email"
                 placeholderTextColor="#1e3a5f"
                 keyboardType="email-address"
                 autoCapitalize="none"
@@ -158,7 +146,7 @@ export default function LoginScreen() {
           <View style={L.fieldGroup}>
             <View style={L.fieldLabelRow}>
               <Text style={L.fieldLabel}>Password</Text>
-              <TouchableOpacity onPress={handleForgotPassword}>
+              <TouchableOpacity onPress={handleForgotPassword} accessibilityRole="link">
                 <Text style={L.forgotLink}>Forgot password?</Text>
               </TouchableOpacity>
             </View>
@@ -170,6 +158,9 @@ export default function LoginScreen() {
                 placeholder="••••••••"
                 placeholderTextColor="#1e3a5f"
                 secureTextEntry
+                accessibilityLabel="Password"
+                textContentType="password"
+                autoComplete="password"
                 onFocus={() => setFocused('password')}
                 onBlur={() => setFocused(null)}
                 editable={!loading}
@@ -181,6 +172,9 @@ export default function LoginScreen() {
           {/* Login button */}
           <TouchableOpacity
             style={[L.loginBtn, loading && L.loginBtnLoading]}
+            accessibilityRole="button"
+            accessibilityLabel="Sign in"
+            accessibilityState={{ disabled: loading, busy: loading }}
             onPress={() => void handleLogin()}
             disabled={loading}
             activeOpacity={0.85}
@@ -200,6 +194,7 @@ export default function LoginScreen() {
           {/* Request Access */}
           <TouchableOpacity
             style={L.accessBtn}
+            accessibilityRole="button"
             onPress={() => Alert.alert('Request Access', 'Contact your company administrator to create an account.')}
             activeOpacity={0.8}
           >
@@ -223,6 +218,7 @@ export default function LoginScreen() {
 
         {/* ── FOOTER ────────────────────────────────────────────────── */}
         <Text style={L.footer}>ConstructOS · Site Management Platform</Text>
+        {__DEV__ ? <Text style={L.devApi}>API: {API_BASE_URL}</Text> : null}
 
       </ScrollView>
     </KeyboardAvoidingView>
@@ -418,4 +414,14 @@ const L = StyleSheet.create({
     fontWeight: '500',
     letterSpacing: 0.5,
   },
+  devApi: { color: '#3d6090', fontSize: 10, textAlign: 'center', marginTop: 6 },
+  configError: {
+    backgroundColor: '#1c0a0a',
+    borderColor:     '#7f1d1d',
+    borderWidth:     1,
+    borderRadius:    10,
+    padding:         12,
+    marginBottom:    16,
+  },
+  configErrorText: { color: '#fca5a5', fontSize: 13, lineHeight: 18 },
 });
