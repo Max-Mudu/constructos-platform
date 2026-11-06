@@ -91,8 +91,10 @@ const INSTRUCTION_SELECT = {
 
 async function assertProjectMember(projectId: string, actor: RequestUser): Promise<void> {
   if (actor.role === 'company_admin') return;
+  // removedAt: null — a removed membership is not a membership (matters for
+  // finance_officer, whom requireProjectAccess lets through without one).
   const member = await prisma.projectMember.findFirst({
-    where: { projectId, userId: actor.id, companyId: actor.companyId },
+    where: { projectId, userId: actor.id, companyId: actor.companyId, removedAt: null },
     select: { id: true },
   });
   if (!member) throw new ForbiddenError('You are not a member of this project');
