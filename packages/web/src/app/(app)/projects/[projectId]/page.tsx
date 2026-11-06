@@ -16,16 +16,11 @@ import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Separator } from '@/components/ui/Separator';
+import { canCreateSite, canEditProject, statusLabel, statusVariant } from '@/lib/projects-admin-api';
+import { canAddMembers, canListMembers, membersApi, type ProjectMember } from '@/lib/members-api';
 import {
-  Building2, MapPin, Calendar, ChevronRight, Users, AlertCircle,
+  Building2, MapPin, Calendar, ChevronRight, Users, AlertCircle, Plus, Pencil,
 } from 'lucide-react';
-
-function statusVariant(s: string): 'active' | 'pending' | 'secondary' | 'inactive' {
-  if (s === 'active')    return 'active';
-  if (s === 'on_hold')   return 'pending';
-  if (s === 'completed') return 'secondary';
-  return 'inactive';
-}
 
 export default function ProjectDetailPage() {
   const { projectId }         = useParams<{ projectId: string }>()!;
@@ -34,6 +29,13 @@ export default function ProjectDetailPage() {
   const [sites,   setSites]   = useState<JobSite[]>([]);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
+  const [members, setMembers] = useState<ProjectMember[] | null>(null);
+  const [membersError, setMembersError] = useState('');
+
+  // PATCH /projects/:id is company_admin only; sites are admin + PM.
+  const canEdit       = canEditProject(user?.role);
+  const canAddSite    = canCreateSite(user?.role);
+  const canSeeMembers = canListMembers(user?.role);
 
   useEffect(() => {
     if (!projectId) return;
@@ -43,7 +45,12 @@ export default function ProjectDetailPage() {
       .finally(() => setLoading(false));
   }, [projectId]);
 
-  const canManage = user?.role === 'company_admin' || user?.role === 'project_manager';
+  useEffect(() => {
+    if (!projectId || !canSeeMembers) return;
+    membersApi.list(projectId)
+      .then((d) => setMembers(d.members))
+      .catch((err) => setMembersError(err instanceof ApiError ? err.message : 'Failed to load members'));
+  }, [projectId, canSeeMembers]);
 
   if (loading) {
     return (
@@ -75,12 +82,15 @@ export default function ProjectDetailPage() {
     project.startDate && new Date(project.startDate).toLocaleDateString(),
   ].filter(Boolean).join(' · ');
 
+  const editButton = canEdit ? (
+    <Link href={`/projects/${projectId}/edit`}>
+      <Button variant="outline" size="sm"><Pencil className="h-3.5 w-3.5" /> Edit</Button>
+    </Link>
+  ) : undefined;
+
   return (
     <div className="animate-fade-in">
-      <StickyActionsRow
-        title={project.name}
-        actions={canManage ? <Button variant="outline" size="sm">Edit</Button> : undefined}
-      />
+      <StickyActionsRow title={project.name} actions={editButton} />
 
       <div className="px-6 py-8 space-y-8">
         <div className="space-y-4">
@@ -88,10 +98,10 @@ export default function ProjectDetailPage() {
           <PageHeader
             title={project.name}
             subtitle={subtitle || undefined}
-            action={canManage ? <Button variant="outline" size="sm">Edit</Button> : undefined}
+            action={editButton}
           />
           <div className="flex flex-wrap gap-2">
-            <Badge variant={statusVariant(project.status)}>{project.status.replace(/_/g, ' ')}</Badge>
+            <Badge variant={statusVariant(project.status)}>{statusLabel(project.status)}</Badge>
             {project.code && <span className="font-mono text-xs text-muted-foreground self-center">{project.code}</span>}
           </div>
           {project.description && (
@@ -116,7 +126,14 @@ export default function ProjectDetailPage() {
         {/* Job Sites */}
         <Card>
           <CardHeader>
-            <CardTitle>Job Sites</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle>Job Sites</CardTitle>
+              {canAddSite && (
+                <Link href={`/projects/${projectId}/sites/new`}>
+                  <Button variant="outline" size="sm"><Plus className="h-3.5 w-3.5" /> Add Site</Button>
+                </Link>
+              )}
+            </div>
           </CardHeader>
           <Separator />
           <CardContent className="pt-4">
@@ -124,6 +141,8 @@ export default function ProjectDetailPage() {
               <EmptyState
                 icon={<Building2 className="h-10 w-10" />}
                 title="No job sites yet"
+                description={canAddSite ? 'Add the first site to start recording daily work.' : undefined}
+                action={canAddSite ? { label: 'Add Site', href: `/projects/${projectId}/sites/new` } : undefined}
               />
             ) : (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -152,24 +171,49 @@ export default function ProjectDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Members */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-muted-foreground" />
-                <CardTitle>Project Members</CardTitle>
+        {/* Members — GET /members is company_admin / project_manager only */}
+        {canSeeMembers && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                  <CardTitle>Project Members</CardTitle>
+                  {members && members.length > 0 && (
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{members.length}</span>
+                  )}
+                </div>
+                <Link href={`/projects/${projectId}/members`}>
+                  <Button variant="outline" size="sm">
+                    {canAddMembers(user?.role) ? 'Manage Members' : 'View Members'}
+                  </Button>
+                </Link>
               </div>
-              {user?.role === 'company_admin' && (
-                <Button variant="outline" size="sm">Manage Members</Button>
+            </CardHeader>
+            <Separator />
+            <CardContent className="pt-4">
+              {membersError ? (
+                <p className="text-sm text-red-400">{membersError}</p>
+              ) : members === null ? (
+                <Skeleton className="h-6 w-48" />
+              ) : members.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No members assigned yet.</p>
+              ) : (
+                <ul className="flex flex-wrap gap-2">
+                  {members.slice(0, 8).map((m) => (
+                    <li key={m.id} className="rounded-full border border-border px-3 py-1 text-xs text-foreground">
+                      {m.user.firstName} {m.user.lastName}
+                      {m.site && <span className="text-muted-foreground"> · {m.site.name}</span>}
+                    </li>
+                  ))}
+                  {members.length > 8 && (
+                    <li className="px-2 py-1 text-xs text-muted-foreground">+{members.length - 8} more</li>
+                  )}
+                </ul>
               )}
-            </div>
-          </CardHeader>
-          <Separator />
-          <CardContent className="pt-4">
-            <p className="text-sm text-muted-foreground">Member list will appear here.</p>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

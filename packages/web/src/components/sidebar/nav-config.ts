@@ -1,4 +1,5 @@
 import { UserRole } from '@/lib/types';
+import { SITE_MODULES } from '@/lib/workflows-site-hub';
 
 export interface NavItem {
   label: string;
@@ -180,6 +181,15 @@ export const NAV_ITEMS: NavItem[] = [
     group: 'Admin',
   },
   {
+    // Company user management (GET/POST /companies/me/users are
+    // company_admin only). Hiding it is UX only; the API enforces.
+    label: 'Team',
+    href: '/settings/team',
+    icon: 'Users',
+    roles: ['company_admin'],
+    requiresFinance: false,
+  },
+  {
     label: 'Settings',
     href: '/settings',
     icon: 'Settings',
@@ -245,4 +255,32 @@ export function getVisibleNavItems(
 
     return item.roles.includes(role);
   });
+}
+
+/**
+ * Site-scoped workflow pages live under /projects/:projectId/sites/:siteId/<module>.
+ * The sidebar links each module to its top-level hub (/attendance, /inventory, ...),
+ * which opens the user's default site or a site picker, so a site-scoped page
+ * must still highlight its module's item rather than "Projects".
+ */
+const SITE_MODULE_PATH = new RegExp(
+  `^/projects/[^/]+/sites/[^/]+/(${SITE_MODULES.join('|')})(?:/|$)`,
+);
+
+/**
+ * The single nav href to mark active for `pathname`: the module hub for a
+ * site-scoped workflow page, otherwise the longest href that equals or
+ * prefixes the path (so /consultants/instructions highlights Instructions,
+ * not Consultants too). /dashboard only matches exactly.
+ */
+export function activeNavHref(hrefs: readonly string[], pathname: string): string | null {
+  const site = SITE_MODULE_PATH.exec(pathname);
+  if (site && hrefs.includes(`/${site[1]}`)) return `/${site[1]}`;
+
+  let best: string | null = null;
+  for (const href of hrefs) {
+    const matches = pathname === href || (href !== '/dashboard' && pathname.startsWith(href + '/'));
+    if (matches && (best === null || href.length > best.length)) best = href;
+  }
+  return best;
 }

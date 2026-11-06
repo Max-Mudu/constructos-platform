@@ -1,13 +1,17 @@
 import '../global.css';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 import { useAuthStore } from '../src/store/auth.store';
-import { getAccessToken, getRefreshToken } from '../src/auth/secureStorage';
+import { getAccessToken, getCachedUser, getRefreshToken } from '../src/auth/secureStorage';
 import { authApi } from '../src/api/auth';
+import { AuthUser } from '../src/types';
+import { notificationsApi } from '../src/api/notifications';
+import { registerForPushNotifications } from '../src/utils/push';
+import { isFirstLaunchOfInstall } from '../src/utils/localData';
 import { SSEProvider } from '../src/providers/SSEProvider';
 
 // Display notifications while the app is in the foreground.
@@ -23,11 +27,18 @@ Notifications.setNotificationHandler({
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const segments = useSegments();
-  const { user, setAuth, clearAuth, setLoading, isLoading } = useAuthStore();
+  const { user, restoreSession, clearAuth, setLoading, isLoading } = useAuthStore();
 
   useEffect(() => {
     async function bootstrap() {
       try {
+        // iOS Keychain outlives an uninstall; never resurrect a session that
+        // belonged to a previous install of the app.
+        if (await isFirstLaunchOfInstall()) {
+          await clearAuth();
+          return;
+        }
+
         const [accessToken, refreshToken] = await Promise.all([
           getAccessToken(),
           getRefreshToken(),
@@ -38,15 +49,27 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        // Try restoring session with a /me call; refresh if needed
+        // Restore with /me. An expired access token is refreshed by the axios
+        // interceptor inside this call (rotating the stored pair). Do NOT
+        // refresh again here or write back the pair read above: re-using a
+        // rotated refresh token makes the API revoke every session.
         try {
           const me = await authApi.me();
-          await setAuth(me, accessToken, refreshToken);
-        } catch {
-          try {
-            const result = await authApi.refresh(refreshToken);
-            await setAuth(result.user, result.accessToken, result.refreshToken);
-          } catch {
+          await restoreSession(me);
+          // Expo push tokens can change (reinstall, OS restore); the API
+          // upserts, so re-registering on every restored session is safe.
+          void registerForPushNotifications()
+            .then((token) => (token ? notificationsApi.registerPushToken(token, 'expo') : undefined))
+            .catch(() => { /* non-fatal */ });
+        } catch (err) {
+          const status = (err as { response?: { status?: number } })?.response?.status;
+          if (status === undefined || status >= 500) {
+            // Offline or API down: keep the tokens. Open with the last known
+            // profile if there is one; the server re-checks on the next call.
+            const cached = await getCachedUser<AuthUser>();
+            if (cached) await restoreSession(cached, { offline: true });
+          } else {
+            // 401 (refresh rejected — interceptor already signed out), 403, …
             await clearAuth();
           }
         }
@@ -78,44 +101,36 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
 // ─── Deep link handler ────────────────────────────────────────────────────────
 
+function routeForNotification(data: Record<string, unknown> | undefined) {
+  switch (data?.['entityType']) {
+    case 'invoice':     return '/(tabs)/invoices' as const;
+    case 'instruction': return '/(tabs)/instructions' as const;
+    case 'delivery':    return '/(tabs)/deliveries' as const;
+    case 'labour':      return '/(tabs)/labour' as const;
+    case 'attendance':  return '/(tabs)/attendance' as const;
+    default:            return '/(tabs)/notifications' as const;
+  }
+}
+
 function NotificationDeepLink() {
-  const router = useRouter();
-  const user   = useAuthStore((s) => s.user);
+  const router    = useRouter();
+  const user      = useAuthStore((s) => s.user);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  // Includes the tap that cold-started the app (a listener registered after
+  // launch never sees it) as well as taps while running/backgrounded.
+  const lastResponse = Notifications.useLastNotificationResponse();
+  const handledRef   = useRef<string | null>(null);
 
   useEffect(() => {
-    // Handle tap on a notification while app is running or cold-started
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      if (!user) return; // not authenticated yet
-
-      const data = response.notification.request.content.data as Record<string, string> | undefined;
-      if (!data) { router.push('/(tabs)/notifications'); return; }
-
-      const { entityType } = data;
-
-      // Route to the relevant tab based on entity type
-      switch (entityType) {
-        case 'invoice':
-          router.push('/(tabs)/invoices');
-          break;
-        case 'instruction':
-          router.push('/(tabs)/instructions');
-          break;
-        case 'delivery':
-          router.push('/(tabs)/deliveries');
-          break;
-        case 'labour':
-          router.push('/(tabs)/labour');
-          break;
-        case 'attendance':
-          router.push('/(tabs)/attendance');
-          break;
-        default:
-          router.push('/(tabs)/notifications');
-      }
-    });
-
-    return () => sub.remove();
-  }, [router, user]);
+    if (!lastResponse || isLoading || !user) return; // route once signed in
+    if (lastResponse.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
+    const id = lastResponse.notification.request.identifier;
+    if (handledRef.current === id) return;
+    handledRef.current = id;
+    router.push(routeForNotification(
+      lastResponse.notification.request.content.data as Record<string, unknown> | undefined,
+    ));
+  }, [lastResponse, isLoading, user, router]);
 
   return null;
 }

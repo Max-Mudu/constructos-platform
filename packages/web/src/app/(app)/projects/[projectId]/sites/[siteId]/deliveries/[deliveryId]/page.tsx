@@ -5,6 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { deliveryApi, ApiError } from '@/lib/api';
 import { DeliveryRecord, DeliveryPhoto, DeliveryDocument } from '@/lib/types';
+import { formatQuantity } from '@/components/projects/format-quantity';
+import { acceptanceDisplay } from '@/lib/workflows-delivery';
 import { useAuthStore } from '@/store/auth.store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -12,6 +14,7 @@ import { Button } from '@/components/ui/Button';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Separator } from '@/components/ui/Separator';
+import { UploadedImage, UploadedFileLink } from '@/components/files/UploadedFile';
 import {
   ArrowLeft, Truck, Calendar, User, FileText,
   ClipboardCheck, AlertCircle, Trash2, Upload, X, Image, File,
@@ -50,10 +53,9 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
   );
 }
 
-function acceptanceBadge(status: DeliveryRecord['acceptanceStatus']) {
-  if (status === 'accepted')           return <Badge variant="active">Accepted</Badge>;
-  if (status === 'partially_accepted') return <Badge variant="secondary">Partially Accepted</Badge>;
-  return                                      <Badge variant="destructive">Rejected</Badge>;
+function acceptanceBadge(status: DeliveryRecord['acceptanceStatus'] | null) {
+  const { label, variant } = acceptanceDisplay(status);
+  return <Badge variant={variant}>{label}</Badge>;
 }
 
 function inspectionBadge(status: DeliveryRecord['inspectionStatus']) {
@@ -317,11 +319,11 @@ export default function DeliveryDetailPage() {
             <DetailRow label="Unit of Measure"   value={delivery.unitOfMeasure} />
             <DetailRow
               label="Quantity Ordered"
-              value={`${delivery.quantityOrdered.toLocaleString()} ${delivery.unitOfMeasure}`}
+              value={`${formatQuantity(delivery.quantityOrdered)} ${delivery.unitOfMeasure}`}
             />
             <DetailRow
               label="Quantity Delivered"
-              value={`${delivery.quantityDelivered.toLocaleString()} ${delivery.unitOfMeasure}`}
+              value={`${formatQuantity(delivery.quantityDelivered)} ${delivery.unitOfMeasure}`}
             />
             <DetailRow label="Condition on Arrival" value={conditionBadge(delivery.conditionOnArrival)} />
           </dl>
@@ -421,15 +423,20 @@ export default function DeliveryDetailPage() {
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {delivery.photos.map((photo) => (
                 <div key={photo.id} className="group relative rounded-md border border-border overflow-hidden bg-muted">
-                  <img
-                    src={`/api/v1${photo.fileUrl}`}
+                  <UploadedImage
+                    fileUrl={photo.fileUrl}
                     alt={photo.fileName}
                     className="h-32 w-full object-cover"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                   />
                   <div className="p-1.5 flex items-center justify-between gap-1">
-                    <span className="text-xs text-muted-foreground truncate">{photo.fileName}</span>
-                    {user && canWrite(user.role) && (
+                    <UploadedFileLink
+                      fileUrl={photo.fileUrl}
+                      fileName={photo.fileName}
+                      className="text-xs text-muted-foreground truncate hover:underline max-w-full"
+                    >
+                      {photo.fileName}
+                    </UploadedFileLink>
+                    {user && canDelete(user.role) && (
                       <button
                         onClick={() => handleDeletePhoto(photo)}
                         className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
@@ -487,19 +494,19 @@ export default function DeliveryDetailPage() {
                 <li key={doc.id} className="flex items-center gap-3 py-2">
                   <File className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <div className="min-w-0 flex-1">
-                    <a
-                      href={`/api/v1${doc.fileUrl}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm font-medium hover:underline truncate block"
+                    <UploadedFileLink
+                      fileUrl={doc.fileUrl}
+                      fileName={doc.fileName}
+                      mimeType={doc.fileType}
+                      className="text-sm font-medium hover:underline truncate block max-w-full"
                     >
                       {doc.fileName}
-                    </a>
-                    <span className="text-xs text-muted-foreground">
+                    </UploadedFileLink>
+                    <span className="block text-xs text-muted-foreground">
                       {(doc.fileSizeBytes / 1024).toFixed(0)} KB
                     </span>
                   </div>
-                  {user && canWrite(user.role) && (
+                  {user && canDelete(user.role) && (
                     <button
                       onClick={() => handleDeleteDoc(doc)}
                       className="shrink-0 rounded p-0.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"

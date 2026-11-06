@@ -1,4 +1,5 @@
-import { getVisibleNavItems, NAV_ITEMS } from '@/components/sidebar/nav-config';
+import { activeNavHref, getVisibleNavItems, NAV_ITEMS } from '@/components/sidebar/nav-config';
+import { NAV_ICON_MAP } from '@/components/sidebar/nav-icons';
 import { UserRole } from '@/lib/types';
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
@@ -408,5 +409,90 @@ describe('NAV_ITEMS structural invariants', () => {
   it('hrefs are unique', () => {
     const hrefs = NAV_ITEMS.map((i) => i.href);
     expect(new Set(hrefs).size).toBe(hrefs.length);
+  });
+});
+
+// ─── Team (company user management) ──────────────────────────────────────────
+// UX only: GET/POST /companies/me/users enforce company_admin on the API.
+
+describe('Team nav item', () => {
+  const allRoles: UserRole[] = [
+    'company_admin', 'finance_officer', 'project_manager', 'site_supervisor',
+    'contractor', 'consultant', 'worker', 'viewer',
+  ];
+
+  it('links to /settings/team in the Admin group with a mapped icon', () => {
+    const team = NAV_ITEMS.filter((i) => i.label === 'Team');
+    expect(team).toHaveLength(1);
+    expect(team[0]).toMatchObject({ href: '/settings/team', roles: ['company_admin'], requiresFinance: false });
+    expect(NAV_ICON_MAP[team[0].icon]).toBeDefined();
+    // Sits with Audit Logs (which opens the Admin group), before personal Settings.
+    const idx = NAV_ITEMS.indexOf(team[0]);
+    expect(NAV_ITEMS[idx - 1].label).toBe('Audit Logs');
+    expect(NAV_ITEMS[idx - 1].group).toBe('Admin');
+    expect(NAV_ITEMS[idx + 1].label).toBe('Settings');
+  });
+
+  it('company_admin sees Team with or without canViewFinance', () => {
+    expect(labels('company_admin', false)).toContain('Team');
+    expect(labels('company_admin', true)).toContain('Team');
+  });
+
+  it.each(allRoles.filter((r) => r !== 'company_admin'))('%s does NOT see Team', (role) => {
+    expect(labels(role, false)).not.toContain('Team');
+    expect(labels(role, true)).not.toContain('Team');
+  });
+});
+
+describe('nav icons', () => {
+  it('every nav item names an icon the sidebar can render', () => {
+    const missing = NAV_ITEMS.filter((i) => !NAV_ICON_MAP[i.icon]).map((i) => `${i.label}:${i.icon}`);
+    expect(missing).toEqual([]);
+  });
+
+  it('an unknown icon name is not in the map (negative control)', () => {
+    expect(NAV_ICON_MAP['NoSuchIcon']).toBeUndefined();
+  });
+});
+
+// ─── Active item ──────────────────────────────────────────────────────────────
+
+describe('activeNavHref', () => {
+  const hrefs = NAV_ITEMS.map((i) => i.href);
+
+  it.each([
+    ['/projects/p1/sites/s1/inventory', '/inventory'],
+    ['/projects/p1/sites/s1/deliveries/d1/edit', '/deliveries'],
+    ['/projects/p1/sites/s1/schedules/new', '/schedules'],
+    ['/projects/p1/sites/s1/attendance', '/attendance'],
+    ['/projects/p1/sites/s1/labour/new', '/labour'],
+    ['/projects/p1/sites/s1/targets', '/targets'],
+  ])('site workflow page %s highlights its hub %s, not Projects', (pathname, expected) => {
+    expect(activeNavHref(hrefs, pathname)).toBe(expected);
+  });
+
+  it.each([
+    ['/inventory', '/inventory'],
+    ['/projects/p1', '/projects'],
+    ['/projects/p1/sites/s1', '/projects'],
+    ['/projects/p1/sites/s1/workers', '/projects'],
+    ['/consultants/instructions/i1', '/consultants/instructions'],
+    ['/consultants/c1', '/consultants'],
+    ['/settings/team', '/settings/team'],
+    ['/settings/notifications', '/settings'],
+    ['/dashboard', '/dashboard'],
+  ])('%s highlights %s only', (pathname, expected) => {
+    expect(activeNavHref(hrefs, pathname)).toBe(expected);
+  });
+
+  it('a site workflow the user cannot see falls back to Projects', () => {
+    const workerHrefs = getVisibleNavItems('worker', false).map((i) => i.href);
+    expect(activeNavHref(workerHrefs, '/projects/p1/sites/s1/inventory')).toBe('/projects');
+  });
+
+  it('matches nothing for unrelated paths and does not prefix-match /dashboard', () => {
+    expect(activeNavHref(hrefs, '/dashboard/extra')).toBeNull();
+    expect(activeNavHref(hrefs, '/inventoryx')).toBeNull();
+    expect(activeNavHref(hrefs, '/')).toBeNull();
   });
 });

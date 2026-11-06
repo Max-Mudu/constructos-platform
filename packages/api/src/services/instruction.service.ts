@@ -91,8 +91,10 @@ const INSTRUCTION_SELECT = {
 
 async function assertProjectMember(projectId: string, actor: RequestUser): Promise<void> {
   if (actor.role === 'company_admin') return;
+  // removedAt: null — a removed membership is not a membership (matters for
+  // finance_officer, whom requireProjectAccess lets through without one).
   const member = await prisma.projectMember.findFirst({
-    where: { projectId, userId: actor.id, companyId: actor.companyId },
+    where: { projectId, userId: actor.id, companyId: actor.companyId, removedAt: null },
     select: { id: true },
   });
   if (!member) throw new ForbiddenError('You are not a member of this project');
@@ -129,8 +131,18 @@ async function validateLinks(
     const drawing = await prisma.drawing.findFirst({ where: { id: input.drawingId, projectId, companyId }, select: { id: true } });
     if (!drawing) throw new NotFoundError('Drawing');
   }
-  if (input.revisionId && input.drawingId) {
-    const revision = await prisma.drawingRevision.findFirst({ where: { id: input.revisionId, drawingId: input.drawingId, companyId }, select: { id: true } });
+  if (input.revisionId) {
+    // Checked even without a drawingId: the revision must be this company's
+    // and belong to a drawing in this project (and to drawingId when given).
+    const revision = await prisma.drawingRevision.findFirst({
+      where: {
+        id: input.revisionId,
+        companyId,
+        drawing: { projectId, companyId },
+        ...(input.drawingId && { drawingId: input.drawingId }),
+      },
+      select: { id: true },
+    });
     if (!revision) throw new NotFoundError('Drawing revision');
   }
   if (input.milestoneId) {
@@ -312,7 +324,10 @@ export async function updateInstruction(
     throw new ForbiddenError('Consultants can only update their own instructions');
   }
 
-  if (input.siteId !== undefined || input.contractorId !== undefined || input.drawingId !== undefined) {
+  if (
+    input.siteId !== undefined || input.contractorId !== undefined || input.drawingId !== undefined ||
+    input.revisionId !== undefined || input.milestoneId !== undefined || input.workPackageId !== undefined
+  ) {
     await validateLinks(input, projectId, actor.companyId);
   }
 

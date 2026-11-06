@@ -11,6 +11,17 @@ const MAX_FAILED_ATTEMPTS = 10;
 const LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 const REFRESH_TOKEN_EXPIRES_DAYS = 7;
 
+let dummyHash: Promise<string> | undefined;
+
+/**
+ * bcrypt hash of a random secret nobody knows. login() compares against it
+ * for unknown or inactive emails so those answers cost the same bcrypt work
+ * as a wrong password and response time does not reveal which emails exist.
+ */
+function dummyPasswordHash(): Promise<string> {
+  return (dummyHash ??= hashPassword(generateToken(16)));
+}
+
 export interface RegisterInput {
   email: string;
   password: string;
@@ -189,6 +200,7 @@ export async function login(
   });
 
   if (!user || !user.isActive) {
+    await verifyPassword(input.password, await dummyPasswordHash());
     throw new UnauthorizedError('Invalid email or password');
   }
 
@@ -305,11 +317,16 @@ export async function refreshTokens(
     throw new UnauthorizedError('Account is deactivated');
   }
 
-  // Rotate: revoke old token, issue new pair
-  await prisma.refreshToken.update({
-    where: { id: stored.id },
+  // Rotate: revoke the old token, then issue a new pair. The revoke is
+  // conditional so that, of two concurrent requests carrying the same token,
+  // only one wins; the other gets 401 instead of a second live token family.
+  const rotated = await prisma.refreshToken.updateMany({
+    where: { id: stored.id, revokedAt: null },
     data: { revokedAt: new Date() },
   });
+  if (rotated.count !== 1) {
+    throw new UnauthorizedError('Invalid or expired refresh token');
+  }
 
   const tokens = await issueTokenPair(fastify, stored.user, ipAddress, userAgent);
 
@@ -476,7 +493,14 @@ export async function requestPasswordReset(
   });
 
   const resetLink = `${env.APP_URL}/reset-password?token=${rawToken}`;
-  await emailService.sendPasswordResetEmail(email, resetLink);
+  try {
+    await emailService.sendPasswordResetEmail(email, resetLink);
+  } catch {
+    // Never surface delivery failures: a 500 that only registered addresses
+    // can trigger would reveal which emails have accounts. email.service
+    // errors are link-free; log only the user id (no address, no link).
+    console.warn(`[auth] password reset email delivery failed for userId=${user.id}`);
+  }
 
   if (!env.isProduction) {
     return { devLink: resetLink };
@@ -508,10 +532,17 @@ export async function resetPassword(
   const passwordHash = await hashPassword(newPassword);
 
   await prisma.$transaction(async (tx) => {
-    await tx.passwordResetToken.update({
-      where: { id: resetToken.id },
+    // Claim the token atomically: the checks above ran before the (slow)
+    // bcrypt hash, so two concurrent requests could both pass them. Only the
+    // request whose conditional update matches the still-unused, unexpired
+    // row may change the password.
+    const claimed = await tx.passwordResetToken.updateMany({
+      where: { id: resetToken.id, usedAt: null, expiresAt: { gt: new Date() } },
       data: { usedAt: new Date() },
     });
+    if (claimed.count !== 1) {
+      throw new UnauthorizedError('This reset link has already been used');
+    }
 
     await tx.user.update({
       where: { id: resetToken.userId },

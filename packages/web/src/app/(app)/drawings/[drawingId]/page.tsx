@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
+import { UploadedFileLink } from '@/components/files/UploadedFile';
 import {
   FileStack, AlertCircle, ArrowLeft, Plus, CheckCircle2,
   Clock, FileText, MessageSquare, Download, Star,
@@ -62,14 +63,14 @@ function RevisionCard({
           </Badge>
         </div>
         <div className="flex items-center gap-2">
-          <a
-            href={revision.fileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          <UploadedFileLink
+            fileUrl={revision.fileUrl}
+            fileName={revision.fileName}
+            mimeType={revision.fileType}
             className="flex items-center gap-1 text-xs text-primary hover:underline"
           >
             <Download className="h-3.5 w-3.5" /> Download
-          </a>
+          </UploadedFileLink>
           {canApprove && revision.status !== 'issued_for_construction' && (
             <Button
               variant="outline"
@@ -98,7 +99,7 @@ function RevisionCard({
       )}
       {/* Comments link */}
       <Link
-        href={`/drawings/${drawingId}/revisions/${revision.id}/comments?projectId=${projectId}`}
+        href={`/drawings/${drawingId}/revisions/${revision.id}/comments?projectId=${encodeURIComponent(projectId)}`}
         className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors"
       >
         <MessageSquare className="h-3.5 w-3.5" /> View / add comments
@@ -122,7 +123,9 @@ export default function DrawingDetailPage() {
   const canManage = user?.role === 'company_admin' || user?.role === 'project_manager';
 
   useEffect(() => {
-    if (!projectId) return;
+    // Without ?projectId there is nothing to load (the API is project-scoped);
+    // say so instead of showing the loading skeleton forever.
+    if (!projectId) { setLoading(false); return; }
     drawingApi.get(projectId, drawingId)
       .then((d) => setDrawing(d.drawing))
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Failed to load drawing'))
@@ -153,13 +156,18 @@ export default function DrawingDetailPage() {
     );
   }
 
-  if (error) {
+  if (!projectId || error) {
     return (
-      <div className="px-6 py-8">
+      <div className="px-6 py-8 space-y-4">
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>
+            {projectId ? error : 'This drawing link is missing its project. Open the drawing from the Drawings list.'}
+          </AlertDescription>
         </Alert>
+        <Link href="/drawings">
+          <Button variant="outline" size="sm"><ArrowLeft className="h-4 w-4" /> Back to Drawings</Button>
+        </Link>
       </div>
     );
   }

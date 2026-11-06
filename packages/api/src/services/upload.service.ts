@@ -88,6 +88,30 @@ export function validateMagicBytes(buffer: Buffer, mimeType: string): boolean {
   return validator(buffer);
 }
 
+/**
+ * Stored-file extension for each accepted MIME type. The extension comes from
+ * the magic-byte-validated type, never from the client's filename, so no
+ * upload can land on disk (or later in a bucket / CDN that infers
+ * Content-Type from the extension) as .html, .svg, .js, etc.
+ */
+const EXTENSION_BY_MIME: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/jpg':  '.jpg',
+  'image/png':  '.png',
+  'image/webp': '.webp',
+  'image/gif':  '.gif',
+  'application/pdf': '.pdf',
+  'application/msword': '.doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+  'application/vnd.ms-excel': '.xls',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+};
+
+/** Extension for a stored file key; '' for a type outside the allow-list. */
+export function storedFileExtension(mimeType: string): string {
+  return EXTENSION_BY_MIME[mimeType] ?? '';
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export interface UploadResult {
@@ -103,7 +127,7 @@ export interface UploadResult {
  * Returns metadata needed to save to the database.
  *
  * @param buffer       Raw file bytes
- * @param originalName Original filename (used for extension only)
+ * @param originalName Original filename (returned as fileName for display only)
  * @param mimeType     MIME type of the file
  * @param subdir       Sub-directory under the upload root (e.g. "photos", "documents")
  */
@@ -117,7 +141,7 @@ export async function storeFile(
   const targetDir = path.join(uploadDir, subdir);
   await ensureDir(targetDir);
 
-  const ext    = path.extname(originalName).toLowerCase() || '';
+  const ext    = storedFileExtension(mimeType);
   const fileId = randomUUID();
   const fileKey = `${subdir}/${fileId}${ext}`;
   const filePath = path.join(uploadDir, fileKey);

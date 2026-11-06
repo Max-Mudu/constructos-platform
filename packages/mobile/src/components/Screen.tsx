@@ -17,6 +17,9 @@ export function Screen({ children, scroll = false, style, contentStyle, refreshi
       style={[styles.scroll, style]}
       contentContainerStyle={[styles.content, contentStyle]}
       showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      // iOS: keep focused inputs above the keyboard (Android resizes the window).
+      automaticallyAdjustKeyboardInsets
       refreshControl={
         onRefresh != null ? (
           <RefreshControl

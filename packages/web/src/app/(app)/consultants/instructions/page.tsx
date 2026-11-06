@@ -76,19 +76,23 @@ export default function InstructionsPage() {
         setProjects(d.projects);
         if (d.projects.length > 0) setProjectId(d.projects[0].id);
       })
-      .catch(() => {});
+      .catch((e) => setError(e instanceof ApiError ? e.message : 'Failed to load projects'));
   }, []);
 
   useEffect(() => {
     if (!projectId) return;
     setLoading(true);
+    setError('');
     instructionApi.list(projectId, {
       status:   statusFilter   || undefined,
       priority: priorityFilter || undefined,
       type:     typeFilter     || undefined,
     })
       .then((d) => setInstructions(d.instructions))
-      .catch((e) => setError(e instanceof ApiError ? e.message : 'Failed to load'))
+      .catch((e) => {
+        setInstructions([]);
+        setError(e instanceof ApiError ? e.message : 'Failed to load instructions');
+      })
       .finally(() => setLoading(false));
   }, [projectId, statusFilter, priorityFilter, typeFilter]);
 

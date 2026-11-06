@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { deliveryApi, ApiError } from '@/lib/api';
 import { DeliveryRecord, AcceptanceStatus, InspectionStatus } from '@/lib/types';
+import { formatQuantity } from '@/components/projects/format-quantity';
+import { acceptanceDisplay } from '@/lib/workflows-delivery';
 import { useAuthStore } from '@/store/auth.store';
 import {
   Table, TableHeader, TableBody, TableRow,
@@ -26,10 +28,9 @@ function canWrite(role: string): role is WriteRole {
   return (WRITE_ROLES as readonly string[]).includes(role);
 }
 
-function acceptanceBadge(status: AcceptanceStatus) {
-  if (status === 'accepted')           return <Badge variant="active">Accepted</Badge>;
-  if (status === 'partially_accepted') return <Badge variant="secondary">Partial</Badge>;
-  return                                      <Badge variant="destructive">Rejected</Badge>;
+function acceptanceBadge(status: AcceptanceStatus | null) {
+  const { label, variant } = acceptanceDisplay(status);
+  return <Badge variant={variant}>{status === 'partially_accepted' ? 'Partial' : label}</Badge>;
 }
 
 function inspectionBadge(status: InspectionStatus) {
@@ -174,10 +175,10 @@ export default function DeliveriesPage() {
                       {d.itemDescription}
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums">
-                      {d.quantityOrdered.toLocaleString()} {d.unitOfMeasure}
+                      {formatQuantity(d.quantityOrdered)} {d.unitOfMeasure}
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums">
-                      {d.quantityDelivered.toLocaleString()} {d.unitOfMeasure}
+                      {formatQuantity(d.quantityDelivered)} {d.unitOfMeasure}
                     </TableCell>
                     <TableCell>{inspectionBadge(d.inspectionStatus)}</TableCell>
                     <TableCell>{acceptanceBadge(d.acceptanceStatus)}</TableCell>
