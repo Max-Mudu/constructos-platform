@@ -1,7 +1,8 @@
 import { prisma } from '../utils/prisma';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import { RequestUser } from '../types';
-import { InstructionStatus, InstructionPriority, InstructionType } from '@prisma/client';
+import { InstructionStatus, InstructionPriority, InstructionType, Prisma } from '@prisma/client';
+import { getDocumentSiteIds } from '../middleware/requireProjectAccess';
 import { emitToCompany } from './event-emitter.service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -112,6 +113,33 @@ function canView(role: string): boolean {
   return ['company_admin', 'project_manager', 'site_supervisor', 'consultant', 'contractor', 'finance_officer', 'viewer'].includes(role);
 }
 
+// ─── Site visibility (SITE_SCOPE_STRICT) ──────────────────────────────────────
+
+/**
+ * Site visibility for instructions; empty unless SITE_SCOPE_STRICT is on. A
+ * site-scoped actor sees instructions for their sites, project-level ones
+ * (siteId null), and any instruction they issued themselves. AND-wrapped so it
+ * never collides with a caller's OR.
+ */
+async function instructionSiteWhere(
+  projectId: string,
+  actor: RequestUser,
+): Promise<Prisma.ConsultantInstructionWhereInput> {
+  const siteIds = await getDocumentSiteIds(projectId, actor.id, actor.role);
+  if (siteIds === null) return {};
+  return { AND: [{ OR: [{ siteId: { in: siteIds } }, { siteId: null }, { issuedById: actor.id }] }] };
+}
+
+/**
+ * A site-scoped actor may only link an instruction to one of their sites (or
+ * to none). Anything else is reported exactly like an unknown site.
+ */
+async function assertSiteInScope(siteId: string | null | undefined, projectId: string, actor: RequestUser) {
+  if (!siteId) return;
+  const siteIds = await getDocumentSiteIds(projectId, actor.id, actor.role);
+  if (siteIds !== null && !siteIds.includes(siteId)) throw new NotFoundError('Site');
+}
+
 // ─── Validate optional links ───────────────────────────────────────────────────
 
 async function validateLinks(
@@ -183,6 +211,7 @@ export async function listInstructions(
   if (filters.siteId)       where['siteId']       = filters.siteId;
   if (filters.contractorId) where['contractorId'] = filters.contractorId;
   if (filters.issuedById)   where['issuedById']   = filters.issuedById;
+  Object.assign(where, await instructionSiteWhere(projectId, actor));
 
   // Contractors can only see instructions directed at them
   if (actor.role === 'contractor') {
@@ -209,7 +238,7 @@ export async function getInstruction(
   await assertProjectMember(projectId, actor);
 
   const instruction = await prisma.consultantInstruction.findFirst({
-    where: { id: instructionId, projectId, companyId: actor.companyId },
+    where: { id: instructionId, projectId, companyId: actor.companyId, ...(await instructionSiteWhere(projectId, actor)) },
     select: INSTRUCTION_SELECT,
   });
   if (!instruction) throw new NotFoundError('Instruction');
@@ -237,6 +266,7 @@ export async function createInstruction(
   await assertProjectMember(projectId, actor);
 
   await validateLinks(input, projectId, actor.companyId);
+  await assertSiteInScope(input.siteId, projectId, actor);
 
   const instruction = await prisma.consultantInstruction.create({
     data: {
@@ -292,7 +322,7 @@ export async function updateInstruction(
   await assertProjectMember(projectId, actor);
 
   const before = await prisma.consultantInstruction.findFirst({
-    where: { id: instructionId, projectId, companyId: actor.companyId },
+    where: { id: instructionId, projectId, companyId: actor.companyId, ...(await instructionSiteWhere(projectId, actor)) },
     select: INSTRUCTION_SELECT,
   });
   if (!before) throw new NotFoundError('Instruction');
@@ -329,6 +359,7 @@ export async function updateInstruction(
     input.revisionId !== undefined || input.milestoneId !== undefined || input.workPackageId !== undefined
   ) {
     await validateLinks(input, projectId, actor.companyId);
+    await assertSiteInScope(input.siteId, projectId, actor);
   }
 
   const updated = await prisma.consultantInstruction.update({
@@ -388,7 +419,7 @@ export async function addAttachment(
   await assertProjectMember(projectId, actor);
 
   const instruction = await prisma.consultantInstruction.findFirst({
-    where: { id: instructionId, projectId, companyId: actor.companyId },
+    where: { id: instructionId, projectId, companyId: actor.companyId, ...(await instructionSiteWhere(projectId, actor)) },
     select: { id: true },
   });
   if (!instruction) throw new NotFoundError('Instruction');
