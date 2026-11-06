@@ -4,6 +4,28 @@ import { hashPassword } from '../../src/utils/hash';
 import { UserRole } from '@prisma/client';
 import { emptyContent } from '../../src/services/daily-report/content.schema';
 
+/**
+ * Every fixture user gets the password 'TestPass1'. Hashing it is deliberately
+ * slow (bcrypt, 12 rounds: ~0.25 s on a CI runner, ~0.9 s on a dev laptop), and
+ * suites that build a multi-user world in beforeEach hashed it hundreds of
+ * times. Hash it once per test file (Jest gives each file its own module
+ * registry) and reuse the result: it is still a real 12-round bcrypt hash of
+ * 'TestPass1', so logins and verifyPassword behave exactly as before; only the
+ * salt is shared between fixture users.
+ */
+let testPasswordHash: Promise<string> | undefined;
+function getTestPasswordHash(): Promise<string> {
+  if (!testPasswordHash) {
+    const pending = hashPassword('TestPass1');
+    testPasswordHash = pending;
+    // Do not cache a failure: the next caller retries.
+    pending.catch(() => {
+      if (testPasswordHash === pending) testPasswordHash = undefined;
+    });
+  }
+  return testPasswordHash;
+}
+
 export interface TestCompany {
   id: string;
   name: string;
@@ -52,7 +74,7 @@ export async function createTestCompany(
     data: {
       companyId: company.id,
       email: `admin-${slug}@test.com`,
-      passwordHash: await hashPassword('TestPass1'),
+      passwordHash: await getTestPasswordHash(),
       firstName: 'Admin',
       lastName: slug,
       role: 'company_admin',
@@ -96,7 +118,7 @@ export async function createTestUser(
     data: {
       companyId,
       email: `${role}-${suffix}@test.com`,
-      passwordHash: await hashPassword('TestPass1'),
+      passwordHash: await getTestPasswordHash(),
       firstName: role,
       lastName: suffix,
       role,

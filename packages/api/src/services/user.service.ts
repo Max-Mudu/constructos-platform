@@ -1,6 +1,6 @@
 import { ConsultantType, Prisma, UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { ConflictError, NotFoundError, ValidationError } from '../utils/errors';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../utils/errors';
 import { generateToken, hashPassword, hashToken } from '../utils/hash';
 import { env } from '../utils/env';
 import { RequestUser } from '../types';
@@ -351,4 +351,136 @@ export async function listCompanyUsers(
   }));
 
   return { users, total, limit, offset };
+}
+
+// ─── Activate / deactivate ───────────────────────────────────────────────────
+
+/** Public shape after a status change — same allowlist spirit as the list. */
+const STATUS_USER_SELECT = {
+  id:        true,
+  email:     true,
+  firstName: true,
+  lastName:  true,
+  role:      true,
+  isActive:  true,
+} as const;
+
+/**
+ * Activates or deactivates a user in the acting admin's company.
+ *
+ * Guarantees, all inside one transaction:
+ *  - the actor must still be an ACTIVE company_admin of this company in the
+ *    database (a JWT can outlive a deactivation or a role change, so the
+ *    token's claims alone are not trusted for this operation);
+ *  - the target must belong to the same company and must not be super_admin
+ *    (anything else is indistinguishable from "not found");
+ *  - an admin cannot deactivate themselves;
+ *  - the last active company_admin cannot be deactivated. The active admin
+ *    rows are locked FOR UPDATE first, so two admins deactivating each other
+ *    concurrently serialise and the second one sees the first one's result;
+ *  - deactivation revokes every live refresh token and invalidates every
+ *    unused password-reset / setup token for the target (reset tokens are
+ *    invalidated the same way requestPasswordReset does: usedAt = now), so a
+ *    later reactivation cannot revive an old link.
+ *
+ * Idempotent: repeating a request returns 200 with `changed: false`. Repeated
+ * deactivation still re-runs the revocation (a no-op when nothing is live);
+ * the audit row is written only when the status actually changes.
+ *
+ * Access JWTs already issued stop working on the next request, because
+ * middleware/authenticate.ts re-checks the user (active, same company) per request.
+ */
+export async function setCompanyUserStatus(
+  targetUserId: string,
+  isActive: boolean,
+  actor: RequestUser,
+  context: RequestContext = {},
+) {
+  const companyId = actor.companyId;
+
+  return prisma.$transaction(async (tx) => {
+    // Lock this company's active admins in a stable order (avoids deadlocks
+    // between concurrent status changes).
+    const activeAdmins = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM users
+      WHERE "companyId" = ${companyId}
+        AND role = 'company_admin'::"UserRole"
+        AND "isActive" = true
+      ORDER BY id
+      FOR UPDATE
+    `;
+    const activeAdminIds = new Set(activeAdmins.map((a) => a.id));
+
+    if (!activeAdminIds.has(actor.id)) {
+      throw new ForbiddenError('Insufficient permissions');
+    }
+
+    const target = await tx.user.findFirst({
+      where:  { id: targetUserId, companyId, role: { not: 'super_admin' } },
+      select: { ...STATUS_USER_SELECT },
+    });
+    if (!target) throw new NotFoundError('User');
+
+    if (!isActive && target.id === actor.id) {
+      throw new ConflictError('You cannot deactivate your own account');
+    }
+
+    if (!isActive && target.role === 'company_admin' && target.isActive) {
+      const remaining = [...activeAdminIds].filter((id) => id !== target.id).length;
+      if (remaining === 0) {
+        throw new ConflictError('The last active company admin cannot be deactivated');
+      }
+    }
+
+    const changed = target.isActive !== isActive;
+    const now = new Date();
+
+    const user = changed
+      ? await tx.user.update({
+          where:  { id: target.id },
+          data:   { isActive },
+          select: { ...STATUS_USER_SELECT },
+        })
+      : target;
+
+    let refreshTokensRevoked = 0;
+    let setupTokensInvalidated = 0;
+    if (!isActive) {
+      const revoked = await tx.refreshToken.updateMany({
+        where: { userId: target.id, revokedAt: null },
+        data:  { revokedAt: now },
+      });
+      const invalidated = await tx.passwordResetToken.updateMany({
+        where: { userId: target.id, usedAt: null },
+        data:  { usedAt: now },
+      });
+      refreshTokensRevoked   = revoked.count;
+      setupTokensInvalidated = invalidated.count;
+    }
+
+    if (changed) {
+      await tx.auditLog.create({
+        data: {
+          companyId,
+          userId:        actor.id,
+          userEmail:     actor.email,
+          userRole:      actor.role,
+          action:        'update',
+          entityType:    'user',
+          entityId:      target.id,
+          changesBefore: { isActive: target.isActive },
+          changesAfter:  {
+            isActive,
+            event: isActive ? 'user_reactivated' : 'user_deactivated',
+            refreshTokensRevoked,
+            setupTokensInvalidated,
+          },
+          ipAddress: context.ipAddress ?? null,
+          userAgent: context.userAgent ?? null,
+        },
+      });
+    }
+
+    return { user, changed, refreshTokensRevoked, setupTokensInvalidated };
+  });
 }

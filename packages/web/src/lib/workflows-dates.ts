@@ -45,3 +45,21 @@ export function dateOnly(value: string | null | undefined): string {
   const m = /^(\d{4}-\d{2}-\d{2})/.exec(value);
   return m ? m[1] : '';
 }
+
+/**
+ * Display a stored calendar date (a Prisma @db.Date, serialised as
+ * "2026-11-06T00:00:00.000Z") as e.g. "06 Nov 2026". Formatting the raw value
+ * with toLocaleDateString() in the browser's zone showed the previous day for
+ * anyone west of UTC; the calendar date is formatted in UTC so it never moves.
+ * Use only for date-only fields, not for timestamps such as createdAt.
+ */
+export function formatCalendarDate(
+  value: string | null | undefined,
+  month: 'short' | 'long' = 'short',
+): string {
+  const d = dateOnly(value);
+  if (!d) return value ? String(value) : '—';
+  return new Date(`${d}T00:00:00.000Z`).toLocaleDateString('en-GB', {
+    day: '2-digit', month, year: 'numeric', timeZone: 'UTC',
+  });
+}
