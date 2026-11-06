@@ -1,7 +1,5 @@
 import 'dotenv/config';
 import path from 'path';
-import os from 'os';
-import fs from 'fs/promises';
 import Fastify, { FastifyServerOptions } from 'fastify';
 import fastifyJwt from '@fastify/jwt';
 import fastifyCookie from '@fastify/cookie';
@@ -39,12 +37,20 @@ import { dailyReportRoutes } from './routes/daily-report.routes';
 import { fileRoutes } from './routes/files.routes';
 import { prisma } from './utils/prisma';
 import { canAccessUploadedFile } from './services/file-access.service';
+import { legacyLocalUploadDriver, legacyUploadRoot, readFile as readUploadedFile } from './services/upload.service';
 import { StorageDriver } from './services/storage/types';
 import { getStorageDriver } from './services/storage';
 import { ReportExtractor } from './services/daily-report/extractor/types';
 import { getReportExtractor } from './services/daily-report/extractor';
 import { RenderDailyReportPdf } from './services/daily-report/pdf/types';
 import { renderDailyReportPdf } from './services/daily-report/pdf/renderer';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** Storage for delivery, drawing and instruction uploads (see buildApp). */
+    uploadStorage: StorageDriver;
+  }
+}
 
 /**
  * Returns the path part of a URL — no query string, no fragment.
@@ -99,6 +105,12 @@ export interface BuildAppOptions {
   logStream?: NodeJS.WritableStream;
   /** Test hook: private object storage (default: getStorageDriver()). */
   storage?: StorageDriver;
+  /**
+   * Test hook: storage for delivery, drawing and instruction uploads.
+   * Default: STORAGE_DRIVER=s3 → the same driver as `storage`;
+   * STORAGE_DRIVER=local → local disk under the legacy uploads directory.
+   */
+  uploadStorage?: StorageDriver;
   /** Test hook: daily report AI extractor (default: getReportExtractor()). */
   reportExtractor?: ReportExtractor;
   /** Test hook: daily report PDF renderer (default: renderDailyReportPdf). */
@@ -165,6 +177,13 @@ export async function buildApp(options: BuildAppOptions = {}) {
   app.decorate('storage', {
     getter: () => (storage ??= getStorageDriver()),
   });
+  // Delivery, drawing and instruction uploads. With STORAGE_DRIVER=local they
+  // stay on local disk exactly as before (including in production, where the
+  // Daily Report guard does not apply to them); with s3 they share the bucket.
+  let uploadStorage = options.uploadStorage;
+  app.decorate('uploadStorage', {
+    getter: () => (uploadStorage ??= env.STORAGE_DRIVER === 's3' ? app.storage : legacyLocalUploadDriver()),
+  });
   app.decorate('reportExtractor', {
     getter: () => (reportExtractor ??= getReportExtractor()),
   });
@@ -222,21 +241,17 @@ export async function buildApp(options: BuildAppOptions = {}) {
   // Requires authentication plus the same company, role, project-membership,
   // site and contractor rules as the record that owns the file (see
   // services/file-access.service.ts). Every denial is a 404 so a caller cannot
-  // probe for keys that exist. In production replace with CDN / S3 pre-signed
-  // URLs.
+  // probe for keys that exist. Bytes come from the upload storage driver
+  // (local disk or bucket), falling back to the legacy local directory.
   app.get(
     '/uploads/*',
     { preHandler: [authenticate] },
     async (request, reply) => {
-      const uploadDir = env.isTest
-        ? path.join(os.tmpdir(), 'construction-platform-test-uploads')
-        : path.resolve(process.cwd(), 'uploads');
-
       const relativePath = (request.params as Record<string, string>)['*'];
 
       // ── Path-traversal guard ─────────────────────────────────────────────
-      const uploadRoot = path.resolve(uploadDir);
-      const filePath   = path.resolve(uploadDir, relativePath);
+      const uploadRoot = legacyUploadRoot();
+      const filePath   = path.resolve(uploadRoot, relativePath);
       if (!filePath.startsWith(uploadRoot + path.sep)) {
         return reply.status(400).send({ error: 'Invalid file path', code: 'INVALID_PATH' });
       }
@@ -248,12 +263,11 @@ export async function buildApp(options: BuildAppOptions = {}) {
         return reply.status(404).send({ error: 'File not found', code: 'NOT_FOUND' });
       }
 
-      try {
-        const buffer = await fs.readFile(filePath);
-        return reply.send(buffer);
-      } catch {
+      const buffer = await readUploadedFile(relativePath, app.uploadStorage);
+      if (!buffer) {
         return reply.status(404).send({ error: 'File not found', code: 'NOT_FOUND' });
       }
+      return reply.send(buffer);
     },
   );
 
