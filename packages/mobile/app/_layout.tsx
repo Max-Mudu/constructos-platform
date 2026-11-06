@@ -1,5 +1,5 @@
 import '../global.css';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -78,44 +78,36 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
 // ─── Deep link handler ────────────────────────────────────────────────────────
 
+function routeForNotification(data: Record<string, unknown> | undefined) {
+  switch (data?.['entityType']) {
+    case 'invoice':     return '/(tabs)/invoices' as const;
+    case 'instruction': return '/(tabs)/instructions' as const;
+    case 'delivery':    return '/(tabs)/deliveries' as const;
+    case 'labour':      return '/(tabs)/labour' as const;
+    case 'attendance':  return '/(tabs)/attendance' as const;
+    default:            return '/(tabs)/notifications' as const;
+  }
+}
+
 function NotificationDeepLink() {
-  const router = useRouter();
-  const user   = useAuthStore((s) => s.user);
+  const router    = useRouter();
+  const user      = useAuthStore((s) => s.user);
+  const isLoading = useAuthStore((s) => s.isLoading);
+  // Includes the tap that cold-started the app (a listener registered after
+  // launch never sees it) as well as taps while running/backgrounded.
+  const lastResponse = Notifications.useLastNotificationResponse();
+  const handledRef   = useRef<string | null>(null);
 
   useEffect(() => {
-    // Handle tap on a notification while app is running or cold-started
-    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      if (!user) return; // not authenticated yet
-
-      const data = response.notification.request.content.data as Record<string, string> | undefined;
-      if (!data) { router.push('/(tabs)/notifications'); return; }
-
-      const { entityType } = data;
-
-      // Route to the relevant tab based on entity type
-      switch (entityType) {
-        case 'invoice':
-          router.push('/(tabs)/invoices');
-          break;
-        case 'instruction':
-          router.push('/(tabs)/instructions');
-          break;
-        case 'delivery':
-          router.push('/(tabs)/deliveries');
-          break;
-        case 'labour':
-          router.push('/(tabs)/labour');
-          break;
-        case 'attendance':
-          router.push('/(tabs)/attendance');
-          break;
-        default:
-          router.push('/(tabs)/notifications');
-      }
-    });
-
-    return () => sub.remove();
-  }, [router, user]);
+    if (!lastResponse || isLoading || !user) return; // route once signed in
+    if (lastResponse.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER) return;
+    const id = lastResponse.notification.request.identifier;
+    if (handledRef.current === id) return;
+    handledRef.current = id;
+    router.push(routeForNotification(
+      lastResponse.notification.request.content.data as Record<string, unknown> | undefined,
+    ));
+  }, [lastResponse, isLoading, user, router]);
 
   return null;
 }

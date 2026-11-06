@@ -7,8 +7,12 @@
  *  2. Development only: the LAN host Metro was reached on (expo-constants
  *     hostUri / debuggerHost), so a physical phone on the same Wi-Fi talks to
  *     the API on the developer's machine at http://<lan-host>:3001/api/v1.
- *  3. Platform default: Android emulator -> 10.0.2.2 (the host loopback alias),
- *     iOS simulator / USB device with `adb reverse` -> localhost.
+ *  3. Development only: platform default — Android emulator -> 10.0.2.2 (the
+ *     host loopback alias), iOS simulator / USB device with `adb reverse` ->
+ *     localhost.
+ *  4. Release build without EXPO_PUBLIC_API_URL: NO URL (source 'missing').
+ *     The app then refuses every request with a visible configuration error
+ *     instead of silently calling a developer address.
  *
  * A production URL is never used as an implicit dev fallback.
  */
@@ -16,7 +20,7 @@
 export const API_PORT = 3001;
 export const API_PATH = '/api/v1';
 
-export type ApiUrlSource = 'env' | 'dev-host' | 'platform-default';
+export type ApiUrlSource = 'env' | 'dev-host' | 'platform-default' | 'missing';
 
 export interface ApiUrlInputs {
   /** Raw EXPO_PUBLIC_API_URL value (may be undefined or blank). */
@@ -66,11 +70,11 @@ export function resolveApiBaseUrl(inputs: ApiUrlInputs): ResolvedApiUrl {
   const env = inputs.envUrl?.trim();
   if (env) return { url: env.replace(/\/+$/, ''), source: 'env' };
 
-  if (inputs.isDev) {
-    const host = extractHost(inputs.devHostUri);
-    if (host && !TUNNEL_HOST_RE.test(host) && !LOOPBACK_HOSTS.has(host.toLowerCase())) {
-      return { url: `http://${host}:${API_PORT}${API_PATH}`, source: 'dev-host' };
-    }
+  if (!inputs.isDev) return { url: '', source: 'missing' };
+
+  const host = extractHost(inputs.devHostUri);
+  if (host && !TUNNEL_HOST_RE.test(host) && !LOOPBACK_HOSTS.has(host.toLowerCase())) {
+    return { url: `http://${host}:${API_PORT}${API_PATH}`, source: 'dev-host' };
   }
 
   return { url: platformDefault(inputs.platformOS, inputs.isDevice), source: 'platform-default' };

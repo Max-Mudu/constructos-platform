@@ -33,7 +33,18 @@ export const API_URL_SOURCE: ApiUrlSource = resolved.source;
 /** Server origin without the /api/v1 suffix. */
 export const API_ORIGIN: string = API_BASE_URL.replace(/\/api\/v1$/, '');
 
-if (__DEV__) {
+/**
+ * Set when this build has no API URL (release build made without
+ * EXPO_PUBLIC_API_URL). The API client rejects every request with it and the
+ * login screen shows it, so a misconfigured build fails visibly.
+ */
+export const API_CONFIG_ERROR: string | null = API_URL_SOURCE === 'missing'
+  ? 'This build has no server address configured (EXPO_PUBLIC_API_URL was not set when it was built). Please install an updated build.'
+  : null;
+
+if (API_CONFIG_ERROR) {
+  console.error(`[api] ${API_CONFIG_ERROR}`);
+} else if (__DEV__) {
   // Never point a dev session at a deployed server without saying so.
   if (isRemoteHttpsUrl(API_BASE_URL)) {
     console.warn(`[api] Development build is using a remote API: ${API_BASE_URL} (from EXPO_PUBLIC_API_URL)`);

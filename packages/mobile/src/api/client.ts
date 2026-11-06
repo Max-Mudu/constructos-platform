@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig, InternalAxiosRequestConfig } from 'axios';
 import { getAccessToken, getRefreshToken, saveTokens } from '../auth/secureStorage';
 import { useAuthStore } from '../store/auth.store';
-import { API_BASE_URL } from '../constants/api';
+import { API_BASE_URL, API_CONFIG_ERROR } from '../constants/api';
 
 const BASE_URL = API_BASE_URL;
 
@@ -16,6 +16,9 @@ export const apiClient: AxiosInstance = axios.create({
 // ─── Request interceptor — attach Bearer token ────────────────────────────────
 
 apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) => {
+  // Misconfigured release build: fail every call loudly instead of sending
+  // requests (and tokens) to a relative or developer address.
+  if (API_CONFIG_ERROR) throw new Error(API_CONFIG_ERROR);
   const token = await getAccessToken();
   if (token) {
     config.headers['Authorization'] = `Bearer ${token}`;
