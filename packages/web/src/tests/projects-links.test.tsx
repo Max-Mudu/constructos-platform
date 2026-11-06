@@ -61,6 +61,7 @@ import type { AuthUser, Contractor, UserRole } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
 import { SITE_WORKER_ROLES } from '@/components/projects/site-workers';
 import { DRAWING_COMMENT_ROLES, commentError } from '@/components/projects/drawing-comments';
+import { formatQuantity } from '@/components/projects/format-quantity';
 import { CONTRACTOR_WRITE_ROLES, contractorToForm, contractorUpdatePayload } from '@/app/(app)/contractors/contractor-form';
 import EditContractorPage from '@/app/(app)/contractors/[contractorId]/edit/page';
 import ContractorDetailPage from '@/app/(app)/contractors/[contractorId]/page';
@@ -409,5 +410,24 @@ describe('new attendance / target forms', () => {
     mockApi.listSiteWorkers.mockRejectedValue(new Error('offline'));
     render(<NewTargetPage />);
     expect(await screen.findByText(/Could not load this site's workers: request failed/)).toBeInTheDocument();
+  });
+});
+
+describe('delivery quantities', () => {
+  it('formats Decimal strings as numbers', () => {
+    expect(formatQuantity('12.500')).toBe((12.5).toLocaleString());
+    expect(formatQuantity('1500')).toBe((1500).toLocaleString());
+    expect(formatQuantity(3)).toBe('3');
+    expect(formatQuantity(null)).toBe('—');
+    expect(formatQuantity('n/a')).toBe('n/a');
+  });
+
+  it('delivery list and detail no longer call toLocaleString on the raw value', () => {
+    const dir = path.resolve(__dirname, '..', 'app', '(app)', 'projects', '[projectId]', 'sites', '[siteId]', 'deliveries');
+    for (const f of [path.join(dir, 'page.tsx'), path.join(dir, '[deliveryId]', 'page.tsx')]) {
+      const src = fs.readFileSync(f, 'utf8');
+      expect(src).not.toMatch(/quantity(Ordered|Delivered)\.toLocaleString/);
+      expect(src).toMatch(/formatQuantity\(/);
+    }
   });
 });

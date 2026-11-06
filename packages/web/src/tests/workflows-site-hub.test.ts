@@ -97,10 +97,9 @@ describe('role gates used by the site page, targets page and task page', () => {
 // ── Hub pages exist for every sidebar workflow link ─────────────────────────
 
 describe('site-module hub pages', () => {
-  // /inventory, /deliveries and /schedules are only reached through the
-  // sidebar's site-context rewrite today (see Sidebar.tsx isDefaultsShortcut);
-  // route-integrity.test.ts asserts /inventory has no top-level page.
-  const HUBS: SiteModule[] = ['attendance', 'labour', 'targets'];
+  // Every site module has a top-level hub page the sidebar links to directly
+  // (nav-config.ts; the old isDefaultsShortcut rewrite is gone).
+  const HUBS: SiteModule[] = SITE_MODULES;
 
   it.each(HUBS)('/%s has a hub page that is no longer a stub', (m) => {
     const file = path.join(APP_DIR, m, 'page.tsx');
