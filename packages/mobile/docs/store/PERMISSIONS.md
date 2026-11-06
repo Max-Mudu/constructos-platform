@@ -13,7 +13,7 @@ This document explains every permission the app requests and why it is necessary
 
 ### WRITE_EXTERNAL_STORAGE
 **Usage:** Delivery photo capture on Android 12L and earlier  
-**Justification:** `expo-image-picker` requires this permission, together with CAMERA, before it opens the camera on Android versions below 13 (API < 33). It has no effect on newer Android versions. The app does not write to shared storage: report downloads and photos stay in the app's private cache and are shared through the system share sheet.  
+**Justification:** `expo-image-picker` requires this permission, together with CAMERA, before it opens the camera on Android versions below 13 (API < 33). Since SDK 58 the manifest declares it with `android:maxSdkVersion="32"`, so Android 13 and newer never list it. The app does not write to shared storage: report downloads and photos stay in the app's private cache and are shared through the system share sheet.  
 **Required by:** `expo-image-picker`
 
 ### READ_EXTERNAL_STORAGE: not requested (blocked)
