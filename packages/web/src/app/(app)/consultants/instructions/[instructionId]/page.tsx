@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { instructionApi, ApiError } from '@/lib/api';
 import { ConsultantInstruction } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
@@ -10,6 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
+import { UploadedFileLink } from '@/components/files/UploadedFile';
 import {
   AlertCircle, ArrowLeft, CheckCircle2, AlertTriangle,
   Clock, XCircle, Paperclip, Upload,
@@ -72,7 +74,13 @@ export default function InstructionDetailPage() {
   const canRespond    = isContractor;
 
   useEffect(() => {
-    if (!projectId) return;
+    // Without ?projectId there is nothing to load (the API is project-scoped);
+    // say so instead of showing the loading skeleton forever.
+    if (!projectId) {
+      setError('This instruction link is missing its project. Open the instruction from the Instructions list.');
+      setLoading(false);
+      return;
+    }
     instructionApi.get(projectId, instructionId)
       .then((d) => {
         setInstruction(d.instruction);
@@ -131,11 +139,14 @@ export default function InstructionDetailPage() {
 
   if (error && !instruction) {
     return (
-      <div className="px-6 py-8">
+      <div className="px-6 py-8 space-y-4">
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+        <Link href="/consultants/instructions">
+          <Button variant="outline" size="sm"><ArrowLeft className="h-4 w-4" /> Back to Instructions</Button>
+        </Link>
       </div>
     );
   }
@@ -314,17 +325,17 @@ export default function InstructionDetailPage() {
         {instruction.attachments.length > 0 ? (
           <div className="space-y-2">
             {instruction.attachments.map((att) => (
-              <a
+              <UploadedFileLink
                 key={att.id}
-                href={att.fileUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+                fileUrl={att.fileUrl}
+                fileName={att.fileName}
+                mimeType={att.fileType}
                 className="flex items-center gap-2 text-sm text-primary hover:underline"
               >
                 <Paperclip className="h-3.5 w-3.5" />
                 {att.fileName}
                 <span className="text-xs text-muted-foreground">({(att.fileSizeBytes / 1024).toFixed(1)} KB)</span>
-              </a>
+              </UploadedFileLink>
             ))}
           </div>
         ) : (

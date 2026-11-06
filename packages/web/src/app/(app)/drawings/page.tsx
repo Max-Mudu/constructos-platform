@@ -61,19 +61,23 @@ export default function DrawingsPage() {
           setProjectId(d.projects[0].id);
         }
       })
-      .catch(() => {});
+      .catch((e) => setError(e instanceof ApiError ? e.message : 'Failed to load projects'));
   }, []);
 
   useEffect(() => {
     if (!projectId) return;
     setLoading(true);
+    setError('');
     drawingApi.list(projectId, {
       search:     search || undefined,
       status:     statusFilter || undefined,
       discipline: disciplineFilter || undefined,
     })
       .then((d) => setDrawings(d.drawings))
-      .catch((e) => setError(e instanceof ApiError ? e.message : 'Failed to load drawings'))
+      .catch((e) => {
+        setDrawings([]);
+        setError(e instanceof ApiError ? e.message : 'Failed to load drawings');
+      })
       .finally(() => setLoading(false));
   }, [projectId, search, statusFilter, disciplineFilter]);
 

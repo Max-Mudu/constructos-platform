@@ -11,6 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { NAV_ITEMS } from '@/components/sidebar/nav-config';
+import { SITE_MODULES } from '@/lib/workflows-site-hub';
 
 const APP_DIR = path.resolve(__dirname, '..', 'app', '(app)');
 const DAILY_DIR = path.resolve(__dirname, '..', 'app', '(daily)');
@@ -37,13 +38,58 @@ function pageExists(href: string): boolean {
 
 // ── Sidebar nav items ─────────────────────────────────────────────────────────
 
+/**
+ * Sidebar.tsx links every nav item to its own href. Site workflows (attendance,
+ * labour, targets, inventory, deliveries, schedules) used to be rewritten to
+ * /projects/:projectId/sites/:siteId<href> and hidden without a default site;
+ * they now link to top-level hub pages (SiteModuleHub) that open the default
+ * site or a site picker. Sidebar.tsx is read here so the test follows the real
+ * link logic instead of a hand-maintained copy.
+ */
+const SIDEBAR_SRC = fs.readFileSync(
+  path.resolve(__dirname, '..', 'components', 'sidebar', 'Sidebar.tsx'),
+  'utf8',
+);
+
+const SITE_MODULE_HREFS = SITE_MODULES.map((m) => `/${m}`);
+
+/** True when the page at `href` is a SiteModuleHub for `module`. */
+function isHubPageFor(href: string, module: string): boolean {
+  const file = resolvePagePath(href);
+  if (!fs.existsSync(file)) return false;
+  const src = fs.readFileSync(file, 'utf8');
+  return src.includes('SiteModuleHub') && src.includes(`module="${module}"`);
+}
+
 describe('Sidebar nav links — all hrefs resolve to a real page.tsx', () => {
+  it('Sidebar links item.href directly, with no site-context rewrite (positive control)', () => {
+    expect(SIDEBAR_SRC).toMatch(/href=\{item\.href\}/);
+    expect(SIDEBAR_SRC).not.toMatch(/isDefaultsShortcut|resolvedHref|\/sites\/\$\{/);
+  });
+
   it.each(NAV_ITEMS.map((item) => [item.label, item.href]))(
     '%s (%s) has a corresponding page.tsx',
     (_label, href) => {
       expect(pageExists(href as string)).toBe(true);
     },
   );
+
+  it('every site workflow in the sidebar is a hub over a real site-scoped page', () => {
+    const navSiteModules = NAV_ITEMS.map((i) => i.href).filter((h) => SITE_MODULE_HREFS.includes(h));
+    expect(navSiteModules.sort()).toEqual([...SITE_MODULE_HREFS].sort());
+    for (const href of navSiteModules) {
+      expect(isHubPageFor(href, href.slice(1))).toBe(true);
+      expect(pageExists(`/projects/[projectId]/sites/[siteId]${href}`)).toBe(true);
+    }
+  });
+
+  it('paths that do not exist fail to resolve (negative control)', () => {
+    expect(pageExists('/no-such-module')).toBe(false);
+    expect(pageExists('/projects/[projectId]/sites/[siteId]/no-such-page')).toBe(false);
+    // The hub detector rejects a real page that is not a hub, and a hub for another module.
+    expect(isHubPageFor('/dashboard', 'dashboard')).toBe(false);
+    expect(isHubPageFor('/inventory', 'deliveries')).toBe(false);
+  });
 });
 
 // ── Critical app routes ───────────────────────────────────────────────────────
@@ -59,6 +105,10 @@ describe('Critical app routes exist', () => {
     '/labour',
     '/attendance',
     '/targets',
+    '/inventory',
+    '/deliveries',
+    '/schedules',
+    '/settings/team',
     '/contractors',
     '/contractors/new',
     '/consultants',

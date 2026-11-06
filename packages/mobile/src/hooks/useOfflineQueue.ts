@@ -76,8 +76,22 @@ export function useOfflineQueue() {
         try {
           await executeOp(op);
           await dequeue(op.id);
-        } catch {
-          await incrementRetry(op.id);
+        } catch (err) {
+          const status = (err as { response?: { status?: number } })?.response?.status;
+          if (status === 401) {
+            // Session ended (refresh failed). Keep the op and stop; it is
+            // retried after the user signs in again.
+            break;
+          }
+          if (status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 429) {
+            // Rejected by the server (validation, duplicate, no access) —
+            // replaying the same request cannot succeed.
+            console.warn('[offline-queue] dropping op rejected by server — type:', op.type, 'status:', status);
+            await dequeue(op.id);
+          } else {
+            // Network failure, timeout, rate limit or 5xx — retry next flush.
+            await incrementRetry(op.id);
+          }
         }
       }
     } finally {

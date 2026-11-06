@@ -11,6 +11,7 @@ import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../src/store/auth.store';
 import { notificationsApi } from '../../src/api/notifications';
 import { useSSEEvent } from '../../src/hooks/useSSEEvent';
+import { useAppBarInset } from '../../src/hooks/useAppBarInset';
 
 const ROLE_LABEL: Record<string, string> = {
   company_admin:   'Company Admin',
@@ -26,6 +27,7 @@ const ROLE_LABEL: Record<string, string> = {
 // ─── Worker My Day ────────────────────────────────────────────────────────────
 
 function WorkerMyDay() {
+  const appBarInset = useAppBarInset();
   const router = useRouter();
   const user   = useAuthStore((s) => s.user)!;
 
@@ -88,7 +90,7 @@ function WorkerMyDay() {
   return (
     <View style={H.root}>
       {/* ── App bar ──────────────────────────────────────────────────────── */}
-      <View style={H.appBar}>
+      <View style={[H.appBar, appBarInset]}>
         <Text style={H.appBarTitle}>My Day</Text>
         {unreadCount > 0 ? (
           <TouchableOpacity
@@ -182,6 +184,7 @@ function WorkerMyDay() {
 // ─── Supervisor / Manager Home ────────────────────────────────────────────────
 
 function SupervisorHome() {
+  const appBarInset = useAppBarInset();
   const router = useRouter();
   const user   = useAuthStore((s) => s.user)!;
   const [unread,     setUnread]     = useState(0);
@@ -222,7 +225,7 @@ function SupervisorHome() {
   return (
     <View style={H.root}>
       {/* ── App bar ──────────────────────────────────────────────────────── */}
-      <View style={H.appBar}>
+      <View style={[H.appBar, appBarInset]}>
         <Text style={H.appBarTitle}>My Day</Text>
         <View style={H.rolePillAppBar}>
           <Text style={H.rolePillAppBarText}>{roleLabel}</Text>

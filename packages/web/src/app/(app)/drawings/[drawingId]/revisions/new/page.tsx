@@ -38,12 +38,15 @@ export default function UploadRevisionPage() {
     setSubmitting(true);
     setError('');
     try {
+      // Text fields go BEFORE the file: the API takes them from request.file()'s
+      // data.fields, and @fastify/multipart only guarantees fields that precede
+      // the file part there (busboy parses the stream in order).
       const fd = new FormData();
-      fd.append('file', file);
       fd.append('revisionNumber', form.revisionNumber);
       fd.append('status', form.status);
       if (form.issueDate) fd.append('issueDate', form.issueDate);
       if (form.notes)     fd.append('notes', form.notes);
+      fd.append('file', file);
 
       await drawingApi.uploadRevision(projectId, drawingId, fd);
       router.push(`/drawings/${drawingId}?projectId=${projectId}`);

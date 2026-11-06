@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Table, TableHead, TableRow, TableHeader, TableBody, TableCell } from '@/components/ui/Table';
 import { ClipboardCheck, Plus, AlertCircle, Clock } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
+import { localToday } from '@/lib/workflows-dates';
 
 const WRITE_ROLES = ['company_admin', 'project_manager', 'site_supervisor'] as const;
 function canWrite(role: string) { return (WRITE_ROLES as readonly string[]).includes(role); }
@@ -31,8 +32,6 @@ const STATUS_VARIANT: Record<AttendanceStatus, 'active' | 'inactive' | 'pending'
 
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }));
 
-function today(): string { return new Date().toISOString().split('T')[0]; }
-
 export default function AttendancePage() {
   const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>()!;
   const user = useAuthStore((s) => s.user);
@@ -40,7 +39,7 @@ export default function AttendancePage() {
 
   const [records,  setRecords]  = useState<AttendanceRecord[]>([]);
   const [summary,  setSummary]  = useState<AttendanceSummary | null>(null);
-  const [date,     setDate]     = useState(today());
+  const [date,     setDate]     = useState(() => localToday());
   const [statusF,  setStatusF]  = useState('');
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');

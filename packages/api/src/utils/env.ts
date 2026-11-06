@@ -200,3 +200,55 @@ if (env.isProduction && env.CORS_ORIGIN.includes('localhost')) {
     'Set CORS_ORIGIN to your production web app URL in Railway environment variables.',
   );
 }
+
+export interface ProductionConfigInput {
+  /** Raw APP_URL (undefined when unset — env.APP_URL then defaults to localhost). */
+  appUrl:     string | undefined;
+  smtpHost:   string;
+  trustProxy: TrustProxySetting;
+}
+
+/**
+ * Production settings that do not stop the API from booting but silently
+ * break or weaken something important. Printed once at startup (production
+ * only) so the deploy log shows them; they are warnings, not boot failures,
+ * so an existing deployment is never taken down by this check.
+ */
+export function productionConfigWarnings(cfg: ProductionConfigInput): string[] {
+  const warnings: string[] = [];
+  const appUrl = (cfg.appUrl ?? '').trim();
+  if (!appUrl) {
+    warnings.push(
+      'APP_URL is not set in production: password-reset and account-setup links will point at ' +
+      'http://localhost:3000. Set APP_URL to the public https URL of the web app.',
+    );
+  } else if (!appUrl.startsWith('https://')) {
+    warnings.push(
+      'APP_URL does not use https in production: password-reset and account-setup tokens would ' +
+      'travel in clear text. Set APP_URL to the public https URL of the web app.',
+    );
+  }
+  if (!cfg.smtpHost.trim()) {
+    warnings.push(
+      'SMTP_HOST is not set in production: password-reset and account-setup emails will not be sent.',
+    );
+  }
+  if (cfg.trustProxy === false) {
+    warnings.push(
+      'TRUST_PROXY is not set in production: behind a reverse proxy (e.g. Railway) every client shares ' +
+      'the proxy IP, so the rate limits apply to all users together and audit logs record the proxy IP. ' +
+      'Set TRUST_PROXY to the proxy hop count (e.g. 1) or its IPs/CIDRs.',
+    );
+  }
+  return warnings;
+}
+
+if (env.isProduction) {
+  for (const warning of productionConfigWarnings({
+    appUrl:     process.env['APP_URL'],
+    smtpHost:   env.SMTP_HOST,
+    trustProxy: env.TRUST_PROXY,
+  })) {
+    console.warn(`[WARN] ${warning}`);
+  }
+}

@@ -32,17 +32,30 @@ export function configureApiClient(
   if (onAuthRefreshed) _onAuthRefreshed = onAuthRefreshed;
 }
 
+/** Abort a normal JSON request after this long. */
+export const REQUEST_TIMEOUT_MS = 15_000;
+/**
+ * Abort a multipart upload after this long. The API accepts files up to 20 MB
+ * (drawings, instruction attachments, delivery documents); on a slow site
+ * connection that takes far longer than REQUEST_TIMEOUT_MS.
+ */
+export const UPLOAD_TIMEOUT_MS = 120_000;
+
+type RequestOptions = RequestInit & { timeoutMs?: number };
+
 async function request<T>(
   path: string,
-  options: RequestInit = {},
+  options: RequestOptions = {},
   retried = false,
 ): Promise<T> {
+  const { timeoutMs = REQUEST_TIMEOUT_MS, ...init } = options;
   const token = _getAccessToken?.();
+  // FormData must not get a Content-Type: the browser adds the multipart boundary.
   const headers: Record<string, string> = {
-    ...(options.body === undefined || options.body instanceof FormData
+    ...(init.body === undefined || init.body instanceof FormData
       ? {}
       : { 'Content-Type': 'application/json' }),
-    ...(options.headers as Record<string, string>),
+    ...(init.headers as Record<string, string>),
   };
 
   if (token) {
@@ -50,11 +63,11 @@ async function request<T>(
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, {
-      ...options,
+      ...init,
       headers,
       credentials: 'include',
       signal: controller.signal,
@@ -69,7 +82,7 @@ async function request<T>(
   clearTimeout(timeoutId);
 
   if (res.status === 401 && !retried) {
-    // Try to refresh the token once
+    // Try to refresh the token once. A FormData body is re-sendable as-is.
     const refreshed = await tryRefresh();
     if (refreshed) {
       return request<T>(path, options, true);
@@ -95,6 +108,14 @@ async function request<T>(
 
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+/**
+ * POST a multipart form through the shared request path: bearer token, one
+ * 401 -> refresh -> retry, ApiError mapping, and the longer upload timeout.
+ */
+function upload<T>(path: string, form: FormData): Promise<T> {
+  return request<T>(path, { method: 'POST', body: form, timeoutMs: UPLOAD_TIMEOUT_MS });
 }
 
 async function doRefresh(): Promise<boolean> {
@@ -653,22 +674,10 @@ export const deliveryApi = {
   uploadPhoto: (projectId: string, siteId: string, deliveryId: string, file: File) => {
     const form = new FormData();
     form.append('file', file);
-    // Bypass JSON content-type — browser sets multipart boundary automatically
-    const token = _getAccessToken?.();
-    return fetch(`${BASE}/projects/${projectId}/sites/${siteId}/deliveries/${deliveryId}/photos`, {
-      method: 'POST',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      credentials: 'include',
-      body: form,
-    }).then(async (res) => {
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new ApiError(res.status, body.code ?? 'API_ERROR', body.error ?? 'Upload failed');
-      }
-      return res.json() as Promise<{ photo: import('./types').DeliveryPhoto }>;
-    });
+    return upload<{ photo: import('./types').DeliveryPhoto }>(
+      `/projects/${projectId}/sites/${siteId}/deliveries/${deliveryId}/photos`,
+      form,
+    );
   },
 
   deletePhoto: (projectId: string, siteId: string, deliveryId: string, photoId: string) =>
@@ -680,21 +689,10 @@ export const deliveryApi = {
   uploadDocument: (projectId: string, siteId: string, deliveryId: string, file: File) => {
     const form = new FormData();
     form.append('file', file);
-    const token = _getAccessToken?.();
-    return fetch(`${BASE}/projects/${projectId}/sites/${siteId}/deliveries/${deliveryId}/documents`, {
-      method: 'POST',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      credentials: 'include',
-      body: form,
-    }).then(async (res) => {
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new ApiError(res.status, body.code ?? 'API_ERROR', body.error ?? 'Upload failed');
-      }
-      return res.json() as Promise<{ document: import('./types').DeliveryDocument }>;
-    });
+    return upload<{ document: import('./types').DeliveryDocument }>(
+      `/projects/${projectId}/sites/${siteId}/deliveries/${deliveryId}/documents`,
+      form,
+    );
   },
 
   deleteDocument: (projectId: string, siteId: string, deliveryId: string, documentId: string) =>
@@ -961,10 +959,11 @@ export const drawingApi = {
   delete: (projectId: string, drawingId: string) =>
     request<void>(`${drawingBase(projectId)}/${drawingId}`, { method: 'DELETE' }),
 
+  /** Append the text fields BEFORE the file: the API reads data.fields from request.file(). */
   uploadRevision: (projectId: string, drawingId: string, formData: FormData) =>
-    request<{ revision: import('./types').DrawingRevision }>(
+    upload<{ revision: import('./types').DrawingRevision }>(
       `${drawingBase(projectId)}/${drawingId}/revisions`,
-      { method: 'POST', body: formData, headers: {} },
+      formData,
     ),
 
   approveRevision: (projectId: string, drawingId: string, revisionId: string, data: { issueDate?: string }) =>
@@ -1050,9 +1049,9 @@ export const instructionApi = {
     ),
 
   uploadAttachment: (projectId: string, instructionId: string, formData: FormData) =>
-    request<{ attachment: import('./types').InstructionAttachment }>(
+    upload<{ attachment: import('./types').InstructionAttachment }>(
       `${instructionBase(projectId)}/${instructionId}/attachments`,
-      { method: 'POST', body: formData, headers: {} },
+      formData,
     ),
 };
 

@@ -15,6 +15,7 @@ import {
   TextInput,
   ActivityIndicator,
   FlatList,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useAuthStore } from '../../src/store/auth.store';
 import { labourApi, LabourListResponse } from '../../src/api/labour';
@@ -205,8 +206,8 @@ function CreateLabourModal({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={styles.modal}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={styles.modal} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>New Labour Entry</Text>
           <TouchableOpacity onPress={onClose}>
@@ -297,7 +298,7 @@ function CreateLabourModal({
 
           <Button title="Create Entry" onPress={save} loading={saving} />
         </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

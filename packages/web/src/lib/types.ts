@@ -77,11 +77,14 @@ export interface DeliveryRecord {
   invoiceNumber: string | null;
   itemDescription: string;
   unitOfMeasure: string;
-  quantityOrdered: number;
-  quantityDelivered: number;
+  /** Prisma Decimal(12,3): the API serialises it as a string, e.g. "12.500". */
+  quantityOrdered: string | number;
+  /** Prisma Decimal(12,3): the API serialises it as a string, e.g. "12.500". */
+  quantityDelivered: string | number;
   conditionOnArrival: DeliveryCondition;
   inspectionStatus: InspectionStatus;
-  acceptanceStatus: AcceptanceStatus;
+  /** Optional on the API; records saved without a decision come back null. */
+  acceptanceStatus: AcceptanceStatus | null;
   rejectionReason: string | null;
   discrepancyNotes: string | null;
   receivedById: string;

@@ -15,6 +15,7 @@ import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SearchFilterBar } from '@/components/ui/SearchFilterBar';
 import { cn } from '@/lib/utils';
+import { notifyNotificationsChanged } from '@/lib/notifications-events';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -154,6 +155,7 @@ export default function NotificationsPage() {
   function handleRead(id: string) {
     notificationApi.markRead(id).then((r) => {
       setNotifications((prev) => prev.map((n) => (n.id === id ? r.notification : n)));
+      notifyNotificationsChanged();
     }).catch(() => {});
   }
 
@@ -161,6 +163,7 @@ export default function NotificationsPage() {
     notificationApi.delete(id).then(() => {
       setNotifications((prev) => prev.filter((n) => n.id !== id));
       setTotal((t) => Math.max(0, t - 1));
+      notifyNotificationsChanged();
     }).catch(() => {});
   }
 
@@ -169,6 +172,7 @@ export default function NotificationsPage() {
       setNotifications((prev) =>
         prev.map((n) => ({ ...n, isRead: true, readAt: new Date().toISOString() })),
       );
+      notifyNotificationsChanged();
     }).catch(() => {});
   }
 
