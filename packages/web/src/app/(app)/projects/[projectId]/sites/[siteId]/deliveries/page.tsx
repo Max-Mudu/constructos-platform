@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { deliveryApi, ApiError } from '@/lib/api';
 import { DeliveryRecord, AcceptanceStatus, InspectionStatus } from '@/lib/types';
+import { formatQuantity } from '@/components/projects/format-quantity';
 import { acceptanceDisplay } from '@/lib/workflows-delivery';
 import { useAuthStore } from '@/store/auth.store';
 import {
@@ -174,10 +175,10 @@ export default function DeliveriesPage() {
                       {d.itemDescription}
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums">
-                      {d.quantityOrdered.toLocaleString()} {d.unitOfMeasure}
+                      {formatQuantity(d.quantityOrdered)} {d.unitOfMeasure}
                     </TableCell>
                     <TableCell className="text-right text-sm tabular-nums">
-                      {d.quantityDelivered.toLocaleString()} {d.unitOfMeasure}
+                      {formatQuantity(d.quantityDelivered)} {d.unitOfMeasure}
                     </TableCell>
                     <TableCell>{inspectionBadge(d.inspectionStatus)}</TableCell>
                     <TableCell>{acceptanceBadge(d.acceptanceStatus)}</TableCell>

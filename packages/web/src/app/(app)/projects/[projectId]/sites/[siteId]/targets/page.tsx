@@ -17,8 +17,7 @@ import { Table, TableHead, TableRow, TableHeader, TableBody, TableCell } from '@
 import { Target, Plus, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { canCreateInModule } from '@/lib/workflows-site-hub';
-
-function today(): string { return new Date().toISOString().split('T')[0]; }
+import { localToday } from '@/lib/workflows-dates';
 
 function pctColor(pct: number | null): string {
   if (pct === null) return 'text-muted-foreground';
@@ -33,7 +32,7 @@ export default function TargetsPage() {
 
   const [targets,   setTargets]   = useState<DailyTarget[]>([]);
   const [summary,   setSummary]   = useState<TargetSummary | null>(null);
-  const [date,      setDate]      = useState(today());
+  const [date,      setDate]      = useState(() => localToday());
   const [loading,   setLoading]   = useState(true);
   const [error,     setError]     = useState('');
   const [approving, setApproving] = useState<string | null>(null);
@@ -61,6 +60,14 @@ export default function TargetsPage() {
     try {
       const { target } = await targetsApi.approve(projectId, siteId, targetId);
       setTargets((prev) => prev.map((t) => t.id === targetId ? target : t));
+      // The "Approved" card comes from the summary endpoint — refresh it too.
+      try {
+        const s = await targetsApi.summary(projectId, siteId, date);
+        setSummary(s.summary);
+      } catch {
+        // The approval itself succeeded; count the change locally instead.
+        setSummary((prev) => (prev ? { ...prev, approved: prev.approved + 1 } : prev));
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to approve target');
     } finally {

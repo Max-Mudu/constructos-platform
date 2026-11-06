@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { scheduleApi, ApiError } from '@/lib/api';
+import { localToday } from '@/lib/workflows-dates';
 import { ScheduleTask, ScheduleTaskStatus, MilestoneStatus } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
 import { canDeleteInModule } from '@/lib/workflows-site-hub';
@@ -153,7 +154,7 @@ export default function TaskDetailPage() {
     try {
       await scheduleApi.updateMilestone(projectId, siteId, taskId, milestoneId, {
         status,
-        actualDate: status === 'completed' ? new Date().toISOString().split('T')[0] : null,
+        actualDate: status === 'completed' ? localToday() : null,
       });
       load();
     } catch (e) {

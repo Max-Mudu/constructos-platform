@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { instructionApi, ApiError } from '@/lib/api';
 import { ConsultantInstruction } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
@@ -73,7 +74,13 @@ export default function InstructionDetailPage() {
   const canRespond    = isContractor;
 
   useEffect(() => {
-    if (!projectId) return;
+    // Without ?projectId there is nothing to load (the API is project-scoped);
+    // say so instead of showing the loading skeleton forever.
+    if (!projectId) {
+      setError('This instruction link is missing its project. Open the instruction from the Instructions list.');
+      setLoading(false);
+      return;
+    }
     instructionApi.get(projectId, instructionId)
       .then((d) => {
         setInstruction(d.instruction);
@@ -132,11 +139,14 @@ export default function InstructionDetailPage() {
 
   if (error && !instruction) {
     return (
-      <div className="px-6 py-8">
+      <div className="px-6 py-8 space-y-4">
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+        <Link href="/consultants/instructions">
+          <Button variant="outline" size="sm"><ArrowLeft className="h-4 w-4" /> Back to Instructions</Button>
+        </Link>
       </div>
     );
   }

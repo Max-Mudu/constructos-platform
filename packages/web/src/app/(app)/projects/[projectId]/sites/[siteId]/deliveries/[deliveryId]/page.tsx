@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { deliveryApi, ApiError } from '@/lib/api';
 import { DeliveryRecord, DeliveryPhoto, DeliveryDocument } from '@/lib/types';
+import { formatQuantity } from '@/components/projects/format-quantity';
 import { acceptanceDisplay } from '@/lib/workflows-delivery';
 import { useAuthStore } from '@/store/auth.store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -318,11 +319,11 @@ export default function DeliveryDetailPage() {
             <DetailRow label="Unit of Measure"   value={delivery.unitOfMeasure} />
             <DetailRow
               label="Quantity Ordered"
-              value={`${delivery.quantityOrdered.toLocaleString()} ${delivery.unitOfMeasure}`}
+              value={`${formatQuantity(delivery.quantityOrdered)} ${delivery.unitOfMeasure}`}
             />
             <DetailRow
               label="Quantity Delivered"
-              value={`${delivery.quantityDelivered.toLocaleString()} ${delivery.unitOfMeasure}`}
+              value={`${formatQuantity(delivery.quantityDelivered)} ${delivery.unitOfMeasure}`}
             />
             <DetailRow label="Condition on Arrival" value={conditionBadge(delivery.conditionOnArrival)} />
           </dl>

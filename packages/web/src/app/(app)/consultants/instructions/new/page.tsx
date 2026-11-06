@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { instructionApi, projectApi, drawingApi, siteApi, ApiError } from '@/lib/api';
+import { localToday } from '@/lib/workflows-dates';
 import { Project, JobSite, Drawing } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -28,7 +29,7 @@ export default function NewInstructionPage() {
     category:         '',
     priority:         'medium',
     description:      '',
-    issuedDate:       new Date().toISOString().slice(0, 10),
+    issuedDate:       localToday(),
     targetActionDate: '',
     siteId:           '',
     drawingId:        '',

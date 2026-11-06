@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { labourApi, workerApi } from '@/lib/api';
 import { formErrorState } from '@/lib/workflows-form-errors';
+import { localToday } from '@/lib/workflows-dates';
 import { Worker } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/Button';
@@ -30,7 +31,7 @@ export default function NewLabourEntryPage() {
   const [siteWorkers, setSiteWorkers] = useState<Worker[]>([]);
   const [form, setForm] = useState({
     workerId: '',
-    date: new Date().toISOString().slice(0, 10),
+    date: localToday(),
     hoursWorked: '8',
     dailyRate: '',
     currency: 'KES',

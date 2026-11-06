@@ -4,6 +4,7 @@ import { useState, useEffect, FormEvent, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { deliveryApi, supplierApi } from '@/lib/api';
+import { localToday } from '@/lib/workflows-dates';
 import { formErrorState } from '@/lib/workflows-form-errors';
 import { DeliveryCondition, InspectionStatus, AcceptanceStatus, Supplier } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
@@ -196,7 +197,7 @@ export default function NewDeliveryPage() {
                 name="deliveryDate"
                 type="date"
                 required
-                defaultValue={new Date().toISOString().slice(0, 10)}
+                defaultValue={localToday()}
                 className={inputCls}
               />
               {fieldErrors.deliveryDate && (
