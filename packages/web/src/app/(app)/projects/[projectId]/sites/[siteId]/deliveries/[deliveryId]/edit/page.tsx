@@ -371,6 +371,7 @@ export default function EditDeliveryPage() {
             <Field label="Quantity Ordered" required>
               <input
                 type="number"
+                step="any"
                 min={0}
                 required
                 value={quantityOrdered}
@@ -382,6 +383,7 @@ export default function EditDeliveryPage() {
             <Field label="Quantity Delivered" required>
               <input
                 type="number"
+                step="any"
                 min={0}
                 required
                 value={quantityDelivered}

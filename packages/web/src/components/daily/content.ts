@@ -185,9 +185,24 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   return ka.every((k) => Object.prototype.hasOwnProperty.call(b, k) && deepEqual((a as Obj)[k], (b as Obj)[k]));
 }
 
+/**
+ * Normalises typed digits to a JS number string. Values are displayed with
+ * en-KE grouping ("1,500"), so a comma followed by groups of exactly three
+ * digits is a thousands separator ("1,500" → 1500, "12,000.5" → 12000.5);
+ * otherwise a single comma with no dot is a decimal comma ("12,5" → 12.5).
+ * Anything else with a comma (e.g. "1,2,3") is left as-is and rejected.
+ */
+function normaliseNumberText(text: string): string {
+  const t = text.trim();
+  if (!t.includes(',')) return t;
+  if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(t)) return t.replace(/,/g, '');
+  if (/^-?\d*,\d+$/.test(t)) return t.replace(',', '.');
+  return t;
+}
+
 /** Parses a numeric text field: '' → null, otherwise a finite non-negative number or null. */
 export function parseNumberInput(text: string, opts: { allowNegative?: boolean; integer?: boolean; max?: number } = {}): number | null {
-  const t = text.trim().replace(',', '.');
+  const t = normaliseNumberText(text);
   if (t === '') return null;
   const n = Number(t);
   if (!Number.isFinite(n)) return null;

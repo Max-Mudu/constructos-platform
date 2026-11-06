@@ -5,6 +5,8 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { inventoryApi, ApiError } from '@/lib/api';
 import { SiteInventoryItem, SiteInventoryItemDetail, InventoryTxType } from '@/lib/types';
+import { formatTxQuantity } from '@/lib/workflows-inventory';
+import { formatCalendarDate } from '@/lib/workflows-dates';
 import {
   Table, TableHeader, TableBody, TableRow,
   TableHead, TableCell,
@@ -185,7 +187,7 @@ function DetailPanel({ projectId, siteId, itemId, onClose }: DetailPanelProps) {
                         {txBadge(tx.type)}
                         {tx.delivery && (
                           <p className="text-xs text-muted-foreground truncate">
-                            {tx.delivery.supplierName} · {formatDate(tx.delivery.deliveryDate)}
+                            {tx.delivery.supplierName} · {formatCalendarDate(tx.delivery.deliveryDate)}
                           </p>
                         )}
                         {tx.performedBy && (
@@ -203,7 +205,7 @@ function DetailPanel({ projectId, siteId, itemId, onClose }: DetailPanelProps) {
                           txSign(tx.type) === '+' ? 'text-emerald-400' : 'text-red-400'
                         }`}
                       >
-                        {txSign(tx.type)}{formatQty(tx.quantity)} {tx.unitOfMeasure}
+                        {formatTxQuantity(tx.type, tx.quantity)} {tx.unitOfMeasure}
                       </span>
                     </div>
                   ))}

@@ -61,15 +61,11 @@ jobs:
         run: npx prisma generate
       - name: Type-check
         run: npx tsc --noEmit -p .
+      # Tests run against the schema the migrations build, which is what
+      # production gets from `prisma migrate deploy`. The migrations job below
+      # fails if that schema differs from schema.prisma.
       - name: Apply migrations to the CI test database
         run: npx prisma migrate deploy
-      # The migrations job below fails if the migration history does not
-      # reproduce schema.prisma. Here we only bring the throwaway test DB up to
-      # schema.prisma so the test suite still runs while such drift exists.
-      # The database is empty and discarded after the job, so the data-loss
-      # prompt (e.g. for a new unique index) has nothing to lose.
-      - name: Sync any remaining schema.prisma drift into the test database
-        run: npx prisma db push --skip-generate --accept-data-loss
       - name: Test
         run: npx jest --ci --runInBand --forceExit
 
@@ -134,6 +130,52 @@ jobs:
         run: npx tsc --noEmit -p .
       - name: Test
         run: npx jest --ci
+
+  web-build:
+    name: Web (next build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    defaults:
+      run:
+        working-directory: packages/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      # NODE_ENV stays unset here: with NODE_ENV=production `npm ci` would skip
+      # the devDependencies (typescript, tailwind, ...) that the build needs.
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --no-audit --no-fund
+      # Next's incremental build cache. Every run restores the newest entry for
+      # this lockfile; only pushes to main save one, so PR runs reuse main's
+      # cache without each PR adding its own copy to the repo's cache quota.
+      - name: Restore Next.js build cache
+        id: next-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: packages/web/.next/cache
+          key: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('packages/web/src/**', 'packages/web/*.js', 'packages/web/*.ts', 'packages/web/tsconfig.json') }}
+          restore-keys: |
+            next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
+      - name: Build
+        env:
+          # A production build is what gets deployed, and prerendering fails
+          # under NODE_ENV=development.
+          NODE_ENV: production
+          # Build-time placeholder for the /api/v1 rewrite target. Not a secret.
+          NEXT_PUBLIC_API_URL: http://localhost:3001
+        run: npx next build
+      - name: Save Next.js build cache
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.next-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: packages/web/.next/cache
+          key: ${{ steps.next-cache.outputs.cache-primary-key }}
 
   mobile:
     name: Mobile (tsc)
