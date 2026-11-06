@@ -4,7 +4,11 @@ import { authenticate } from '../middleware/authenticate';
 import { requireRole } from '../middleware/requireRole';
 import * as companyService from '../services/company.service';
 import * as userService from '../services/user.service';
-import { ASSIGNABLE_USER_ROLES } from '../services/user.service';
+import {
+  ASSIGNABLE_USER_ROLES,
+  LIST_USERS_DEFAULT_LIMIT,
+  LIST_USERS_MAX_LIMIT,
+} from '../services/user.service';
 import { AppError } from '../utils/errors';
 
 // companyId, canViewFinance, password and isActive are intentionally absent:
@@ -19,6 +23,26 @@ const createUserSchema = z.object({
   consultantType:   z.enum(['engineer', 'architect', 'quantity_surveyor', 'other']).optional(),
   defaultProjectId: z.string().uuid().optional(),
   defaultSiteId:    z.string().uuid().optional(),
+});
+
+// Query strings arrive as text, so isActive accepts only the literal words
+// 'true' / 'false' — anything else is a 422 rather than a silent truthy cast.
+// super_admin is not a listable role for a tenant, so it is not a valid filter.
+const listUsersQuerySchema = z.object({
+  role: z.enum([
+    'company_admin',
+    'finance_officer',
+    'project_manager',
+    'site_supervisor',
+    'contractor',
+    'consultant',
+    'worker',
+    'viewer',
+  ]).optional(),
+  isActive: z.enum(['true', 'false']).transform((v) => v === 'true').optional(),
+  search:   z.string().trim().min(1).max(100).optional(),
+  limit:    z.coerce.number().int().min(1).max(LIST_USERS_MAX_LIMIT).default(LIST_USERS_DEFAULT_LIMIT),
+  offset:   z.coerce.number().int().min(0).max(100_000).default(0),
 });
 
 const updateCompanySchema = z.object({
@@ -73,6 +97,25 @@ export async function companyRoutes(fastify: FastifyInstance): Promise<void> {
         }
         throw err;
       }
+    },
+  );
+
+  // GET /api/v1/companies/me/users — company_admin only
+  fastify.get(
+    '/me/users',
+    { preHandler: [authenticate, requireRole('company_admin')] },
+    async (request, reply) => {
+      const parsed = listUsersQuerySchema.safeParse(request.query);
+      if (!parsed.success) {
+        return reply.status(422).send({
+          error: 'Validation failed',
+          code: 'VALIDATION_ERROR',
+          details: parsed.error.flatten().fieldErrors,
+        });
+      }
+
+      const result = await userService.listCompanyUsers(request.user, parsed.data);
+      return reply.send(result);
     },
   );
 

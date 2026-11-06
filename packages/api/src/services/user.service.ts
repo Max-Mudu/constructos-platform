@@ -1,4 +1,4 @@
-import { ConsultantType, UserRole } from '@prisma/client';
+import { ConsultantType, Prisma, UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { ConflictError, NotFoundError, ValidationError } from '../utils/errors';
 import { generateToken, hashPassword, hashToken } from '../utils/hash';
@@ -228,4 +228,127 @@ export async function createCompanyUser(
   return env.isProduction
     ? { user, setupEmailSent }
     : { user, setupLink, setupEmailSent };
+}
+
+// ─── List company users ──────────────────────────────────────────────────────
+
+/** Hard ceiling on one page of the team list. */
+export const LIST_USERS_MAX_LIMIT     = 200;
+export const LIST_USERS_DEFAULT_LIMIT = 100;
+
+export interface ListCompanyUsersFilters {
+  role?:     UserRole;
+  isActive?: boolean;
+  search?:   string;
+  limit?:    number;
+  offset?:   number;
+}
+
+/**
+ * Explicit allowlist for the team list. passwordHash, failedLoginCount,
+ * lockedAt, lastLoginAt, canViewFinance internals and every token relation are
+ * deliberately absent — adding a field here is a conscious API change.
+ *
+ * Related records carry their companyId so the service can drop any row that
+ * does not belong to the caller's tenant (defence in depth: the foreign keys
+ * are validated on write, but the read must not trust that alone).
+ */
+const LIST_USER_SELECT = {
+  id:             true,
+  email:          true,
+  firstName:      true,
+  lastName:       true,
+  phone:          true,
+  role:           true,
+  consultantType: true,
+  isActive:       true,
+  createdAt:      true,
+  defaultProject: { select: { id: true, name: true, companyId: true } },
+  defaultSite:    { select: { id: true, name: true, companyId: true } },
+} as const;
+
+/**
+ * Lists the users of the caller's company for the team-management screen.
+ *
+ * Tenant boundary: companyId comes from the verified JWT only. super_admin
+ * accounts are platform-level and are never listed to a tenant admin.
+ */
+export async function listCompanyUsers(
+  actor: RequestUser,
+  filters: ListCompanyUsersFilters = {},
+) {
+  const companyId = actor.companyId;
+  const limit  = Math.min(Math.max(filters.limit ?? LIST_USERS_DEFAULT_LIMIT, 1), LIST_USERS_MAX_LIMIT);
+  const offset = Math.max(filters.offset ?? 0, 0);
+  const search = filters.search?.trim();
+
+  const where: Prisma.UserWhereInput = {
+    companyId,
+    role: filters.role && filters.role !== 'super_admin'
+      ? filters.role
+      : { not: 'super_admin' },
+    ...(filters.isActive !== undefined ? { isActive: filters.isActive } : {}),
+    ...(search
+      ? {
+          OR: [
+            { firstName: { contains: search, mode: 'insensitive' } },
+            { lastName:  { contains: search, mode: 'insensitive' } },
+            { email:     { contains: search, mode: 'insensitive' } },
+          ],
+        }
+      : {}),
+  };
+
+  const [rows, total] = await prisma.$transaction([
+    prisma.user.findMany({
+      where,
+      select: {
+        ...LIST_USER_SELECT,
+        projectMembers: {
+          where:   { companyId, removedAt: null },
+          select:  {
+            assignedAt: true,
+            project: { select: { id: true, name: true, companyId: true } },
+            site:    { select: { id: true, name: true, companyId: true } },
+          },
+          orderBy: { assignedAt: 'asc' },
+        },
+      },
+      orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }, { email: 'asc' }, { id: 'asc' }],
+      take: limit,
+      skip: offset,
+    }),
+    prisma.user.count({ where }),
+  ]);
+
+  const own = <T extends { id: string; name: string; companyId: string }>(ref: T | null) =>
+    ref && ref.companyId === companyId ? { id: ref.id, name: ref.name } : null;
+
+  const users = rows.map((row) => ({
+    id:             row.id,
+    email:          row.email,
+    firstName:      row.firstName,
+    lastName:       row.lastName,
+    phone:          row.phone,
+    role:           row.role,
+    consultantType: row.consultantType,
+    isActive:       row.isActive,
+    createdAt:      row.createdAt,
+    defaultProject: own(row.defaultProject),
+    defaultSite:    own(row.defaultSite),
+    projectMemberships: row.projectMembers
+      // A foreign project or site means corrupt data; drop the row rather
+      // than misreport a site-scoped membership as project-wide.
+      .filter((m) => m.project.companyId === companyId
+        && (m.site === null || m.site.companyId === companyId))
+      .map((m) => ({
+        projectId:   m.project.id,
+        projectName: m.project.name,
+        siteId:      m.site?.id ?? null,
+        siteName:    m.site?.name ?? null,
+        assignedAt:  m.assignedAt,
+      })),
+  }));
+
+  return { users, total, limit, offset };
 }
