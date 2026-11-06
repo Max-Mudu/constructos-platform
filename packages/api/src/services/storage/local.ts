@@ -9,10 +9,11 @@ import { assertValidStorageKey, assertValidTtl, signFileUrl } from './signed-url
  * Same root as services/upload.service.ts `getUploadDir()` (not exported
  * there): a temp directory under test, `<cwd>/uploads` otherwise.
  *
- * Objects stored here are NOT reachable through the legacy `/uploads/*` route:
- * that route only serves keys owned by a database record via
- * canAccessUploadedFile, and daily-report keys are served only through
- * short-lived signed URLs (`GET /api/v1/files/signed`).
+ * Delivery, drawing and instruction uploads share this root (upload.service
+ * legacyLocalUploadDriver, keys `photos/…`, `documents/…`, `drawings/…`,
+ * `instructions/…`). The `/uploads/*` route only serves keys owned by one of
+ * those database records via canAccessUploadedFile; daily-report keys are
+ * served only through short-lived signed URLs (`GET /api/v1/files/signed`).
  */
 export function defaultLocalStorageRoot(): string {
   if (process.env['NODE_ENV'] === 'test') {
