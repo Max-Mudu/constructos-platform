@@ -7,6 +7,7 @@ import { deliveryApi, ApiError } from '@/lib/api';
 import { DeliveryRecord, AcceptanceStatus, InspectionStatus } from '@/lib/types';
 import { formatQuantity } from '@/components/projects/format-quantity';
 import { acceptanceDisplay } from '@/lib/workflows-delivery';
+import { formatCalendarDate } from '@/lib/workflows-dates';
 import { useAuthStore } from '@/store/auth.store';
 import {
   Table, TableHeader, TableBody, TableRow,
@@ -40,11 +41,8 @@ function inspectionBadge(status: InspectionStatus) {
   return                           <Badge variant="secondary">Pending</Badge>;
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
-}
+// deliveryDate is a calendar date: format it without a time-zone shift.
+const formatDate = (iso: string) => formatCalendarDate(iso, 'short');
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 

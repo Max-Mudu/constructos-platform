@@ -270,6 +270,7 @@ export default function NewDeliveryPage() {
               <input
                 name="quantityOrdered"
                 type="number"
+                step="any"
                 min={0}
                 required
                 placeholder="500"
@@ -281,6 +282,7 @@ export default function NewDeliveryPage() {
               <input
                 name="quantityDelivered"
                 type="number"
+                step="any"
                 min={0}
                 required
                 placeholder="500"

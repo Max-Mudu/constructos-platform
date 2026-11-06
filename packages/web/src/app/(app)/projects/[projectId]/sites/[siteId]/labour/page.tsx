@@ -5,6 +5,9 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { labourApi, ApiError } from '@/lib/api';
 import { LabourEntry } from '@/lib/types';
+import { formatCalendarDate } from '@/lib/workflows-dates';
+import { entryWage, formatLabourCost, labourCostByCurrency } from '@/lib/workflows-labour';
+import { formatQuantity } from '@/components/projects/format-quantity';
 import { useAuthStore } from '@/store/auth.store';
 import {
   Table, TableHeader, TableBody, TableRow,
@@ -19,13 +22,11 @@ import { ArrowLeft, Plus, Users, AlertCircle } from 'lucide-react';
 const WRITE_ROLES = ['company_admin', 'project_manager', 'site_supervisor'] as const;
 function canWrite(role: string) { return (WRITE_ROLES as readonly string[]).includes(role); }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-}
+// The entry date is a calendar date: format it without a time-zone shift.
+const formatDate = (iso: string) => formatCalendarDate(iso, 'short');
 
 function totalWage(entry: LabourEntry): string {
-  const total = (Number(entry.hoursWorked) / 8) * Number(entry.dailyRate);
-  return `${total.toLocaleString(undefined, { maximumFractionDigits: 0 })} ${entry.currency}`;
+  return `${entryWage(entry).toLocaleString(undefined, { maximumFractionDigits: 0 })} ${entry.currency}`;
 }
 
 export default function LabourPage() {
@@ -62,9 +63,8 @@ export default function LabourPage() {
     ? entries.every((e) => e.dailyRate !== undefined)
     : !!user && (['super_admin', 'company_admin', 'finance_officer'].includes(user.role)
         || (user.role === 'project_manager' && user.canViewFinance));
-  const totalCost = showFinance
-    ? entries.reduce((sum, e) => sum + (Number(e.hoursWorked) / 8) * Number(e.dailyRate), 0)
-    : 0;
+  // Summed per currency: entries take their worker's currency.
+  const totalCost = showFinance ? formatLabourCost(labourCostByCurrency(entries)) : '0';
 
   return (
     <div className="p-6 space-y-6">
@@ -98,8 +98,7 @@ export default function LabourPage() {
             <CardContent className="pt-4">
               <p className="text-sm text-muted-foreground">Total Labour Cost</p>
               <p className="text-2xl font-bold">
-                {totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                {entries[0] ? ` ${entries[0].currency}` : ''}
+                {totalCost}
               </p>
             </CardContent>
           </Card>
@@ -172,7 +171,7 @@ export default function LabourPage() {
                       {e.worker.firstName} {e.worker.lastName}
                     </TableCell>
                     <TableCell>{e.worker.trade ?? '—'}</TableCell>
-                    <TableCell>{e.hoursWorked}h</TableCell>
+                    <TableCell>{formatQuantity(e.hoursWorked)}h</TableCell>
                     {showFinance && <TableCell>{Number(e.dailyRate).toLocaleString()} {e.currency}</TableCell>}
                     {showFinance && <TableCell className="font-medium">{totalWage(e)}</TableCell>}
                     <TableCell>{e.registeredBy.firstName} {e.registeredBy.lastName}</TableCell>

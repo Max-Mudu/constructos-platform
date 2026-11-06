@@ -12,6 +12,7 @@ import { Select } from '@/components/ui/Select';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { AlertCircle, ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { formatMoney } from '@/lib/utils';
+import { localToday } from '@/lib/workflows-dates';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -137,7 +138,7 @@ export default function NewInvoicePage() {
     vendorType:    'contractor' as InvoiceVendorType,
     vendorName:    '',
     currency:      '',
-    issueDate:     new Date().toISOString().split('T')[0],
+    issueDate:     localToday(),
     dueDate:       '',
     subtotal:      '',
     taxAmount:     '',
