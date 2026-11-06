@@ -11,6 +11,17 @@ const MAX_FAILED_ATTEMPTS = 10;
 const LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 const REFRESH_TOKEN_EXPIRES_DAYS = 7;
 
+let dummyHash: Promise<string> | undefined;
+
+/**
+ * bcrypt hash of a random secret nobody knows. login() compares against it
+ * for unknown or inactive emails so those answers cost the same bcrypt work
+ * as a wrong password and response time does not reveal which emails exist.
+ */
+function dummyPasswordHash(): Promise<string> {
+  return (dummyHash ??= hashPassword(generateToken(16)));
+}
+
 export interface RegisterInput {
   email: string;
   password: string;
@@ -189,6 +200,7 @@ export async function login(
   });
 
   if (!user || !user.isActive) {
+    await verifyPassword(input.password, await dummyPasswordHash());
     throw new UnauthorizedError('Invalid email or password');
   }
 
