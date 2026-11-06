@@ -244,10 +244,12 @@ describe('PATCH /companies/me/users/:id/status — admin safety', () => {
 
     expect((await setStatus(admin.accessToken, peer.id, { isActive: false })).statusCode).toBe(200);
 
-    // The deactivated peer still holds an unexpired access token
-    expect((await setStatus(peer.accessToken, admin.id, { isActive: false })).statusCode).toBe(403);
-    expect((await setStatus(peer.accessToken, peer.id, { isActive: true })).statusCode).toBe(403);
-    expect((await setStatus(peer.accessToken, viewer.id, { isActive: false })).statusCode).toBe(403);
+    // The deactivated peer still holds an unexpired access token, but
+    // authenticate now rejects tokens of inactive users outright (401) before
+    // the route's own active-admin re-check (403) is reached.
+    expect((await setStatus(peer.accessToken, admin.id, { isActive: false })).statusCode).toBe(401);
+    expect((await setStatus(peer.accessToken, peer.id, { isActive: true })).statusCode).toBe(401);
+    expect((await setStatus(peer.accessToken, viewer.id, { isActive: false })).statusCode).toBe(401);
 
     expect((await prisma.user.findUnique({ where: { id: admin.id } }))!.isActive).toBe(true);
     expect((await prisma.user.findUnique({ where: { id: peer.id } }))!.isActive).toBe(false);
@@ -264,7 +266,10 @@ describe('PATCH /companies/me/users/:id/status — admin safety', () => {
     ]);
 
     const statuses = [x.statusCode, y.statusCode].sort();
-    expect(statuses).toEqual([200, 403]);
+    // The loser is refused either by authenticate (already inactive: 401) or by
+    // the in-transaction active-admin check (403), depending on timing.
+    expect(statuses[0]).toBe(200);
+    expect([401, 403]).toContain(statuses[1]);
     const activeAdmins = await prisma.user.count({ where: { companyId: company.id, role: 'company_admin', isActive: true } });
     expect(activeAdmins).toBe(1);
   });
@@ -290,5 +295,43 @@ describe('PATCH /companies/me/users/:id/status — reactivation', () => {
 
     const logs = await prisma.auditLog.findMany({ where: { entityType: 'user', entityId: target.id, action: 'update' }, orderBy: { createdAt: 'asc' } });
     expect(logs.map((l) => (l.changesAfter as { event: string }).event)).toEqual(['user_deactivated', 'user_reactivated']);
+  });
+});
+
+// ─── End to end with authenticate (#13): deactivation takes effect at once ────
+
+describe('PATCH /companies/me/users/:id/status — combined with request authentication', () => {
+  it('rejects the deactivated user\'s existing access token on the very next request', async () => {
+    const { admin, company } = await createTestCompany(app, 'cus-e2e');
+    const member = await createTestUser(app, company.id, 'viewer', 'cus-e2e-member');
+
+    const before = await app.inject({
+      method: 'GET', url: '/api/v1/auth/me',
+      headers: { authorization: `Bearer ${member.accessToken}` },
+    });
+    expect(before.statusCode).toBe(200);
+
+    const refreshToken = await loginRefreshToken(member.email);
+    const off = await setStatus(admin.accessToken, member.id, { isActive: false });
+    expect(off.statusCode).toBe(200);
+
+    const after = await app.inject({
+      method: 'GET', url: '/api/v1/auth/me',
+      headers: { authorization: `Bearer ${member.accessToken}` },
+    });
+    expect(after.statusCode).toBe(401);
+    expect((await refresh(refreshToken)).statusCode).not.toBe(200);
+  });
+
+  it('reactivation allows a fresh login but does not revive revoked refresh tokens', async () => {
+    const { admin, company } = await createTestCompany(app, 'cus-e2e2');
+    const member = await createTestUser(app, company.id, 'viewer', 'cus-e2e2-member');
+    const oldRefresh = await loginRefreshToken(member.email);
+
+    expect((await setStatus(admin.accessToken, member.id, { isActive: false })).statusCode).toBe(200);
+    expect((await setStatus(admin.accessToken, member.id, { isActive: true })).statusCode).toBe(200);
+
+    expect((await refresh(oldRefresh)).statusCode).not.toBe(200);
+    await loginRefreshToken(member.email); // asserts 200 inside
   });
 });

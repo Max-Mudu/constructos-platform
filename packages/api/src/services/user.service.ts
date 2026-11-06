@@ -387,8 +387,8 @@ const STATUS_USER_SELECT = {
  * deactivation still re-runs the revocation (a no-op when nothing is live);
  * the audit row is written only when the status actually changes.
  *
- * Not covered here: access JWTs already issued stay valid until they expire,
- * because middleware/authenticate.ts does not consult isActive.
+ * Access JWTs already issued stop working on the next request, because
+ * middleware/authenticate.ts re-checks the user (active, same company) per request.
  */
 export async function setCompanyUserStatus(
   targetUserId: string,
