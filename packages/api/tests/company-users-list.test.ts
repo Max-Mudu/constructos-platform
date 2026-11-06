@@ -50,6 +50,7 @@ const ALLOWED_USER_KEYS = [
   'phone',
   'projectMemberships',
   'role',
+  'setupPending',
 ].sort();
 
 const ALLOWED_MEMBERSHIP_KEYS = ['assignedAt', 'projectId', 'projectName', 'siteId', 'siteName'].sort();

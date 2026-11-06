@@ -11,6 +11,8 @@ export interface SetupLinkPanelProps {
   setupLink?:     string;
   setupEmailSent: boolean;
   onDismiss:      () => void;
+  /** Defaults to "<email> was added to your team". */
+  heading?:       string;
 }
 
 /**
@@ -22,7 +24,7 @@ export interface SetupLinkPanelProps {
  * Referer or be opened by the admin's own session), and disappears for good
  * when the panel is dismissed or the page is left.
  */
-export function SetupLinkPanel({ email, setupLink, setupEmailSent, onDismiss }: SetupLinkPanelProps) {
+export function SetupLinkPanel({ email, setupLink, setupEmailSent, onDismiss, heading }: SetupLinkPanelProps) {
   const [copied, setCopied]       = useState(false);
   const [copyError, setCopyError] = useState(false);
   const inputRef                  = useRef<HTMLInputElement>(null);
@@ -54,7 +56,7 @@ export function SetupLinkPanel({ email, setupLink, setupEmailSent, onDismiss }: 
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-foreground">{email} was added to your team</p>
+          <p className="text-sm font-semibold text-foreground">{heading ?? `${email} was added to your team`}</p>
           {setupEmailSent ? (
             <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
               <MailCheck className="h-3.5 w-3.5 text-emerald-400" />
