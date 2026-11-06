@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { siteApi, attendanceApi, targetsApi, scheduleApi, workerApi, ApiError } from '@/lib/api';
 import { JobSite, AttendanceSummary, TargetSummary, ScheduleSummary, Worker } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
+import { canCreateInModule, canViewModule, type SiteModule } from '@/lib/workflows-site-hub';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StickyActionsRow } from '@/components/ui/StickyActionsRow';
@@ -291,27 +292,29 @@ export default function SiteDetailPage() {
           </CardContent>
         </Card>
 
-        {/* Quick actions */}
-        <QuickActions
-          title="Site Actions"
-          actions={[
-            { label: 'Record Attendance', icon: <ClipboardCheck className="h-4 w-4" />, href: `/projects/${projectId}/sites/${siteId}/attendance/new`, variant: 'primary' },
-            { label: 'Add Target',        icon: <Plus className="h-4 w-4" />,            href: `/projects/${projectId}/sites/${siteId}/targets/new` },
-            { label: 'Log Labour',        icon: <Users className="h-4 w-4" />,           href: `/projects/${projectId}/sites/${siteId}/labour/new` },
-            { label: 'Record Delivery',   icon: <Truck className="h-4 w-4" />,           href: `/projects/${projectId}/sites/${siteId}/deliveries/new` },
-          ]}
-        />
+        {/* Quick actions — only those the API allows this role to perform */}
+        {(() => {
+          const actions = ([
+            { module: 'attendance', label: 'Record Attendance', icon: <ClipboardCheck className="h-4 w-4" />, href: `/projects/${projectId}/sites/${siteId}/attendance/new` },
+            { module: 'targets',    label: 'Add Target',        icon: <Plus className="h-4 w-4" />,            href: `/projects/${projectId}/sites/${siteId}/targets/new` },
+            { module: 'labour',     label: 'Log Labour',        icon: <Users className="h-4 w-4" />,           href: `/projects/${projectId}/sites/${siteId}/labour/new` },
+            { module: 'deliveries', label: 'Record Delivery',   icon: <Truck className="h-4 w-4" />,           href: `/projects/${projectId}/sites/${siteId}/deliveries/new` },
+          ] as const)
+            .filter((a) => canCreateInModule(user?.role, a.module as SiteModule))
+            .map(({ label, icon, href }, i) => ({ label, icon, href, variant: i === 0 ? 'primary' as const : undefined }));
+          return actions.length > 0 ? <QuickActions title="Site Actions" actions={actions} /> : null;
+        })()}
 
-        {/* Module links */}
+        {/* Module links — only modules the API lets this role open */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {[
-            { href: `/projects/${projectId}/sites/${siteId}/attendance`, icon: ClipboardCheck, label: 'Attendance',       sub: 'Daily worker check-in/out'   },
-            { href: `/projects/${projectId}/sites/${siteId}/targets`,    icon: Target,         label: 'Daily Targets',     sub: 'Set and track work targets'  },
-            { href: `/projects/${projectId}/sites/${siteId}/labour`,     icon: Users,          label: 'Labour Register',   sub: 'Track hours and wages'       },
-            { href: `/projects/${projectId}/sites/${siteId}/deliveries`, icon: Truck,          label: 'Deliveries',        sub: 'Log material deliveries'     },
-            { href: `/projects/${projectId}/sites/${siteId}/inventory`,  icon: Package2,       label: 'Inventory',         sub: 'Site material stock levels'  },
-            { href: `/projects/${projectId}/sites/${siteId}/schedules`,  icon: ClipboardList,  label: 'Schedule',          sub: 'Contractor tasks & progress' },
-          ].map(({ href, icon: Icon, label, sub }) => (
+          {([
+            { module: 'attendance', href: `/projects/${projectId}/sites/${siteId}/attendance`, icon: ClipboardCheck, label: 'Attendance',       sub: 'Daily worker check-in/out'   },
+            { module: 'targets',    href: `/projects/${projectId}/sites/${siteId}/targets`,    icon: Target,         label: 'Daily Targets',     sub: 'Set and track work targets'  },
+            { module: 'labour',     href: `/projects/${projectId}/sites/${siteId}/labour`,     icon: Users,          label: 'Labour Register',   sub: 'Track hours and wages'       },
+            { module: 'deliveries', href: `/projects/${projectId}/sites/${siteId}/deliveries`, icon: Truck,          label: 'Deliveries',        sub: 'Log material deliveries'     },
+            { module: 'inventory',  href: `/projects/${projectId}/sites/${siteId}/inventory`,  icon: Package2,       label: 'Inventory',         sub: 'Site material stock levels'  },
+            { module: 'schedules',  href: `/projects/${projectId}/sites/${siteId}/schedules`,  icon: ClipboardList,  label: 'Schedule',          sub: 'Contractor tasks & progress' },
+          ] as const).filter((m) => canViewModule(user?.role, m.module as SiteModule)).map(({ href, icon: Icon, label, sub }) => (
             <Link key={href} href={href} className="group flex items-center gap-4 rounded-xl border border-border bg-card px-4 py-4 transition-colors hover:bg-navy-elevated">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
                 <Icon className="h-5 w-5 text-primary" />

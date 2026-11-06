@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { scheduleApi, ApiError } from '@/lib/api';
 import { ScheduleTask, ScheduleTaskStatus, MilestoneStatus } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
+import { canDeleteInModule } from '@/lib/workflows-site-hub';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StickyActionsRow } from '@/components/ui/StickyActionsRow';
@@ -88,6 +89,8 @@ export default function TaskDetailPage() {
 
   const canManage   = user?.role === 'company_admin' || user?.role === 'project_manager' || user?.role === 'contractor';
   const canProgress = canManage || user?.role === 'site_supervisor';
+  // DELETE /tasks/:taskId is MANAGE_ROLES (admin/PM) only; contractors get 403.
+  const canDelete   = canDeleteInModule(user?.role, 'schedules');
 
   const load = useCallback(() => {
     if (!projectId || !siteId || !taskId) return;
@@ -197,7 +200,7 @@ export default function TaskDetailPage() {
       <StickyActionsRow
         title={task.title}
         actions={
-          canManage ? (
+          canDelete ? (
             <Button variant="destructive" size="sm" onClick={deleteTask}>Delete</Button>
           ) : undefined
         }
