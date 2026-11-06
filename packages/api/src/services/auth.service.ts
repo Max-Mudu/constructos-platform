@@ -515,10 +515,17 @@ export async function resetPassword(
   const passwordHash = await hashPassword(newPassword);
 
   await prisma.$transaction(async (tx) => {
-    await tx.passwordResetToken.update({
-      where: { id: resetToken.id },
+    // Claim the token atomically: the checks above ran before the (slow)
+    // bcrypt hash, so two concurrent requests could both pass them. Only the
+    // request whose conditional update matches the still-unused, unexpired
+    // row may change the password.
+    const claimed = await tx.passwordResetToken.updateMany({
+      where: { id: resetToken.id, usedAt: null, expiresAt: { gt: new Date() } },
       data: { usedAt: new Date() },
     });
+    if (claimed.count !== 1) {
+      throw new UnauthorizedError('This reset link has already been used');
+    }
 
     await tx.user.update({
       where: { id: resetToken.userId },
