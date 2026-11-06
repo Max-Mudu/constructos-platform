@@ -63,8 +63,54 @@ jobs:
         run: npx tsc --noEmit -p .
       - name: Apply migrations to the CI test database
         run: npx prisma migrate deploy
+      # The migrations job below fails if the migration history does not
+      # reproduce schema.prisma. Here we only bring the throwaway test DB up to
+      # schema.prisma so the test suite still runs while such drift exists.
+      - name: Sync any remaining schema.prisma drift into the test database
+        run: npx prisma db push --skip-generate
       - name: Test
         run: npx jest --ci --runInBand --forceExit
+
+  migrations:
+    name: API migrations match schema.prisma
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: construction_platform_migrations
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Throwaway CI database. Not a real secret.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/construction_platform_migrations?schema=public
+    defaults:
+      run:
+        working-directory: packages/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - name: Install dependencies
+        working-directory: .
+        run: npm ci --no-audit --no-fund
+      - name: Apply all migrations to an empty database
+        run: npx prisma migrate deploy
+      # Production runs `prisma migrate deploy`, so anything in schema.prisma
+      # that no migration creates is missing in a freshly deployed database.
+      # Exit code 2 = drift; the SQL printed is what a new migration must add.
+      - name: Fail if the migrated database differs from schema.prisma
+        run: npx prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script --exit-code
 
   web:
     name: Web (tsc + jest)
