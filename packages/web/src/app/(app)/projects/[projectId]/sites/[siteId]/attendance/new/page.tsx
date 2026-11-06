@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { attendanceApi, workerApi } from '@/lib/api';
+import { attendanceApi, workerApi, ApiError } from '@/lib/api';
 import { formErrorState } from '@/lib/workflows-form-errors';
+import { localToday } from '@/lib/workflows-dates';
 import { Worker, AttendanceStatus } from '@/lib/types';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
@@ -20,29 +21,29 @@ const STATUS_OPTIONS: { value: AttendanceStatus; label: string }[] = [
   { value: 'excused',  label: 'Excused' },
 ];
 
-function today(): string {
-  return new Date().toISOString().split('T')[0];
-}
-
 export default function NewAttendancePage() {
   const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>()!;
   const router = useRouter();
 
   const [workers,      setWorkers]      = useState<Worker[]>([]);
   const [workerId,     setWorkerId]     = useState('');
-  const [date,         setDate]         = useState(today());
+  const [date,         setDate]         = useState(() => localToday());
   const [status,       setStatus]       = useState<AttendanceStatus>('present');
   const [checkInTime,  setCheckInTime]  = useState('');
   const [checkOutTime, setCheckOutTime] = useState('');
   const [notes,        setNotes]        = useState('');
   const [saving,       setSaving]       = useState(false);
   const [error,        setError]        = useState('');
+  const [workersError, setWorkersError] = useState('');
+  const [workersLoaded, setWorkersLoaded] = useState(false);
 
   useEffect(() => {
     if (!projectId || !siteId) return;
     workerApi.listSiteWorkers(projectId, siteId)
-      .then((d) => setWorkers(d.workers))
-      .catch(() => {});
+      .then((d) => { setWorkers(d.workers); setWorkersLoaded(true); })
+      .catch((err) => setWorkersError(
+        `Could not load this site's workers: ${err instanceof ApiError ? err.message : 'request failed'}`,
+      ));
   }, [projectId, siteId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -109,6 +110,15 @@ export default function NewAttendancePage() {
                   </option>
                 ))}
               </select>
+              {workersError && <p className="text-xs text-red-400">{workersError}</p>}
+              {workersLoaded && workers.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No workers are assigned to this site yet.{' '}
+                  <Link href={`/projects/${projectId}/sites/${siteId}`} className="text-primary hover:underline">
+                    Assign workers on the site page
+                  </Link>.
+                </p>
+              )}
             </div>
 
             {/* Date */}

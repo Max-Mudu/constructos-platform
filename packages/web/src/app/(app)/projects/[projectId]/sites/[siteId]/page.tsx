@@ -6,6 +6,8 @@ import { siteApi, attendanceApi, targetsApi, scheduleApi, workerApi, ApiError } 
 import { JobSite, AttendanceSummary, TargetSummary, ScheduleSummary, Worker } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
 import { canCreateInModule, canViewModule, type SiteModule } from '@/lib/workflows-site-hub';
+import { localToday } from '@/lib/workflows-dates';
+import { canAssignSiteWorkers, canViewSiteWorkers } from '@/components/projects/site-workers';
 import { Breadcrumb } from '@/components/ui/Breadcrumb';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StickyActionsRow } from '@/components/ui/StickyActionsRow';
@@ -24,14 +26,11 @@ import {
   UserMinus, UserPlus, Package2,
 } from 'lucide-react';
 
-const ASSIGN_ROLES = new Set(['company_admin', 'project_manager']);
-
-function todayStr(): string { return new Date().toISOString().split('T')[0]; }
-
 export default function SiteDetailPage() {
   const { projectId, siteId }             = useParams<{ projectId: string; siteId: string }>()!;
   const user                              = useAuthStore((s) => s.user);
-  const canAssign                         = user ? ASSIGN_ROLES.has(user.role) : false;
+  const canAssign                         = canAssignSiteWorkers(user?.role);
+  const canSeeWorkers                     = canViewSiteWorkers(user?.role);
 
   const [site, setSite]                   = useState<JobSite | null>(null);
   const [attendance, setAttendance]       = useState<AttendanceSummary | null>(null);
@@ -43,6 +42,7 @@ export default function SiteDetailPage() {
   // Assigned workers state
   const [assignedWorkers, setAssignedWorkers] = useState<Worker[]>([]);
   const [assignedLoading, setAssignedLoading] = useState(false);
+  const [assignedError,   setAssignedError]   = useState('');
 
   // Assign modal state
   const [showModal,    setShowModal]    = useState(false);
@@ -54,6 +54,7 @@ export default function SiteDetailPage() {
 
   // Remove state
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState('');
 
   const loadAssignedWorkers = useCallback(async () => {
     if (!projectId || !siteId) return;
@@ -61,8 +62,10 @@ export default function SiteDetailPage() {
     try {
       const res = await workerApi.listSiteWorkers(projectId, siteId);
       setAssignedWorkers(res.workers);
-    } catch {
-      // Non-fatal — assigned workers section just stays empty
+      setAssignedError('');
+    } catch (e) {
+      // Non-fatal for the page, but say so instead of claiming nobody is assigned.
+      setAssignedError(e instanceof ApiError ? e.message : 'Failed to load assigned workers');
     } finally {
       setAssignedLoading(false);
     }
@@ -70,12 +73,14 @@ export default function SiteDetailPage() {
 
   useEffect(() => {
     if (!projectId || !siteId) return;
-    const today = todayStr();
+    const today = localToday();
+    // Only ask for summaries this role may read (the API 403s and audits the rest).
+    const role = user?.role;
     Promise.all([
       siteApi.get(projectId, siteId),
-      attendanceApi.summary(projectId, siteId, today).catch(() => null),
-      targetsApi.summary(projectId, siteId, today).catch(() => null),
-      scheduleApi.getSummary(projectId, siteId).catch(() => null),
+      canViewModule(role, 'attendance') ? attendanceApi.summary(projectId, siteId, today).catch(() => null) : null,
+      canViewModule(role, 'targets')    ? targetsApi.summary(projectId, siteId, today).catch(() => null)    : null,
+      canViewModule(role, 'schedules')  ? scheduleApi.getSummary(projectId, siteId).catch(() => null)       : null,
     ])
       .then(([s, a, t, sc]) => {
         setSite(s.site);
@@ -86,8 +91,8 @@ export default function SiteDetailPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load site'))
       .finally(() => setLoading(false));
 
-    void loadAssignedWorkers();
-  }, [projectId, siteId, loadAssignedWorkers]);
+    if (canSeeWorkers) void loadAssignedWorkers();
+  }, [projectId, siteId, loadAssignedWorkers, canSeeWorkers, user?.role]);
 
   async function openAssignModal() {
     setShowModal(true);
@@ -123,11 +128,14 @@ export default function SiteDetailPage() {
   async function handleRemove(workerId: string) {
     if (!projectId || !siteId) return;
     setRemovingId(workerId);
+    setRemoveError('');
     try {
       await workerApi.removeFromSite(projectId, siteId, workerId);
       await loadAssignedWorkers();
-    } catch {
-      // Silently ignore — worker list will stay unchanged
+    } catch (e) {
+      const w = assignedWorkers.find((x) => x.id === workerId);
+      const who = w ? `${w.firstName} ${w.lastName}` : 'the worker';
+      setRemoveError(`Could not remove ${who}: ${e instanceof ApiError ? e.message : 'request failed'}`);
     } finally {
       setRemovingId(null);
     }
@@ -237,7 +245,8 @@ export default function SiteDetailPage() {
           </div>
         )}
 
-        {/* Assigned Workers */}
+        {/* Assigned Workers — GET site workers is VIEW_ROLES only (worker.routes.ts) */}
+        {canSeeWorkers && (
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-base flex items-center gap-2">
@@ -257,10 +266,18 @@ export default function SiteDetailPage() {
           </CardHeader>
           <Separator />
           <CardContent className="pt-3">
+            {removeError && (
+              <Alert variant="destructive" className="mb-3">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{removeError}</AlertDescription>
+              </Alert>
+            )}
             {assignedLoading ? (
               <div className="space-y-2">
                 {[1, 2].map((i) => <Skeleton key={i} className="h-8 w-full rounded-lg" />)}
               </div>
+            ) : assignedError && assignedWorkers.length === 0 ? (
+              <p className="text-sm text-red-400 py-1">{assignedError}</p>
             ) : assignedWorkers.length === 0 ? (
               <p className="text-sm text-muted-foreground py-1">No workers assigned to this site.</p>
             ) : (
@@ -291,6 +308,7 @@ export default function SiteDetailPage() {
             )}
           </CardContent>
         </Card>
+        )}
 
         {/* Quick actions — only those the API allows this role to perform */}
         {(() => {
