@@ -44,7 +44,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Daily Report',
     href: '/daily',
     icon: 'ClipboardPen',
-    roles: ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer', 'viewer'],
+    roles: ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer', 'viewer', 'consultant'],
     requiresFinance: false,
     group: 'Site Operations',
   },

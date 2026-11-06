@@ -127,7 +127,12 @@ function weatherSummary(c: Content): string {
   const parts: string[] = [];
   if (c.weather.conditions.length) parts.push(c.weather.conditions.map((w) => label(WEATHER_LABELS, w)).join(', '));
   if (c.weather.temperatureC !== null) parts.push(`${formatNumber(c.weather.temperatureC)} °C`);
-  return parts.length ? parts.join(' · ') : 'Not stated';
+  if (parts.length) return parts.join(' · ');
+  // No condition or temperature stated: say what the report does record,
+  // rather than "Not stated" next to "Work stopped by weather: Yes".
+  if (c.weather.workStoppedByWeather === true) return 'Stopped work';
+  if (has(c.weather.notes)) return 'See notes';
+  return 'Not stated';
 }
 
 function incidentsSummary(c: Content): string {
@@ -453,6 +458,15 @@ class DailyReportPdf {
     const pageH = doc.page.height;
     const rightX = L.left + HEADER.logoW + 16;
     const rightW = L.width - HEADER.logoW - 16;
+    // The wordmark may use whatever width the right-hand block leaves free
+    // (never less than the logo box); a long name is shrunk once, then cut.
+    const rightUsed = Math.min(rightW, Math.max(
+      L.widthOf('Daily Site Report', titleStyle), L.widthOf(reportLine, lineStyle), L.widthOf(placeLine, subStyle),
+    ));
+    const companyW = Math.max(HEADER.logoW + 40, L.width - rightUsed - 24);
+    const companyStyle: TextStyle = L.widthOf(company, wordmarkStyle) <= companyW
+      ? wordmarkStyle
+      : { ...wordmarkStyle, size: 11 };
 
     for (let i = 0; i < total; i++) {
       doc.switchToPage(range.start + i);
@@ -461,8 +475,8 @@ class DailyReportPdf {
       if (this.logo) {
         drawImage(doc, this.logo, L.left, top, HEADER.logoW, HEADER.logoH, 'left');
       } else {
-        const lh = L.lineHeight(wordmarkStyle);
-        L.lineAt(company, L.left, top + (HEADER.logoH - lh) / 2, HEADER.logoW + 40, wordmarkStyle);
+        const lh = L.lineHeight(companyStyle);
+        L.lineAt(company, L.left, top + (HEADER.logoH - lh) / 2, companyW, companyStyle);
       }
       L.lineAt('Daily Site Report', rightX, top - 2, rightW, titleStyle, 'right');
       L.lineAt(reportLine, rightX, top + 19, rightW, lineStyle, 'right');

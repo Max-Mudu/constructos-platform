@@ -1,6 +1,7 @@
+import { readFileSync } from 'fs';
 import { env } from '../../../utils/env';
 import { AnthropicReportExtractor } from './anthropic';
-import { FakeReportExtractor } from './fake';
+import { FakeReportExtractor, FakeDraftInput } from './fake';
 import { ExtractionError, ExtractionResult, ReportExtractor } from './types';
 
 export * from './types';
@@ -37,7 +38,10 @@ export function getReportExtractor(): ReportExtractor {
         timeoutMs: env.DAILY_REPORT_AI_TIMEOUT_MS,
       });
     case 'fake':
-      return new FakeReportExtractor();
+      // Local demos may supply a canned draft; production never runs 'fake' (env.ts).
+      return env.DAILY_REPORT_AI_FAKE_DRAFT_FILE
+        ? new FakeReportExtractor(JSON.parse(readFileSync(env.DAILY_REPORT_AI_FAKE_DRAFT_FILE, 'utf8')) as FakeDraftInput)
+        : new FakeReportExtractor();
     case 'disabled':
     default:
       return new DisabledReportExtractor();

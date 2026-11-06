@@ -140,7 +140,8 @@ const ALL_ROUTES = ['list', 'create', 'get', 'patch', 'extract', 'photoUpload', 
 const every = (status: number) => Object.fromEntries(ALL_ROUTES.map((r) => [r, status]));
 
 describe('role × route matrix', () => {
-  it.each(['contractor', 'consultant', 'worker', 'super_admin'] as UserRole[])('%s gets 403 on every route', async (role) => {
+  // consultant moved to its own read-only matrix below (approved 2026-11-06)
+  it.each(['contractor', 'worker', 'super_admin'] as UserRole[])('%s gets 403 on every route', async (role) => {
     const ctx = await setup();
     expect(await callAll(ctx.users[role], ctx.project.id, ctx.siteA.id, ctx.a)).toEqual(every(403));
   });
@@ -266,5 +267,182 @@ describe('scope', () => {
     const ctx = await setup();
     const res = await app.inject({ method: 'GET', url: base(ctx.project.id, ctx.siteA.id) });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+// ─── Approved access decisions (2026-11-06) ──────────────────────────────────
+
+/** Read routes answer per scope; every write route is refused by role first. */
+const readOnly = (read: number) => ({ ...every(403), list: read, get: read, pdf: read });
+const getReport = (u: TestUser, projectId: string, siteId: string, id: string) =>
+  app.inject({ method: 'GET', url: `${base(projectId, siteId)}/${id}`, headers: auth(u) });
+
+describe('viewer site scope', () => {
+  it('a viewer assigned to site A cannot read site B (404), only site A', async () => {
+    const ctx = await setup();
+    const v = await createTestUser(app, ctx.company.id, 'viewer', 'dra-viewer-a');
+    await assignUserToProject(ctx.company.id, ctx.project.id, v.id, ctx.siteA.id);
+    expect(await callAll(v, ctx.project.id, ctx.siteB.id, ctx.b)).toEqual(readOnly(404));
+    expect(await callAll(v, ctx.project.id, ctx.siteA.id, ctx.a)).toEqual(readOnly(200));
+  });
+
+  it('a viewer with a project-wide membership (siteId null) can read site B', async () => {
+    const ctx = await setup(); // setup() assigns the viewer project-wide
+    expect(await callAll(ctx.users.viewer, ctx.project.id, ctx.siteB.id, ctx.b)).toEqual(readOnly(200));
+  });
+});
+
+describe('consultant: read-only within their scope', () => {
+  async function consultantOn(ctx: Ctx, siteId?: string, suffix = 'dra-cons-a') {
+    const c = await createTestUser(app, ctx.company.id, 'consultant', suffix);
+    await assignUserToProject(ctx.company.id, ctx.project.id, c.id, siteId);
+    return c;
+  }
+
+  it('reads draft and final reports on the assigned site, and the list shows both', async () => {
+    const ctx = await setup();
+    const c = await consultantOn(ctx, ctx.siteA.id);
+    const draft = await getReport(c, ctx.project.id, ctx.siteA.id, ctx.a.draftId);
+    const final = await getReport(c, ctx.project.id, ctx.siteA.id, ctx.a.finalId);
+    expect([draft.statusCode, final.statusCode]).toEqual([200, 200]);
+    expect(draft.json().report.status).toBe('draft');
+    expect(final.json().report.status).toBe('final');
+    const list = await app.inject({ method: 'GET', url: base(ctx.project.id, ctx.siteA.id), headers: auth(c) });
+    expect(list.statusCode).toBe(200);
+    expect(list.json().reports.map((r: { id: string }) => r.id).sort()).toEqual([ctx.a.draftId, ctx.a.finalId].sort());
+    const pdf = await app.inject({ method: 'GET', url: `${base(ctx.project.id, ctx.siteA.id)}/${ctx.a.finalId}/pdf`, headers: auth(c) });
+    expect(pdf.statusCode).toBe(200);
+  });
+
+  it('never receives raw notes or AI drafting inputs, and is not offered edit or reopen', async () => {
+    const ctx = await setup();
+    const c = await consultantOn(ctx, ctx.siteA.id);
+    await prisma.dailyReport.update({
+      where: { id: ctx.a.draftId },
+      data: { aiDraft: { draft: DailyReportDraftV1.parse({ remarks: 'AI-DRAFT-MARKER' }), unsupportedNumbers: [] }, aiModel: 'm', extractionStatus: 'succeeded' },
+    });
+    const res = await getReport(c, ctx.project.id, ctx.siteA.id, ctx.a.draftId);
+    expect(res.statusCode).toBe(200);
+    const report = res.json().report;
+    for (const k of ['rawInput', 'aiDraft', 'extractionStatus', 'extractionError', 'aiModel', 'aiUsage', 'aiPromptVersion']) {
+      expect(report).not.toHaveProperty(k);
+    }
+    expect(res.body).not.toContain('secret site notes');
+    expect(res.body).not.toContain('AI-DRAFT-MARKER');
+    expect(report).toMatchObject({ canEdit: false, canReopen: false });
+  });
+
+  it('gets 403 on every write route and changes nothing', async () => {
+    const ctx = await setup();
+    const c = await consultantOn(ctx, ctx.siteA.id);
+    const before = await prisma.dailyReport.findMany({ where: { siteId: ctx.siteA.id }, orderBy: { id: 'asc' } });
+    expect(await callAll(c, ctx.project.id, ctx.siteA.id, ctx.a)).toEqual(readOnly(200));
+    const after = await prisma.dailyReport.findMany({ where: { siteId: ctx.siteA.id }, orderBy: { id: 'asc' } });
+    expect(after).toEqual(before);
+    expect(await prisma.dailyReportPhoto.count({ where: { dailyReportId: ctx.a.draftId } })).toBe(1);
+    expect(await prisma.dailyReport.count({ where: { siteId: ctx.siteA.id } })).toBe(2); // create refused
+  });
+
+  it("cannot read another site's reports when assigned to site A (404)", async () => {
+    const ctx = await setup();
+    const c = await consultantOn(ctx, ctx.siteA.id);
+    expect(await callAll(c, ctx.project.id, ctx.siteB.id, ctx.b)).toEqual(readOnly(404));
+  });
+
+  it('with a project-wide membership reads every site of that project', async () => {
+    const ctx = await setup();
+    const c = await consultantOn(ctx, undefined, 'dra-cons-wide');
+    expect(await callAll(c, ctx.project.id, ctx.siteB.id, ctx.b)).toEqual(readOnly(200));
+  });
+
+  it('cannot read a project they are not a member of (403)', async () => {
+    const ctx = await setup();
+    const c = await consultantOn(ctx, ctx.siteA.id);
+    const p2 = await createTestProject(ctx.company.id, 'Unrelated Project');
+    const s2 = await createTestSite(ctx.company.id, p2.id, 'Unrelated Site');
+    const res = await app.inject({ method: 'GET', url: base(p2.id, s2.id), headers: auth(c) });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('finance officer, project manager and supervisor rules are unchanged', () => {
+  it('finance officer reads every project and site company-wide without membership, and writes nothing', async () => {
+    const ctx = await setup();
+    const p2 = await createTestProject(ctx.company.id, 'Second Project');
+    const s2 = await createTestSite(ctx.company.id, p2.id, 'Second Site');
+    const seed2 = await seedSite(ctx.company.id, p2.id, s2.id, ctx.admin.id);
+    const fin = ctx.users.finance_officer;
+    expect(await prisma.projectMember.count({ where: { userId: fin.id } })).toBe(0);
+    expect(await callAll(fin, ctx.project.id, ctx.siteB.id, ctx.b)).toEqual(readOnly(200));
+    expect(await callAll(fin, p2.id, s2.id, seed2)).toEqual(readOnly(200));
+  });
+
+  it('a project manager whose membership names site A (as C1 user creation does) keeps project-wide access', async () => {
+    const ctx = await setup();
+    const pm = await createTestUser(app, ctx.company.id, 'project_manager', 'dra-pm-site-a');
+    await assignUserToProject(ctx.company.id, ctx.project.id, pm.id, ctx.siteA.id);
+    const res = await getReport(pm, ctx.project.id, ctx.siteB.id, ctx.b.draftId);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().report.canEdit).toBe(true);
+    const p = await app.inject({
+      method: 'PATCH', url: `${base(ctx.project.id, ctx.siteB.id)}/${ctx.b.draftId}`, headers: auth(pm),
+      payload: { rawInput: 'PM edit on site B', expectedUpdatedAt: res.json().report.updatedAt },
+    });
+    expect(p.statusCode).toBe(200);
+  });
+
+  it('a supervisor assigned to site A still gets 404 on site B and keeps editing site A', async () => {
+    const ctx = await setup();
+    const sup = ctx.users.site_supervisor;
+    expect((await getReport(sup, ctx.project.id, ctx.siteB.id, ctx.b.draftId)).statusCode).toBe(404);
+    const res = await getReport(sup, ctx.project.id, ctx.siteA.id, ctx.a.draftId);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().report.canEdit).toBe(true);
+  });
+});
+
+describe('cross-company and signed photo links', () => {
+  it('every read role of another company gets 404 on every route, PDFs included', async () => {
+    const ctx = await setup();
+    const { company: other, admin: otherAdmin } = await createTestCompany(app, 'dra-other-co');
+    const otherProject = await createTestProject(other.id, 'Other Co Project');
+    const otherSite = await createTestSite(other.id, otherProject.id, 'Other Co Site');
+    const outsiders: TestUser[] = [otherAdmin];
+    for (const role of ['finance_officer', 'viewer', 'consultant', 'project_manager', 'site_supervisor'] as UserRole[]) {
+      const u = await createTestUser(app, other.id, role, `dra-xco-${role}`);
+      if (role !== 'finance_officer') await assignUserToProject(other.id, otherProject.id, u.id, otherSite.id);
+      outsiders.push(u);
+    }
+    for (const u of outsiders) {
+      const s = await callAll(u, ctx.project.id, ctx.siteA.id, ctx.a);
+      // Reads (incl. the PDF) are 404; writes are refused by role (403) or project (404) — never 2xx.
+      expect({ list: s.list, get: s.get, pdf: s.pdf }).toEqual({ list: 404, get: 404, pdf: 404 });
+      expect(Object.values(s).every((code) => code === 403 || code === 404)).toBe(true);
+    }
+    const row = await prisma.dailyReport.findUniqueOrThrow({ where: { id: ctx.a.draftId } });
+    expect(row.rawInput).toBe('secret site notes');
+    expect(await prisma.dailyReportPhoto.count({ where: { dailyReportId: ctx.a.draftId } })).toBe(1);
+  });
+
+  it('a signed photo link is issued only through an authorised read', async () => {
+    const ctx = await setup();
+    const v = await createTestUser(app, ctx.company.id, 'viewer', 'dra-viewer-links');
+    await assignUserToProject(ctx.company.id, ctx.project.id, v.id, ctx.siteA.id);
+    const c = await createTestUser(app, ctx.company.id, 'consultant', 'dra-cons-links');
+    await assignUserToProject(ctx.company.id, ctx.project.id, c.id, ctx.siteA.id);
+    const { admin: otherAdmin } = await createTestCompany(app, 'dra-links-other');
+
+    // Unauthorised: viewer / consultant of site A asking for site B; another company asking for site A.
+    for (const [u, siteId, id] of [[v, ctx.siteB.id, ctx.b.draftId], [c, ctx.siteB.id, ctx.b.draftId], [otherAdmin, ctx.siteA.id, ctx.a.draftId]] as const) {
+      const res = await getReport(u, ctx.project.id, siteId, id);
+      expect(res.statusCode).toBe(404);
+      expect(Object.keys(res.json()).sort()).toEqual(['code', 'error']); // no report, no photos, no URLs
+      expect(res.body).not.toContain('seed.jpg');
+    }
+    // Authorised: the consultant's own site gets a signed URL for its photo.
+    const ok = await getReport(c, ctx.project.id, ctx.siteA.id, ctx.a.draftId);
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().report.photos).toHaveLength(1);
+    expect(ok.json().report.photos[0].url).toEqual(expect.any(String));
   });
 });

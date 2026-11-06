@@ -23,6 +23,12 @@ import type { UnsupportedNumber } from './types';
  *
  * Comparison is numeric (2.50 equals 2.5) and sign-insensitive, so "-2°C"
  * supports a temperatureC of -2.
+ *
+ * Durations: an hours field (hoursLost) is also supported by a duration the
+ * notes state in other words. "an hour", "another hour", "one hour", "1 h"
+ * and "60 minutes" all support 1; "45 min" / "forty-five minutes" support
+ * 0.75; "half an hour" supports 0.5. These equivalences apply ONLY to
+ * hoursLost: "60 minutes" never supports a quantity of 1 anywhere else.
  */
 
 const ONES: Record<string, number> = {
@@ -99,6 +105,71 @@ export function numbersInText(text: string): Set<number> {
   return set;
 }
 
+const HOUR_UNITS = new Set(['hour', 'hours', 'hr', 'hrs', 'h']);
+const MINUTE_UNITS = new Set(['minute', 'minutes', 'min', 'mins']);
+const DIGIT_DURATION = /(\d+(?:\.\d+)?)\s*(hours?|hrs?|h|minutes?|mins?)\b/gi;
+
+/**
+ * A number phrase starting at words[i]: "forty five" → 45, "2" → 2,
+ * "half an" → 0.5, "another" → 1 (article: only before the word "hour").
+ */
+function numberPhraseAt(words: string[], i: number): { value: number; length: number; article: boolean } | null {
+  const word = words[i]!;
+  const next = words[i + 1];
+  if (/^\d/.test(word)) return { value: Number(word), length: 1, article: false };
+  if (TENS[word] !== undefined && next !== undefined && ONES[next] !== undefined && ONES[next]! > 0 && ONES[next]! < 10) {
+    return { value: TENS[word]! + ONES[next]!, length: 2, article: false };
+  }
+  if (ONES[word] !== undefined) return { value: ONES[word]!, length: 1, article: false };
+  if (TENS[word] !== undefined) return { value: TENS[word]!, length: 1, article: false };
+  if (word === 'half') {
+    // the "half" of "two and a half hours" belongs to the number before it
+    if (words[i - 1] === 'a' && words[i - 2] === 'and') return null;
+    return { value: 0.5, length: next === 'an' || next === 'a' ? 2 : 1, article: false };
+  }
+  // "an hour", "another hour" — but not the "an" of "half an hour"
+  if ((word === 'a' || word === 'an' || word === 'another') && words[i - 1] !== 'half') return { value: 1, length: 1, article: true };
+  return null;
+}
+
+/** Minute phrases ("45 minutes", "forty-five mins"), removed before reading plain numbers for hoursLost. */
+const NUMBER_WORD = `(?:${[...Object.keys(TENS), ...Object.keys(ONES)].join('|')})`;
+const MINUTE_PHRASE = new RegExp(`(?:\\d+(?:\\.\\d+)?|${NUMBER_WORD}(?:[\\s-]+${NUMBER_WORD})?)\\s*(?:minutes?|mins?)\\b`, 'gi');
+
+/** Durations stated in the notes, in hours (for hoursLost only; see the header). */
+export function durationHoursInText(text: string): Set<number> {
+  const hours = new Set<number>();
+  for (const m of text.matchAll(DIGIT_DURATION)) {
+    const n = Number(m[1]);
+    hours.add(MINUTE_UNITS.has(m[2]!.toLowerCase()) ? n / 60 : n);
+  }
+  // Digit runs stay as tokens so "another 2 hours" is not read as "another hours".
+  const words = text.toLowerCase().match(/[a-z]+|\d+(?:\.\d+)?/g) ?? [];
+  for (let i = 0; i < words.length; i++) {
+    const phrase = numberPhraseAt(words, i);
+    if (!phrase) continue;
+    let at = i + phrase.length;
+    let value = phrase.value;
+    // "two and a half hours" → 2.5 (the "and a half" comes before the unit)
+    if (words.slice(at, at + 3).join(' ') === 'and a half') { value += 0.5; at += 3; }
+    const unit = words[at];
+    if (unit === undefined) continue;
+    // Words use only spelled-out units; a bare "h" after a letter ("grid A-H") is not "an hour".
+    // The article form ("an hour", "another hour") needs the word "hour" itself.
+    const wordUnitOk = /^\d/.test(words[i]!) || unit.length > 1;
+    if (HOUR_UNITS.has(unit) && wordUnitOk && (!phrase.article || unit === 'hour')) {
+      hours.add(value);
+      // "an hour and a half" → 1.5
+      if (words.slice(at + 1, at + 4).join(' ') === 'and a half') hours.add(value + 0.5);
+    } else if (MINUTE_UNITS.has(unit) && !phrase.article) {
+      hours.add(value / 60);
+    }
+  }
+  return hours;
+}
+
+const HOURS_FIELD = /(^|\.)hoursLost$/;
+
 /** Every finite number in the draft with its JSON path, e.g. "workCompleted[0].quantity". */
 export function numbersInDraft(value: unknown, path = ''): UnsupportedNumber[] {
   if (typeof value === 'number') return Number.isFinite(value) ? [{ path, value }] : [];
@@ -121,6 +192,12 @@ function isSupported(value: number, supported: Set<number>): boolean {
 
 /** Numbers in the draft that do not appear in rawInput, in draft order. */
 export function findUnsupportedNumbers(draft: DailyReportDraftV1, rawInput: string): UnsupportedNumber[] {
-  const supported = numbersInText(rawInput ?? '');
-  return numbersInDraft(draft).filter((n) => !isSupported(n.value, supported));
+  const text = rawInput ?? '';
+  const supported = numbersInText(text);
+  const durations = durationHoursInText(text);
+  // For hoursLost a minute count is not an hour count: "45 minutes" never supports hoursLost 45.
+  const supportedForHours = numbersInText(text.replace(MINUTE_PHRASE, ' '));
+  return numbersInDraft(draft).filter((n) => (HOURS_FIELD.test(n.path)
+    ? !isSupported(n.value, supportedForHours) && !isSupported(n.value, durations)
+    : !isSupported(n.value, supported)));
 }

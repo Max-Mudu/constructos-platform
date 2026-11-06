@@ -236,7 +236,7 @@ export interface DailyReportListQuery {
 
 /** Roles from api/src/services/daily-report/policy.ts (UI hints only). */
 export const DAILY_REPORT_VIEW_ROLES = [
-  'company_admin', 'project_manager', 'site_supervisor', 'finance_officer', 'viewer',
+  'company_admin', 'project_manager', 'site_supervisor', 'finance_officer', 'viewer', 'consultant',
 ] as const;
 export const DAILY_REPORT_EDIT_ROLES = ['company_admin', 'project_manager', 'site_supervisor'] as const;
 export const DAILY_REPORT_REOPEN_ROLES = ['company_admin', 'project_manager'] as const;

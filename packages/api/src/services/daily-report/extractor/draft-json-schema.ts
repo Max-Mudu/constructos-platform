@@ -47,7 +47,7 @@ export const DAILY_REPORT_DRAFT_JSON_SCHEMA: JsonSchema = object({
   weather: object({
     conditions: array(
       { type: 'string', enum: [...WeatherCondition.options] },
-      'Weather conditions the notes describe; [] when not mentioned.',
+      'Weather conditions the notes describe; [] when not mentioned. Rain does not imply cloudy; use light_rain or heavy_rain only when the notes state the intensity.',
     ),
     temperatureC: nullableNumber(`Temperature in °C. ${AS_WRITTEN}`),
     workStoppedByWeather: nullableBoolean('true only if the notes say weather stopped work; false if they say it did not; otherwise null.'),
@@ -71,7 +71,7 @@ export const DAILY_REPORT_DRAFT_JSON_SCHEMA: JsonSchema = object({
     progressPercent: nullableNumber(`Percent complete. ${AS_WRITTEN}`),
   })),
   delays: array(object({
-    cause: { type: 'string', enum: [...DelayCause.options], description: 'Use "other" when the cause is unclear.' },
+    cause: { type: 'string', enum: [...DelayCause.options], description: 'Use "other" when the cause is unclear. Late arrival is not a breakdown: equipment_breakdown only when the notes say equipment broke down, failed or was faulty.' },
     description: text(),
     hoursLost: nullableNumber(`Hours lost. ${AS_WRITTEN} Never computed from start and end times.`),
     responsibleParty: text(),
@@ -86,7 +86,7 @@ export const DAILY_REPORT_DRAFT_JSON_SCHEMA: JsonSchema = object({
     notes: text(),
   }),
   materialsDeliveries: array(object({
-    material: text('Material received on site, in the supervisor\'s words.'),
+    material: text('Material the notes say was delivered or received on site, in the supervisor\'s words. Material poured, laid or used is work done, not a delivery.'),
     quantity: nullableNumber(AS_WRITTEN),
     unit: text('Unit exactly as written, e.g. bags, tonnes, lorries, pieces.'),
     supplier: text(),

@@ -3,8 +3,12 @@
  * or any operational table; failure keeps the supervisor's work; daily cap.
  * The extractor is an injected fake: no network.
  */
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/server';
+import { FakeReportExtractor } from '../src/services/daily-report/extractor/fake';
+import { SECTION_KEYS } from '../src/services/daily-report/content.schema';
 import { prisma } from '../src/utils/prisma';
 import { env } from '../src/utils/env';
 import { MemoryStorageDriver } from '../src/services/storage/memory';
@@ -36,13 +40,20 @@ const USAGE = {
   latencyMs: 2100, stopReason: 'end_turn', requestId: 'req_fake_1',
 };
 
-type Mode = 'ok' | 'invalid-draft' | 'plain-error' | ExtractionErrorCode;
+type Mode = 'ok' | 'demo' | 'invalid-draft' | 'plain-error' | ExtractionErrorCode;
 let mode: Mode = 'ok';
 const calls: Array<Parameters<ReportExtractor['extract']>[0]> = [];
+
+// The local demo's notes and fake-AI draft (synthetic).
+const DEMO_DIR = join(__dirname, 'fixtures', 'daily-report-demo');
+const DEMO_NOTES = readFileSync(join(DEMO_DIR, 'notes.txt'), 'utf8');
+const DEMO_DRAFT = DailyReportDraftV1.parse(JSON.parse(readFileSync(join(DEMO_DIR, 'draft.json'), 'utf8')));
+const demoExtractor = new FakeReportExtractor(DEMO_DRAFT);
 
 const extractor: ReportExtractor = {
   async extract(input) {
     calls.push(input);
+    if (mode === 'demo') return demoExtractor.extract(input);
     if (mode === 'ok') {
       const result: ExtractionResult = {
         draft: DRAFT, unsupportedNumbers: [{ path: 'manpower.totalOnSite', value: 99 }],
@@ -186,6 +197,54 @@ describe('POST /:reportId/extract — success', () => {
     expect(dump).not.toContain('RAWNOTE-kestrel');
     expect(dump).not.toContain(DRAFT_MARKER);
     expect(dump).not.toContain('Human remark');
+  });
+
+  it('demo notes: the draft has no number warnings, stays editable, and cannot be finalised until every section is reviewed', async () => {
+    mode = 'demo';
+    const ctx = await setup('drx-demo');
+    let res = await app.inject({ method: 'PATCH', url: ctx.reportUrl, headers: auth(ctx.sup),
+      payload: { rawInput: DEMO_NOTES, expectedUpdatedAt: ctx.report.updatedAt } });
+    expect(res.statusCode).toBe(200);
+    const deliveriesBefore = await prisma.deliveryRecord.count();
+
+    res = await extract(ctx);
+    expect(res.statusCode).toBe(200);
+    let report = res.json().report;
+    expect(report.aiDraft).toEqual({ draft: DEMO_DRAFT, unsupportedNumbers: [] });
+    expect(report.aiDraft.draft.materialsDeliveries).toEqual([]);
+    expect(report.status).toBe('draft');
+    // the AI never writes content: only the human-reviewed remark from setup is there
+    expect(report.content).toEqual(DailyReportContentV1.parse(ctx.content));
+
+    // not finalisable from the AI draft alone
+    res = await app.inject({ method: 'POST', url: `${ctx.reportUrl}/finalise`, headers: auth(ctx.sup),
+      payload: { expectedUpdatedAt: report.updatedAt } });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().code).toBe('REVIEW_INCOMPLETE');
+
+    // the supervisor accepts the draft with an edit; it is saved and stays a draft
+    const edited = {
+      ...report.aiDraft.draft,
+      delays: [{ ...report.aiDraft.draft.delays[0], hoursLost: 0.75 }, report.aiDraft.draft.delays[1]],
+      reviewedSections: ['weather', 'manpower'],
+    };
+    res = await app.inject({ method: 'PATCH', url: ctx.reportUrl, headers: auth(ctx.sup),
+      payload: { content: edited, expectedUpdatedAt: report.updatedAt } });
+    expect(res.statusCode).toBe(200);
+    report = res.json().report;
+    expect(report.status).toBe('draft');
+    expect(report.content.delays[0]).toMatchObject({ cause: 'other', hoursLost: 0.75 });
+    expect(report.content.reviewedSections).toEqual(['weather', 'manpower']);
+
+    res = await app.inject({ method: 'POST', url: `${ctx.reportUrl}/finalise`, headers: auth(ctx.sup),
+      payload: { expectedUpdatedAt: report.updatedAt } });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().code).toBe('REVIEW_INCOMPLETE');
+    expect([...res.json().missing].sort())
+      .toEqual(SECTION_KEYS.filter((k) => k !== 'weather' && k !== 'manpower').sort());
+
+    // nothing reached the delivery module
+    expect(await prisma.deliveryRecord.count()).toBe(deliveriesBefore);
   });
 
   it('rejects an empty rawInput with 422 and does not call the model', async () => {

@@ -134,11 +134,15 @@ const FALLBACK: Omit<ErrorView, 'code'> = {
   retryable: true, ai: false,
 };
 
+const GENERIC_CODES = new Set(['API_ERROR', 'REQUEST_ERROR', 'INTERNAL_ERROR']);
+
 /** Extracts a code from anything thrown by the daily-report API client. */
 export function errorCodeOf(err: unknown): string {
   if (err && typeof err === 'object') {
     const e = err as { code?: unknown; status?: unknown; name?: unknown };
-    if (typeof e.code === 'string' && e.code && e.code !== 'API_ERROR') return e.code;
+    // Generic codes from the API's global error handler (e.g. a 429 from the
+    // rate limiter arrives as REQUEST_ERROR) say nothing specific: use the status.
+    if (typeof e.code === 'string' && e.code && !GENERIC_CODES.has(e.code)) return e.code;
     if (typeof e.status === 'number') {
       if (e.status === 401) return 'UNAUTHORIZED';
       if (e.status === 403) return 'FORBIDDEN';

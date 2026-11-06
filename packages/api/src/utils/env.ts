@@ -180,10 +180,17 @@ export const env = {
     'DAILY_REPORT_AI_PROVIDER', ['anthropic', 'fake', 'disabled'] as const,
     NODE_ENV === 'test' ? 'fake' : 'disabled',
   ),
+  // Local demos only: a JSON DailyReportDraftV1 the fake provider returns.
+  DAILY_REPORT_AI_FAKE_DRAFT_FILE: process.env['DAILY_REPORT_AI_FAKE_DRAFT_FILE'] ?? '',
   DAILY_REPORT_AI_MODEL:      process.env['DAILY_REPORT_AI_MODEL'] || 'claude-sonnet-5-5',
   DAILY_REPORT_AI_TIMEOUT_MS: parsePositiveIntEnv('DAILY_REPORT_AI_TIMEOUT_MS', 45_000),
   DAILY_REPORT_AI_DAILY_CAP_PER_COMPANY: parsePositiveIntEnv('DAILY_REPORT_AI_DAILY_CAP_PER_COMPANY', 200),
 };
+
+// The fake AI provider returns canned drafts; it must never serve real users.
+if (env.isProduction && env.DAILY_REPORT_AI_PROVIDER === 'fake') {
+  throw new Error('DAILY_REPORT_AI_PROVIDER=fake is not allowed in production');
+}
 
 // Warn loudly if CORS is still pointing at localhost in production so that the
 // Railway deploy log makes the misconfiguration obvious.

@@ -10,6 +10,7 @@
  */
 import path from 'path';
 import fs from 'fs/promises';
+import { readFileSync } from 'fs';
 import sharp from 'sharp';
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/server';
@@ -32,28 +33,8 @@ const NOTES =
   'The concrete pump arrived 45 minutes late. Rain stopped work for another hour. ' +
   'There were no safety incidents. Tomorrow we start blockwork.';
 
-const AI_DRAFT = {
-  weather: { conditions: ['cloudy', 'light_rain'], workStoppedByWeather: true, notes: 'Rain stopped work for about an hour.' },
-  manpower: {
-    entries: [
-      { trade: 'Steel fixer', count: 10, employer: 'Own staff' },
-      { trade: 'Carpenter', count: 8, employer: 'Own staff' },
-      { trade: 'General labourer', count: 9, employer: 'Own staff' },
-    ],
-    totalOnSite: 27,
-  },
-  workCompleted: [
-    { description: 'Completed reinforcement to the first-floor slab', location: 'First-floor slab' },
-    { description: 'Poured C30 concrete to the first-floor slab', location: 'First-floor slab', quantity: 43, unit: 'm³' },
-  ],
-  delays: [
-    { cause: 'equipment_breakdown', description: 'Concrete pump arrived 45 minutes late' },
-    { cause: 'weather', description: 'Rain stopped work', hoursLost: 1 },
-  ],
-  safety: { incidentsReported: false, notes: 'No safety incidents.' },
-  materialsDeliveries: [{ material: 'C30 ready-mix concrete', quantity: 43, unit: 'm³' }],
-  tomorrowPlan: [{ description: 'Start blockwork' }],
-};
+// The demo fixture: the draft a correct extraction of NOTES gives (also used by the local demo).
+const AI_DRAFT = JSON.parse(readFileSync(path.join(__dirname, 'fixtures', 'daily-report-demo', 'draft.json'), 'utf8'));
 
 const OPERATIONAL_TABLES = [
   'labourEntry', 'attendanceRecord', 'inventoryTransaction', 'siteInventory',
@@ -166,6 +147,7 @@ describe('Daily Site Report — complete journey', () => {
     report = res.json().report;
     expect(report.extractionStatus).toBe('succeeded');
     expect(report.aiDraft.draft.manpower.totalOnSite).toBe(27);
+    expect(report.aiDraft.unsupportedNumbers).toEqual([]); // "another hour" supports hoursLost 1
     expect(report.content.reviewedSections).toEqual([]);
     expect(report.content.workCompleted).toEqual([]);
     expect(report.rawInput).toBe(NOTES);

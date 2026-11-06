@@ -6,8 +6,8 @@ import { roleCanViewDailyReports } from '@/lib/daily-report-types';
 import { DCard, PageContainer, buttonClass } from './ui';
 
 /**
- * UX only: roles outside the Daily Report policy (contractor, consultant,
- * worker) get a clear message instead of a page of 403s. The API enforces
+ * UX only: roles outside the Daily Report policy (contractor, worker) get a
+ * clear message instead of a page of 403s. The API enforces
  * access on every route.
  */
 export function DailyAccessGate({ children }: { children: React.ReactNode }) {

@@ -1,0 +1,24 @@
+{
+  "weather": { "conditions": [], "temperatureC": null, "workStoppedByWeather": true, "notes": "Rain stopped work for another hour." },
+  "manpower": {
+    "entries": [
+      { "trade": "Steel fixers", "count": 10, "employer": "", "notes": "" },
+      { "trade": "Carpenters", "count": 8, "employer": "", "notes": "" },
+      { "trade": "General labourers", "count": 9, "employer": "", "notes": "" }
+    ],
+    "totalOnSite": 27, "notes": ""
+  },
+  "workCompleted": [
+    { "description": "Completed reinforcement on the first-floor slab", "location": "First-floor slab", "quantity": null, "unit": "", "progressPercent": null },
+    { "description": "Poured C30 concrete", "location": "", "quantity": 43, "unit": "m³", "progressPercent": null }
+  ],
+  "delays": [
+    { "cause": "other", "description": "The concrete pump arrived 45 minutes late.", "hoursLost": null, "responsibleParty": "" },
+    { "cause": "weather", "description": "Rain stopped work for another hour.", "hoursLost": 1, "responsibleParty": "" }
+  ],
+  "safety": { "incidentsReported": false, "incidents": [], "toolboxTalk": "", "notes": "There were no safety incidents." },
+  "materialsDeliveries": [],
+  "visitorsInstructions": [],
+  "tomorrowPlan": [ { "description": "Start blockwork" } ],
+  "remarks": ""
+}

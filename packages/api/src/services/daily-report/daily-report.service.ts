@@ -1,7 +1,8 @@
 /**
  * Daily Site Report V1 service.
  *
- * Every entry point: supervisor site scope (getAccessibleSiteIds, 404), then
+ * Every entry point: site scope for supervisors, viewers and consultants
+ * (dailyReportSiteIds / DAILY_REPORT_SITE_SCOPED_ROLES, 404), then
  * the report is loaded with { id, companyId, projectId, siteId } (404). The
  * route chain has already run authenticate → requireRole → requireProjectAccess
  * (company, membership and site∈project).
@@ -31,7 +32,7 @@ import {
   CONTENT_SCHEMA_VERSION, DailyReportContentV1, DailyReportDraftV1, SECTION_KEYS, emptyContent,
 } from './content.schema';
 import {
-  DAILY_REPORT_EDIT_ROLES, DAILY_REPORT_REOPEN_ROLES, canSeeDraftInputs,
+  DAILY_REPORT_EDIT_ROLES, DAILY_REPORT_REOPEN_ROLES, DAILY_REPORT_SITE_SCOPED_ROLES, canSeeDraftInputs,
 } from './policy';
 import { canonicalJson, sha256Hex } from './canonical';
 import {
@@ -127,9 +128,26 @@ async function audit(
 
 // ─── Scope ───────────────────────────────────────────────────────────────────
 
-/** Supervisors assigned to specific sites see only those sites; anything else is a 404. */
+/**
+ * Site ids a site-scoped role may use in this project, or null for the whole
+ * project. Supervisors go through the shared helper unchanged; viewers and
+ * consultants get the same rule from their own membership (company-scoped):
+ * a membership naming a site limits them to it, a null siteId is project-wide.
+ */
+async function dailyReportSiteIds(projectId: string, actor: RequestUser): Promise<string[] | null> {
+  if (!DAILY_REPORT_SITE_SCOPED_ROLES.includes(actor.role)) return null;
+  if (actor.role === 'site_supervisor') return getAccessibleSiteIds(projectId, actor.id, actor.role);
+  const rows = await prisma.projectMember.findMany({
+    where: { companyId: actor.companyId, projectId, userId: actor.id, removedAt: null },
+    select: { siteId: true },
+  });
+  if (rows.some((r) => r.siteId === null)) return null;
+  return rows.map((r) => r.siteId as string);
+}
+
+/** Site-scoped roles see only their assigned site; anything else is a 404. */
 async function assertSiteAccess(projectId: string, siteId: string, actor: RequestUser): Promise<void> {
-  const ids = await getAccessibleSiteIds(projectId, actor.id, actor.role);
+  const ids = await dailyReportSiteIds(projectId, actor);
   if (ids !== null && !ids.includes(siteId)) throw reportNotFound();
 }
 
@@ -592,11 +610,14 @@ export async function addPhoto(
   await deps.storage.put(fileKey, normalised.data, { contentType: normalised.contentType });
 
   try {
+    // Image work and the object write happen above, outside the lock.
     const photo = await prisma.$transaction(async (tx) => {
-      // Re-check under the write: still a draft, still under the limit.
-      const current = await tx.dailyReport.findFirst({
-        where: { id: report.id, companyId: report.companyId }, select: { status: true },
-      });
+      // Lock the report row so concurrent uploads serialise their
+      // count + insert; otherwise each can see 29 and all insert past the limit.
+      const [current] = await tx.$queryRaw<Array<{ status: string }>>`
+        SELECT "status"::text AS "status" FROM "daily_reports"
+        WHERE "id" = ${report.id} AND "companyId" = ${report.companyId}
+        FOR UPDATE`;
       if (!current) throw reportNotFound();
       if (current.status !== 'draft') throw reportFinal(report.id);
       const agg = await tx.dailyReportPhoto.aggregate({
@@ -675,14 +696,27 @@ export async function deletePhoto(
   });
   if (!photo) throw photoNotFound();
 
-  await prisma.$transaction(async (tx) => {
+  const referencedByRevision = await prisma.$transaction(async (tx) => {
     await tx.dailyReportPhoto.delete({ where: { id: photo.id } });
     await touchDraft(tx, report);
     await audit(actor, 'delete', 'daily_report_photo', photo.id, { dailyReportId: report.id }, tx);
+    // A reopened draft keeps the photo rows (same fileKey) that earlier final
+    // revisions snapshot in `photos` and cover with their contentHash. Those
+    // objects are part of an immutable record and must outlive the draft row.
+    const refs = await tx.dailyReportRevision.count({
+      where: {
+        dailyReportId: report.id,
+        companyId:     report.companyId,
+        photos:        { array_contains: [{ fileKey: photo.fileKey }] },
+      },
+    });
+    return refs > 0;
   });
   // Row first, then the object: a failed delete leaves an unreferenced object,
-  // never a row pointing at nothing. Earlier revision PDFs embed their own copy.
-  await deps.storage.delete(photo.fileKey).catch(() => undefined);
+  // never a row pointing at nothing. Only objects no revision references go.
+  if (!referencedByRevision) {
+    await deps.storage.delete(photo.fileKey).catch(() => undefined);
+  }
 }
 
 // ─── 9. Finalise ─────────────────────────────────────────────────────────────

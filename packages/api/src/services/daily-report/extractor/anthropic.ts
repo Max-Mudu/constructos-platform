@@ -45,8 +45,19 @@ export interface AnthropicReportExtractorOptions {
   client?: AnthropicMessagesClient;
   /** Default: env.DAILY_REPORT_AI_MODEL. */
   model?: string;
-  /** Per-request timeout in ms. Default: env.DAILY_REPORT_AI_TIMEOUT_MS. */
+  /**
+   * Per-attempt timeout in ms. Default: env.DAILY_REPORT_AI_TIMEOUT_MS.
+   * Each attempt is clamped to what is left of `deadlineMs`.
+   */
   timeoutMs?: number;
+  /**
+   * Total budget for one extract() call in ms: every attempt, SDK retry
+   * backoff and any server-side fallback re-run. Default 80000, which keeps
+   * it below the browser's 90 s request timeout (and the dev proxy's 120 s),
+   * so the server never stores a draft the user already gave up waiting for.
+   * On expiry the request is aborted and extract() throws AI_UNAVAILABLE.
+   */
+  deadlineMs?: number;
   /** SDK retries for the default client (429 / 5xx / connection). Default 1. */
   maxRetries?: number;
   /** Default 16000. Non-streaming, so it stays well under SDK HTTP timeouts. */
@@ -66,6 +77,11 @@ export interface AnthropicReportExtractorOptions {
 
 export const SERVER_SIDE_FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 const DEFAULT_MAX_TOKENS = 16_000;
+/** Below the web client's 90 s request timeout (packages/web/src/lib/daily-report-api.ts). */
+export const DEFAULT_EXTRACT_DEADLINE_MS = 80_000;
+
+/** Internal marker for the overall deadline; only its class name is ever logged. */
+class ExtractDeadlineExceeded extends Error {}
 
 let sdkPromise: Promise<Sdk> | null = null;
 function loadSdk(): Promise<Sdk> {
@@ -85,6 +101,7 @@ const defaultLogger: ExtractorLogger = (event, meta) => {
 export class AnthropicReportExtractor implements ReportExtractor {
   readonly model: string;
   private readonly timeoutMs: number;
+  private readonly deadlineMs: number;
   private readonly maxRetries: number;
   private readonly maxTokens: number;
   private readonly effort: ExtractionEffort | null;
@@ -96,6 +113,7 @@ export class AnthropicReportExtractor implements ReportExtractor {
     this.client = options.client ?? null;
     this.model = options.model ?? env.DAILY_REPORT_AI_MODEL;
     this.timeoutMs = options.timeoutMs ?? env.DAILY_REPORT_AI_TIMEOUT_MS;
+    this.deadlineMs = options.deadlineMs ?? DEFAULT_EXTRACT_DEADLINE_MS;
     this.maxRetries = options.maxRetries ?? 1;
     this.maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS;
     this.effort = options.effort === undefined ? 'low' : options.effort;
@@ -126,6 +144,7 @@ export class AnthropicReportExtractor implements ReportExtractor {
   }
 
   async extract(input: { rawInput: string; context: ExtractionContext }): Promise<ExtractionResult> {
+    const deadlineAt = Date.now() + this.deadlineMs;
     let sdk: Sdk;
     try {
       sdk = await loadSdk();
@@ -147,10 +166,34 @@ export class AnthropicReportExtractor implements ReportExtractor {
     const request = this.buildRequest(input.rawInput, input.context);
     const startedAt = Date.now();
     let response: BetaMessage & { _request_id?: string | null };
+    // One overall deadline for every attempt, SDK retry backoff (the SDK's
+    // retry sleep honours the signal) and any server-side fallback re-run.
+    // The signal aborts the HTTP request; the race guard settles even if a
+    // client ignores the signal. The timer is always cleared.
+    const controller = new AbortController();
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
     try {
-      response = await client.beta.messages.create(request, { timeout: this.timeoutMs });
+      const remainingMs = deadlineAt - Date.now();
+      if (remainingMs <= 0) throw new ExtractDeadlineExceeded();
+      const deadline = new Promise<never>((_resolve, reject) => {
+        deadlineTimer = setTimeout(() => {
+          controller.abort();
+          reject(new ExtractDeadlineExceeded());
+        }, remainingMs);
+      });
+      response = await Promise.race([
+        client.beta.messages.create(request, {
+          // No single attempt may outlive the remaining budget.
+          timeout: Math.max(1, Math.min(this.timeoutMs, remainingMs)),
+          signal: controller.signal,
+        }),
+        deadline,
+      ]);
     } catch (err) {
-      const code = mapSdkError(sdk, err);
+      // Deadline hit (our marker, or the SDK's APIUserAbortError after our
+      // abort): the same code as an SDK timeout.
+      const code: ExtractionErrorCode =
+        err instanceof ExtractDeadlineExceeded || controller.signal.aborted ? 'AI_UNAVAILABLE' : mapSdkError(sdk, err);
       this.log('request failed', {
         code,
         status: err instanceof sdk.APIError && typeof err.status === 'number' ? err.status : null,
@@ -159,6 +202,8 @@ export class AnthropicReportExtractor implements ReportExtractor {
         latencyMs: Date.now() - startedAt,
       });
       throw new ExtractionError(code);
+    } finally {
+      clearTimeout(deadlineTimer);
     }
     const latencyMs = Date.now() - startedAt;
     const requestId = response._request_id ?? null;

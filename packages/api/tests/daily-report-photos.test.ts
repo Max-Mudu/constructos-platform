@@ -14,6 +14,7 @@ import {
   assignUserToProject, buildMultipartFile, clearDatabase, createTestCompany, createTestDailyReport,
   createTestProject, createTestSite, createTestUser, TEST_JPEG_BYTES, TEST_PNG_BYTES, TestUser,
 } from './helpers/fixtures';
+import { SECTION_KEYS, emptyContent } from '../src/services/daily-report/content.schema';
 
 class HookedStorage extends MemoryStorageDriver {
   onPut: ((key: string) => Promise<void>) | null = null;
@@ -148,6 +149,38 @@ describe('POST /:reportId/photos', () => {
     expect(photoKeys()).toEqual([]);
   });
 
+  it('holds the 30-photo limit when uploads at 29 race (one wins, the rest 422 FILE_LIMIT_REACHED)', async () => {
+    const ctx = await setup();
+    await prisma.dailyReportPhoto.createMany({
+      data: Array.from({ length: 29 }, (_, i) => ({
+        companyId: ctx.company.id, dailyReportId: ctx.report.id, fileKey: `seed/${ctx.report.id}/${i}.jpg`,
+        fileName: `${i}.jpg`, fileType: 'image/jpeg', fileSizeBytes: 10, sha256: 'c'.repeat(64), uploadedById: ctx.sup.id, sortOrder: i,
+      })),
+    });
+    // Barrier: every upload has passed the pre-check and stored its object
+    // before any of them reaches the DB transaction.
+    const N = 4;
+    let arrived = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    storage.onPut = async () => {
+      arrived += 1;
+      if (arrived >= N) release();
+      await Promise.race([gate, new Promise((resolve) => setTimeout(resolve, 3000))]);
+    };
+    const results = await Promise.all(Array.from({ length: N }, (_, i) =>
+      upload(ctx, { name: `race-${i}.jpg`, type: 'image/jpeg', bytes: TEST_JPEG_BYTES })));
+    expect(arrived).toBe(N);
+
+    expect(await prisma.dailyReportPhoto.count({ where: { dailyReportId: ctx.report.id } })).toBe(30);
+    expect(results.map((r) => r.statusCode).sort()).toEqual([201, 422, 422, 422]);
+    for (const r of results.filter((x) => x.statusCode === 422)) {
+      expect(r.json().code).toBe('FILE_LIMIT_REACHED');
+    }
+    // The losers' objects are cleaned up; only the winner's object remains.
+    expect(photoKeys()).toHaveLength(1);
+  });
+
   it('requires a multipart body with a "file" field (400)', async () => {
     const ctx = await setup();
     const wrongField = await upload(ctx, { name: 'a.jpg', type: 'image/jpeg', bytes: TEST_JPEG_BYTES, field: 'photo' });
@@ -245,5 +278,94 @@ describe('PATCH / DELETE /:reportId/photos/:photoId', () => {
     expect(d.statusCode).toBe(409);
     expect(storage.objects.has(ctx.fileKey)).toBe(true);
     expect(await prisma.dailyReportPhoto.count()).toBe(1);
+  });
+});
+
+describe('DELETE photo on a reopened draft', () => {
+  async function finalisedWithPhoto() {
+    const ctx = await setup();
+    await prisma.dailyReport.update({
+      where: { id: ctx.report.id },
+      data: {
+        content: {
+          ...emptyContent(),
+          workCompleted: [{ description: 'Slab pour', location: 'Level 2', quantity: 12, unit: 'm3', progressPercent: 40 }],
+          reviewedSections: [...SECTION_KEYS],
+        },
+      },
+    });
+    const up = await upload(ctx, { name: 'slab.jpg', type: 'image/jpeg', bytes: TEST_JPEG_BYTES });
+    expect(up.statusCode).toBe(201);
+    const photo = up.json().photo;
+    const row = await prisma.dailyReportPhoto.findUniqueOrThrow({ where: { id: photo.id } });
+    const before = await prisma.dailyReport.findUniqueOrThrow({ where: { id: ctx.report.id } });
+
+    const fin = await app.inject({
+      method: 'POST', url: `${ctx.url}/finalise`, headers: auth(ctx.sup),
+      payload: { expectedUpdatedAt: before.updatedAt.toISOString() },
+    });
+    expect(fin.statusCode).toBe(200);
+    const rev0 = await prisma.dailyReportRevision.findUniqueOrThrow({
+      where: { dailyReportId_revision: { dailyReportId: ctx.report.id, revision: 0 } },
+    });
+    expect(rev0.photos).toEqual([expect.objectContaining({ photoId: photo.id, fileKey: row.fileKey })]);
+
+    const reopen = await app.inject({
+      method: 'POST', url: `${ctx.url}/reopen`, headers: auth(ctx.admin),
+      payload: { reason: 'Wrong slab quantity', expectedUpdatedAt: fin.json().report.updatedAt },
+    });
+    expect(reopen.statusCode).toBe(200);
+    expect(reopen.json().report).toMatchObject({ status: 'draft', revision: 1 });
+    return { ...ctx, photo, fileKey: row.fileKey, photoBytes: storage.objects.get(row.fileKey)!.body, rev0 };
+  }
+
+  it('keeps the stored object a final revision references; the rev-0 PDF stays intact', async () => {
+    const ctx = await finalisedWithPhoto();
+    const del = await app.inject({ method: 'DELETE', url: `${ctx.url}/photos/${ctx.photo.id}`, headers: auth(ctx.sup) });
+    expect(del.statusCode).toBe(204);
+    expect(await prisma.dailyReportPhoto.count({ where: { dailyReportId: ctx.report.id } })).toBe(0);
+
+    const kept = await storage.get(ctx.fileKey);
+    expect(kept).not.toBeNull();
+    expect(kept!.equals(ctx.photoBytes)).toBe(true);
+    expect(createHash('sha256').update(kept!).digest('hex')).toBe(
+      (ctx.rev0.photos as Array<{ sha256: string }>)[0].sha256);
+    expect(await storage.get(ctx.rev0.pdfFileKey)).not.toBeNull();
+
+    // The draft still moved on: updatedAt bumped, audit row written, still a draft.
+    const after = await prisma.dailyReport.findUniqueOrThrow({ where: { id: ctx.report.id } });
+    expect(after.status).toBe('draft');
+    expect(await prisma.auditLog.count({ where: { entityType: 'daily_report_photo', action: 'delete', entityId: ctx.photo.id } })).toBe(1);
+  });
+
+  it('still deletes the object of a photo no revision references (added after reopen)', async () => {
+    const ctx = await finalisedWithPhoto();
+    const fresh = (await upload(ctx, { name: 'new.png', type: 'image/png', bytes: TEST_PNG_BYTES })).json().photo;
+    const freshKey = (await prisma.dailyReportPhoto.findUniqueOrThrow({ where: { id: fresh.id } })).fileKey;
+    expect(storage.objects.has(freshKey)).toBe(true);
+
+    const del = await app.inject({ method: 'DELETE', url: `${ctx.url}/photos/${fresh.id}`, headers: auth(ctx.sup) });
+    expect(del.statusCode).toBe(204);
+    expect(storage.objects.has(freshKey)).toBe(false);
+    expect(storage.objects.has(ctx.fileKey)).toBe(true);
+  });
+
+  it('a revision of another company referencing the same key does not pin it', async () => {
+    // Never-finalised draft in company A; a forged revision row in company B names A's key.
+    const ctx = await setup();
+    const up = (await upload(ctx, { name: 'a.jpg', type: 'image/jpeg', bytes: TEST_JPEG_BYTES })).json().photo;
+    const key = (await prisma.dailyReportPhoto.findUniqueOrThrow({ where: { id: up.id } })).fileKey;
+    const other = await setup('drp-b');
+    await prisma.dailyReportRevision.create({
+      data: {
+        companyId: other.company.id, dailyReportId: other.report.id, revision: 0,
+        content: emptyContent() as object, contentSchemaVersion: 1,
+        photos: [{ photoId: up.id, fileKey: key, sha256: 'c'.repeat(64), caption: '', sortOrder: 0 }],
+        pdfFileKey: 'x.pdf', contentHash: 'h', finalisedById: other.sup.id, finalisedAt: new Date(),
+      },
+    });
+    const del = await app.inject({ method: 'DELETE', url: `${ctx.url}/photos/${up.id}`, headers: auth(ctx.sup) });
+    expect(del.statusCode).toBe(204);
+    expect(storage.objects.has(key)).toBe(false);
   });
 });

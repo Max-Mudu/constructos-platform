@@ -293,6 +293,41 @@ describe('renderDailyReportPdf', () => {
     expect(pdf.imageCount).toBe(0);
   });
 
+  it('prints a long company name in full when the header has room for it', async () => {
+    const name = 'Kilimani Heights Construction Company Ltd';
+    const pdf = parsePdf(await renderDailyReportPdfWithOptions(
+      baseInput(realisticContent(), { company: { name, logo: null } }), { compress: false },
+    ));
+    expect(count(pdf.text, name)).toBe(pdf.pages);
+  });
+
+  it('shrinks, then truncates with an ellipsis, a company name too long for the header — the right-hand block stays intact', async () => {
+    const name = 'Mwangi and Sons Building, Civil Engineering and General Construction Contractors of East Africa Limited';
+    const pdf = parsePdf(await renderDailyReportPdfWithOptions(
+      baseInput(realisticContent(), { company: { name, logo: null } }), { compress: false },
+    ));
+    expect(pdf.text).not.toContain(name);
+    expect(count(pdf.text, 'Mwangi and Sons Building')).toBe(pdf.pages);
+    expect(count(pdf.text, '…')).toBeGreaterThanOrEqual(pdf.pages);
+    expect(count(pdf.text, 'Daily Site Report')).toBe(pdf.pages);
+  });
+
+  it('weather summary reflects a weather stoppage instead of "Not stated" when no condition was given', async () => {
+    const stopped = parsePdf(await renderDailyReportPdfWithOptions(baseInput(DailyReportContentV1.parse({
+      weather: { conditions: [], temperatureC: null, workStoppedByWeather: true, notes: 'Rain stopped work for another hour.' },
+      safety: { incidentsReported: false }, // so the INCIDENTS tile is not "Not stated" either
+    })), { compress: false }));
+    expect(stopped.text).toContain('Stopped work'); // the tile value, not the "Work stopped by weather" label
+    expect(stopped.text).not.toContain('Not stated');
+    const remarkOnly = parsePdf(await renderDailyReportPdfWithOptions(baseInput(DailyReportContentV1.parse({
+      weather: { conditions: [], temperatureC: null, workStoppedByWeather: null, notes: 'Overcast in the morning.' },
+    })), { compress: false }));
+    expect(remarkOnly.text).toContain('See notes');
+    // control: nothing about the weather at all is still "Not stated"
+    const empty = parsePdf(await renderDailyReportPdfWithOptions(baseInput(DailyReportContentV1.parse({})), { compress: false }));
+    expect(empty.text).toContain('Not stated');
+  });
+
   it.each([
     ['PNG', () => png(600, 200, [148, 101, 15])],
     ['JPEG', () => jpeg(300, 300, [17, 24, 39])],

@@ -62,3 +62,23 @@ describe('error-code → message mapping', () => {
     expect(generic.title).toBe('Something went wrong');
   });
 });
+
+describe('generic server codes fall back to the HTTP status', () => {
+  it('a rate-limited request (429 REQUEST_ERROR from the API rate limiter) reads as "Too many requests"', () => {
+    expect(errorCodeOf(err(429, 'REQUEST_ERROR'))).toBe('RATE_LIMITED');
+    const view = describeError(err(429, 'REQUEST_ERROR'), 'extract');
+    expect(view.title).toBe('Too many requests');
+    expect(view.retryable).toBe(true);
+  });
+
+  it('other generic codes use the status mapping too (503, 404)', () => {
+    expect(errorCodeOf(err(503, 'REQUEST_ERROR'))).toBe('SERVICE_UNAVAILABLE');
+    expect(errorCodeOf(err(404, 'REQUEST_ERROR'))).toBe('NOT_FOUND');
+    expect(errorCodeOf(err(500, 'INTERNAL_ERROR'))).toBe('UNKNOWN');
+  });
+
+  it('specific codes still win over the status', () => {
+    expect(errorCodeOf(err(429, 'AI_CAP_REACHED'))).toBe('AI_CAP_REACHED');
+    expect(errorCodeOf(err(409, 'STALE_REPORT'))).toBe('STALE_REPORT');
+  });
+});

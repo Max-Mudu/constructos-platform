@@ -211,7 +211,9 @@ export function BottomBar({ children, className }: { children: React.ReactNode; 
 
 export function PageContainer({ children, className, withBottomBar = false }: { children: React.ReactNode; className?: string; withBottomBar?: boolean }) {
   return (
-    <div className={cn('mx-auto w-full max-w-screen-sm px-4 py-4 md:max-w-screen-md md:py-6', withBottomBar && 'pb-32', className)}>
+    // md:pb-32 too: md:py-6 would otherwise reset the bottom padding from 768 px up
+    // and the fixed BottomBar would cover the page's last control.
+    <div className={cn('mx-auto w-full max-w-screen-sm px-4 py-4 md:max-w-screen-md md:py-6', withBottomBar && 'pb-32 md:pb-32', className)}>
       {children}
     </div>
   );

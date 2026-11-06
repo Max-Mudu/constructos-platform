@@ -8,3 +8,4 @@ dist/
 .expo/
 prisma/migrations/*.sql.bak
 coverage/
+packages/api/uploads/

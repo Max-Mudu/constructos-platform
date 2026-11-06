@@ -6,6 +6,7 @@
 import {
   APIConnectionError,
   APIConnectionTimeoutError,
+  APIUserAbortError,
   BadRequestError,
   InternalServerError,
   OverloadedError,
@@ -112,7 +113,9 @@ describe('AnthropicReportExtractor request shape', () => {
     }
     expect(body['betas']).toEqual([SERVER_SIDE_FALLBACK_BETA]);
     expect(body['fallbacks']).toBe('default');
-    expect(options).toEqual({ timeout: 45_000 });
+    expect(Object.keys(options).sort()).toEqual(['signal', 'timeout']);
+    expect(options['timeout']).toBe(45_000);
+    expect(options['signal']).toBeInstanceOf(AbortSignal);
   });
 
   it('takes the model from the option, else from env.DAILY_REPORT_AI_MODEL', async () => {
@@ -128,7 +131,11 @@ describe('AnthropicReportExtractor request shape', () => {
       expect(fromEnv.model).toBe('claude-haiku-5-5');
       await run(fromEnv);
       expect((create.mock.calls[0]![0] as AnyResponse)['model']).toBe('claude-haiku-5-5');
-      expect(create.mock.calls[0]![1]).toEqual({ timeout: env.DAILY_REPORT_AI_TIMEOUT_MS });
+      const options = create.mock.calls[0]![1] as AnyResponse;
+      expect(options['signal']).toBeInstanceOf(AbortSignal);
+      // env timeout per attempt, clamped to the remaining overall budget (80 s default).
+      expect(options['timeout']).toBeLessThanOrEqual(Math.min(env.DAILY_REPORT_AI_TIMEOUT_MS, 80_000));
+      expect(options['timeout']).toBeGreaterThan(Math.min(env.DAILY_REPORT_AI_TIMEOUT_MS, 80_000) - 5_000);
     } finally {
       env.DAILY_REPORT_AI_MODEL = saved;
     }
@@ -288,5 +295,112 @@ describe('AnthropicReportExtractor failure mapping', () => {
       noLeak(logs);
     });
     jest.dontMock('@anthropic-ai/sdk');
+  });
+});
+
+/**
+ * The browser gives up after 90 s and the dev proxy after 120 s. Every
+ * attempt, SDK retry backoff and server-side fallback re-run must therefore
+ * finish inside one overall deadline below 90 s, or the user sees a timeout
+ * while the server later stores a draft they never saw. Real short timers.
+ */
+describe('AnthropicReportExtractor overall deadline', () => {
+  type CreateImpl = (body: unknown, options?: RequestOptionsLike) => Promise<AnyResponse>;
+  type RequestOptionsLike = { timeout?: number; signal?: AbortSignal | null; maxRetries?: number };
+
+  function makeWith(impl: CreateImpl, opts: Record<string, unknown> = {}) {
+    const create = jest.fn(impl);
+    const client = { beta: { messages: { create } } } as unknown as AnthropicMessagesClient;
+    const logs: Array<[string, Record<string, unknown>]> = [];
+    const logger: ExtractorLogger = (event, meta) => { logs.push([event, meta]); };
+    const extractor = new AnthropicReportExtractor({ client, logger, model: 'claude-sonnet-5-5', timeoutMs: 45_000, ...opts });
+    return { extractor, create, logs };
+  }
+
+  /** Resolves after `ms` unless the request signal aborts first (like the SDK). */
+  const slow = (ms: number, value: AnyResponse): CreateImpl => (_body, options) =>
+    new Promise((resolve, reject) => {
+      const timer = setTimeout(() => resolve(value), ms);
+      options?.signal?.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(new APIUserAbortError());
+      }, { once: true });
+    });
+
+  const settle = async (extractor: AnthropicReportExtractor) => {
+    const startedAt = Date.now();
+    const err = await run(extractor).then(() => null, (e: unknown) => e);
+    return { err, elapsed: Date.now() - startedAt };
+  };
+
+  const DEADLINE = 50;
+  const MARGIN = 750; // generous for coarse Windows timers; still far below the fakes' delays
+
+  it('rejects with AI_UNAVAILABLE within the deadline when the client never settles (race guard)', async () => {
+    const { extractor, logs } = makeWith(() => new Promise<AnyResponse>(() => {}), { deadlineMs: DEADLINE });
+    const { err, elapsed } = await settle(extractor);
+    expect(err).toBeInstanceOf(ExtractionError);
+    expect(err).toMatchObject({ code: 'AI_UNAVAILABLE', message: 'AI_UNAVAILABLE' });
+    expect(elapsed).toBeLessThan(DEADLINE + MARGIN);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]![0]).toBe('request failed');
+    expect(logs[0]![1]).toMatchObject({ code: 'AI_UNAVAILABLE', status: null, requestId: null });
+    expect(Object.keys(logs[0]![1]).sort()).toEqual(['code', 'errorName', 'latencyMs', 'requestId', 'status']);
+    expect(JSON.stringify(logs)).not.toContain(NOTES_MARKER);
+  });
+
+  it('aborts the signal passed to the client when the deadline passes, and maps the SDK abort to AI_UNAVAILABLE', async () => {
+    const { extractor, create } = makeWith(slow(5_000, response()), { deadlineMs: DEADLINE });
+    const { err, elapsed } = await settle(extractor);
+    expect(err).toMatchObject({ name: 'ExtractionError', code: 'AI_UNAVAILABLE', message: 'AI_UNAVAILABLE' });
+    expect(elapsed).toBeLessThan(DEADLINE + MARGIN);
+    const options = create.mock.calls[0]![1] as RequestOptionsLike;
+    expect(options.signal).toBeInstanceOf(AbortSignal);
+    expect(options.signal!.aborted).toBe(true);
+  });
+
+  it('a refusal re-run on the fallback model that would finish after the deadline still fails in time', async () => {
+    const fallbackAnswer = response({
+      model: 'claude-opus-5-5',
+      content: [
+        { type: 'text', text: '{"weather": {"cond' },
+        { type: 'fallback', from: { model: 'claude-sonnet-5-5' }, to: { model: 'claude-opus-5-5' } },
+        { type: 'text', text: JSON.stringify(DRAFT) },
+      ],
+    });
+    const { extractor, create } = makeWith(slow(3_000, fallbackAnswer), { deadlineMs: DEADLINE, serverSideFallback: true });
+    const { err, elapsed } = await settle(extractor);
+    expect(err).toMatchObject({ name: 'ExtractionError', code: 'AI_UNAVAILABLE' });
+    expect(elapsed).toBeLessThan(DEADLINE + MARGIN);
+    expect((create.mock.calls[0]![0] as AnyResponse)['fallbacks']).toBe('default');
+    expect((create.mock.calls[0]![1] as RequestOptionsLike).signal!.aborted).toBe(true);
+  });
+
+  it('clamps the per-attempt timeout to the remaining budget', async () => {
+    const { extractor, create } = makeWith(async () => response(), { deadlineMs: 1_000, timeoutMs: 45_000 });
+    await run(extractor);
+    const timeout = (create.mock.calls[0]![1] as RequestOptionsLike).timeout!;
+    expect(timeout).toBeGreaterThan(0);
+    expect(timeout).toBeLessThanOrEqual(1_000);
+  });
+
+  it('defaults to a total deadline below the 90 s browser timeout, whatever the per-attempt timeout', async () => {
+    const { extractor, create } = makeWith(async () => response(), { timeoutMs: 200_000 });
+    await run(extractor);
+    const timeout = (create.mock.calls[0]![1] as RequestOptionsLike).timeout!;
+    expect(timeout).toBeLessThan(90_000);
+    expect(timeout).toBeLessThanOrEqual(80_000);
+  });
+
+  it('a fast success is unchanged and leaves no armed deadline behind', async () => {
+    const { extractor, create, logs } = makeWith(slow(5, response()), { deadlineMs: 200 });
+    const result = await run(extractor);
+    expect(result.draft.workCompleted[0]).toMatchObject({ quantity: 12, unit: 'm³' });
+    expect(result.model).toBe('claude-sonnet-5-5');
+    expect(logs).toEqual([]);
+    const signal = (create.mock.calls[0]![1] as RequestOptionsLike).signal!;
+    // Had the deadline timer not been cleared, it would abort this signal.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(signal.aborted).toBe(false);
   });
 });
