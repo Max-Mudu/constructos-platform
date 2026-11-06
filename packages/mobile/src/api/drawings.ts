@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system';
+import { DRAWINGS_CACHE_PREFIX } from '../utils/localData';
 import { apiClient } from './client';
 import { Drawing, DrawingRevision } from '../types';
 
@@ -18,7 +19,7 @@ function normalize(raw: RawDrawing): Drawing {
 // ─── Cache helpers ────────────────────────────────────────────────────────────
 
 function cacheKey(projectId: string): string {
-  return (FileSystem.documentDirectory ?? '') + `drawings_cache_${projectId}.json`;
+  return (FileSystem.documentDirectory ?? '') + `${DRAWINGS_CACHE_PREFIX}${projectId}.json`;
 }
 
 async function readCache(projectId: string): Promise<Drawing[] | null> {

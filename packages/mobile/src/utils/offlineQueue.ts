@@ -7,6 +7,7 @@
  * because they represent real validation errors the user must fix.
  */
 import * as FileSystem from 'expo-file-system';
+import { useAuthStore } from '../store/auth.store';
 
 const QUEUE_FILE = (FileSystem.documentDirectory ?? '') + 'offline_queue.json';
 
@@ -23,6 +24,21 @@ export interface OfflineOp {
   payload:    Record<string, unknown>;
   createdAt:  string;
   retryCount: number;
+  /**
+   * Who queued it. Ops are replayed only for the same signed-in user, so a
+   * self check-in queued by one person is never submitted as another user's
+   * on a shared device. Absent on ops queued by older app versions.
+   */
+  userId?:    string;
+}
+
+function currentUserId(): string | null {
+  return useAuthStore.getState().user?.id ?? null;
+}
+
+/** Ops the current user may replay (their own, plus legacy untagged ones). */
+export function isOwnOp(op: OfflineOp, userId: string | null): boolean {
+  return !!userId && (op.userId === undefined || op.userId === userId);
 }
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────
@@ -44,9 +60,10 @@ async function writeQueue(queue: OfflineOp[]): Promise<void> {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/** Returns current pending operations. */
+/** Returns the signed-in user's pending operations (none when signed out). */
 export async function getQueue(): Promise<OfflineOp[]> {
-  return readQueue();
+  const userId = currentUserId();
+  return (await readQueue()).filter((op) => isOwnOp(op, userId));
 }
 
 /** Adds an operation to the queue. */
@@ -61,6 +78,7 @@ export async function enqueue(
     payload,
     createdAt:  new Date().toISOString(),
     retryCount: 0,
+    userId:     currentUserId() ?? undefined,
   };
   queue.push(op);
   await writeQueue(queue);
@@ -83,9 +101,10 @@ export async function incrementRetry(id: string): Promise<void> {
   );
 }
 
-/** Clears the entire queue (e.g. on logout). */
+/** Clears the signed-in user's pending operations (e.g. on explicit logout). */
 export async function clearQueue(): Promise<void> {
-  await writeQueue([]);
+  const userId = currentUserId();
+  await writeQueue((await readQueue()).filter((op) => !isOwnOp(op, userId)));
 }
 
 /**
