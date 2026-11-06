@@ -2,12 +2,14 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, RefreshControl, TouchableOpacity,
   Modal, ScrollView, Alert, TextInput, ActivityIndicator,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useAuthStore } from '../../src/store/auth.store';
 import { projectsApi } from '../../src/api/projects';
 import { schedulesApi } from '../../src/api/schedules';
 import { contractorsApi } from '../../src/api/contractors';
 import { Project, JobSite, ScheduleTask, ScheduleTaskStatus, Contractor, ScheduleActivity } from '../../src/types';
+import { useAppBarInset } from '../../src/hooks/useAppBarInset';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -243,8 +245,8 @@ function UpdateTaskModal({
   if (!task) return null;
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={UM.root}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={UM.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {/* Header */}
         <View style={UM.header}>
           <View style={{ flex: 1, marginRight: 12 }}>
@@ -439,7 +441,7 @@ function UpdateTaskModal({
             </View>
           )}
         </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -504,8 +506,8 @@ function CreateTaskModal({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={UM.root}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
+      <KeyboardAvoidingView style={UM.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={UM.header}>
           <Text style={UM.title}>New Schedule Task</Text>
           <TouchableOpacity style={UM.closeBtn} onPress={handleClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -597,7 +599,7 @@ function CreateTaskModal({
             </TouchableOpacity>
           </View>
         </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -644,6 +646,7 @@ function RiskChip({ label, count, color }: { label: string; count: number; color
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function ScheduleScreen() {
+  const appBarInset = useAppBarInset();
   const user             = useAuthStore((s) => s.user);
   const canCreate        = user && WRITE_ROLES.has(user.role);
   const canUpdate        = user && PROGRESS_ROLES.has(user.role);
@@ -793,7 +796,7 @@ export default function ScheduleScreen() {
   if (loading) {
     return (
       <View style={A.root}>
-        <View style={A.appBar}>
+        <View style={[A.appBar, appBarInset]}>
           <Text style={A.appBarTitle}>Weekly Schedule</Text>
         </View>
         <View style={A.center}>
@@ -806,7 +809,7 @@ export default function ScheduleScreen() {
   return (
     <View style={A.root}>
       {/* ── App bar ───────────────────────────────────────────── */}
-      <View style={A.appBar}>
+      <View style={[A.appBar, appBarInset]}>
         <View>
           <Text style={A.appBarTitle}>Weekly Schedule</Text>
           <Text style={A.appBarDate}>{dateRangeLabel}</Text>

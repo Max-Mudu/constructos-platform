@@ -678,7 +678,7 @@ function DailySiteReportView({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.viewerScroll} showsVerticalScrollIndicator={false}>
+    <ScrollView contentContainerStyle={styles.viewerScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
       <TouchableOpacity onPress={onBack} style={styles.backBtn}>
         <Text style={styles.backText}>{'← Reports'}</Text>
       </TouchableOpacity>

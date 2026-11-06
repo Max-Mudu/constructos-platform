@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Switch,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert,
   Modal, FlatList, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -12,6 +12,7 @@ import { notificationsApi } from '../../src/api/notifications';
 import { getRefreshToken } from '../../src/auth/secureStorage';
 import { Project, JobSite } from '../../src/types';
 import { projectsApi } from '../../src/api/projects';
+import { useAppBarInset } from '../../src/hooks/useAppBarInset';
 
 const ROLE_LABEL: Record<string, string> = {
   company_admin:    'Company Admin',
@@ -25,14 +26,10 @@ const ROLE_LABEL: Record<string, string> = {
 };
 
 export default function ProfileScreen() {
+  const appBarInset = useAppBarInset();
   const router = useRouter();
   const { user, clearAuth, setUser } = useAuthStore();
   const [loggingOut, setLoggingOut] = useState(false);
-
-  // Settings state — UI only
-  const [notificationsOn, setNotificationsOn] = useState(true);
-  const [darkMode,        setDarkMode]        = useState(true);
-  const [locationOn,      setLocationOn]      = useState(false);
 
   // Workspace state
   const [selProjectId, setSelProjectId]           = useState(user?.defaultProjectId ?? '');
@@ -67,7 +64,7 @@ export default function ProfileScreen() {
   if (!user) {
     return (
       <View style={S.root}>
-        <View style={S.appBar}>
+        <View style={[S.appBar, appBarInset]}>
           <Text style={S.appBarTitle}>Profile</Text>
         </View>
         <View style={S.emptyWrap}>
@@ -199,14 +196,10 @@ export default function ProfileScreen() {
     );
   }
 
-  function stub(title: string) {
-    Alert.alert(title, 'This feature is coming soon.');
-  }
-
   return (
     <View style={S.root}>
       {/* ── App bar ──────────────────────────────────────────────────── */}
-      <View style={S.appBar}>
+      <View style={[S.appBar, appBarInset]}>
         <Text style={S.appBarTitle}>Profile</Text>
       </View>
 
@@ -245,11 +238,6 @@ export default function ProfileScreen() {
               </View>
             ) : null}
           </View>
-
-          {/* Edit Profile — UI only */}
-          <TouchableOpacity style={S.editBtn} onPress={() => stub('Edit Profile')} activeOpacity={0.8}>
-            <Text style={S.editBtnText}>Edit Profile</Text>
-          </TouchableOpacity>
         </View>
 
         {/* ── Information ──────────────────────────────────────────── */}
@@ -334,36 +322,9 @@ export default function ProfileScreen() {
           ) : null}
         </SectionCard>
 
-        {/* ── App Settings ─────────────────────────────────────────── */}
-        <SectionCard title="App Settings">
-          <ToggleRow
-            icon="🔔"
-            label="Notifications"
-            value={notificationsOn}
-            onToggle={setNotificationsOn}
-          />
-          <ToggleRow
-            icon="🌙"
-            label="Dark Mode"
-            value={darkMode}
-            onToggle={setDarkMode}
-          />
-          <ToggleRow
-            icon="📍"
-            label="Location Services"
-            value={locationOn}
-            onToggle={setLocationOn}
-            last
-          />
-        </SectionCard>
-
-        {/* ── Support & Legal ───────────────────────────────────────── */}
-        <SectionCard title="Support & Legal">
-          <LinkRow icon="❓" label="Help Center" onPress={() => stub('Help Center')} />
-          <LinkRow icon="📄" label="Terms of Service" onPress={() => stub('Terms of Service')} />
-          <LinkRow icon="🔒" label="Privacy Policy"   onPress={() => stub('Privacy Policy')} />
-          <LinkRow icon="🚩" label="Report a Bug"     onPress={() => stub('Report a Bug')} last />
-        </SectionCard>
+        {/* App Settings toggles (Notifications / Dark Mode / Location) and the
+            Support & Legal links were placeholders with no behaviour; removed
+            so no control on this screen is non-functional (App Review 2.1). */}
 
         {/* ── Logout ───────────────────────────────────────────────── */}
         <TouchableOpacity
@@ -479,36 +440,6 @@ function InfoRow({ icon, label, value, last }: { icon: string; label: string; va
       <Text style={R.rowLabel}>{label}</Text>
       <Text style={R.rowValue} numberOfLines={1}>{value}</Text>
     </View>
-  );
-}
-
-function ToggleRow({
-  icon, label, value, onToggle, last,
-}: {
-  icon: string; label: string; value: boolean; onToggle: (v: boolean) => void; last?: boolean;
-}) {
-  return (
-    <View style={[R.row, last ? null : R.rowBorder]}>
-      <Text style={R.rowIcon}>{icon}</Text>
-      <Text style={[R.rowLabel, { flex: 1 }]}>{label}</Text>
-      <Switch
-        value={value}
-        onValueChange={onToggle}
-        trackColor={{ false: '#112036', true: '#1d4ed8' }}
-        thumbColor={value ? '#60a5fa' : '#3d6090'}
-        ios_backgroundColor="#112036"
-      />
-    </View>
-  );
-}
-
-function LinkRow({ icon, label, onPress, last }: { icon: string; label: string; onPress: () => void; last?: boolean }) {
-  return (
-    <TouchableOpacity style={[R.row, last ? null : R.rowBorder]} onPress={onPress} activeOpacity={0.7}>
-      <Text style={R.rowIcon}>{icon}</Text>
-      <Text style={[R.rowLabel, { flex: 1 }]}>{label}</Text>
-      <Text style={R.chevron}>›</Text>
-    </TouchableOpacity>
   );
 }
 

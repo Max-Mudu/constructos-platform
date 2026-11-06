@@ -6,6 +6,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Modal,
   ScrollView, Image, RefreshControl, TextInput, ActivityIndicator,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { apiClient } from '../../src/api/client';
@@ -128,6 +129,7 @@ function DeliveryDetailView({
       style={DV.container}
       contentContainerStyle={DV.scroll}
       keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets
     >
       {/* ── Back nav ──────────────────────────────────────────────── */}
       <TouchableOpacity style={DV.backBtn} onPress={onBack} activeOpacity={0.7}>
@@ -390,8 +392,8 @@ function CreateDeliveryModal({
   }
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={styles.modal}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={styles.modal} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>New Delivery</Text>
           <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
@@ -454,7 +456,7 @@ function CreateDeliveryModal({
 
           <Button title="Create Delivery" onPress={save} loading={saving} style={{ marginTop: 16 }} />
         </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
