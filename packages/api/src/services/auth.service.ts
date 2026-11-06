@@ -317,11 +317,16 @@ export async function refreshTokens(
     throw new UnauthorizedError('Account is deactivated');
   }
 
-  // Rotate: revoke old token, issue new pair
-  await prisma.refreshToken.update({
-    where: { id: stored.id },
+  // Rotate: revoke the old token, then issue a new pair. The revoke is
+  // conditional so that, of two concurrent requests carrying the same token,
+  // only one wins; the other gets 401 instead of a second live token family.
+  const rotated = await prisma.refreshToken.updateMany({
+    where: { id: stored.id, revokedAt: null },
     data: { revokedAt: new Date() },
   });
+  if (rotated.count !== 1) {
+    throw new UnauthorizedError('Invalid or expired refresh token');
+  }
 
   const tokens = await issueTokenPair(fastify, stored.user, ipAddress, userAgent);
 
