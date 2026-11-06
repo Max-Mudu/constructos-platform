@@ -26,8 +26,8 @@ import { prisma } from '../src/utils/prisma';
 import { env } from '../src/utils/env';
 import {
   assignUserToProject, buildMultipartFile, clearDatabase, createTestCompany, createTestContractor,
-  createTestDelivery, createTestDrawing, createTestInstruction, createTestProject, createTestSite,
-  createTestUser, createTestWorkPackage, TestUser,
+  createTestDelivery, createTestDrawing, createTestInstruction, createTestProject, createTestScheduleTask,
+  createTestSite, createTestUser, createTestWorkPackage, TestUser,
 } from './helpers/fixtures';
 
 const UPLOAD_DIR = path.join(os.tmpdir(), 'construction-platform-test-uploads');
@@ -109,6 +109,11 @@ interface World {
   siteB: string;
   deliveryB: string;
   deliveryPhotoKeyB: string;
+  packageA: string;
+  packageB: string;
+  milestoneA: string;
+  milestoneB: string;
+  drawingA: string;
   drawingB: string;
   drawingP: string;
   revisionB: string;
@@ -148,12 +153,21 @@ async function buildWorld(tag: string): Promise<World> {
   });
 
   // Schedule on site B (contractor's own package, so contractors can read it)
-  await createTestWorkPackage(company.id, project.id, siteB.id, contractor.id, admin.id, 'B package');
+  const packageB = await createTestWorkPackage(company.id, project.id, siteB.id, contractor.id, admin.id, 'B package');
+  const packageA = await createTestWorkPackage(company.id, project.id, siteA.id, contractor.id, admin.id, 'A package');
+  const milestoneOn = async (siteId: string, workPackageId: string, name: string) => {
+    const task = await createTestScheduleTask(company.id, project.id, siteId, contractor.id, admin.id, workPackageId);
+    return prisma.scheduleMilestone.create({
+      data: { companyId: company.id, projectId: project.id, siteId, taskId: task.id, name, plannedDate: new Date('2026-05-01') },
+    });
+  };
+  const milestoneA = await milestoneOn(siteA.id, packageA.id, 'A milestone');
+  const milestoneB = await milestoneOn(siteB.id, packageB.id, 'B milestone');
 
   // Drawings: site B (with revision file + comment), project-level, site A
   const drawingB = await createTestDrawing(company.id, project.id, admin.id, { drawingNumber: `B-${tag}`, siteId: siteB.id });
   const drawingP = await createTestDrawing(company.id, project.id, admin.id, { drawingNumber: `P-${tag}` });
-  await createTestDrawing(company.id, project.id, admin.id, { drawingNumber: `A-${tag}`, siteId: siteA.id });
+  const drawingA = await createTestDrawing(company.id, project.id, admin.id, { drawingNumber: `A-${tag}`, siteId: siteA.id });
   const revisionKeyB = await writeUpload('drawings', 'pdf');
   const revisionB = await prisma.drawingRevision.create({
     data: {
@@ -189,7 +203,8 @@ async function buildWorld(tag: string): Promise<World> {
   return {
     admin, users, projectId: project.id, siteA: siteA.id, siteB: siteB.id,
     deliveryB: deliveryB.id, deliveryPhotoKeyB,
-    drawingB: drawingB.id, drawingP: drawingP.id, revisionB: revisionB.id, revisionKeyB,
+    packageA: packageA.id, packageB: packageB.id, milestoneA: milestoneA.id, milestoneB: milestoneB.id,
+    drawingA: drawingA.id, drawingB: drawingB.id, drawingP: drawingP.id, revisionB: revisionB.id, revisionKeyB,
     instrA: instrA.id, instrB: instrB.id, instrP: instrP.id,
     instrBbyConsultant: instrBbyConsultant.id, instrAbyConsultant: instrAbyConsultant.id,
     attachmentKeyB,
@@ -325,6 +340,27 @@ describe.each([false, true])('SITE_SCOPE_STRICT=%s', (flag) => {
       expect((await issue()).statusCode).toBe(201);
     });
 
+    it('consultant links only drawings, revisions, packages and milestones in scope (other site → 404 when on)', async () => {
+      const link = (links: Record<string, string>) => req(consultant(), 'POST', `${P()}/instructions`, {
+        type: 'instruction', title: 'linked', issuedDate: '2026-04-10', ...links,
+      });
+      // Out of scope when the flag is on: site B records.
+      expect((await link({ drawingId: w.drawingB })).statusCode).toBe(flag ? 404 : 201);
+      expect((await link({ revisionId: w.revisionB })).statusCode).toBe(flag ? 404 : 201);
+      expect((await link({ workPackageId: w.packageB })).statusCode).toBe(flag ? 404 : 201);
+      expect((await link({ milestoneId: w.milestoneB })).statusCode).toBe(flag ? 404 : 201);
+      const denied = await link({ workPackageId: w.packageB });
+      if (flag) expect(denied.body).not.toContain('B package');
+      // Always in scope: own site and project-level drawings.
+      expect((await link({ drawingId: w.drawingA })).statusCode).toBe(201);
+      expect((await link({ drawingId: w.drawingP })).statusCode).toBe(201);
+      expect((await link({ workPackageId: w.packageA })).statusCode).toBe(201);
+      expect((await link({ milestoneId: w.milestoneA })).statusCode).toBe(201);
+      // Same rule on update.
+      const patched = await req(consultant(), 'PATCH', `${P()}/instructions/${w.instrAbyConsultant}`, { workPackageId: w.packageB });
+      expect(patched.statusCode).toBe(flag ? 404 : 200);
+    });
+
     it('consultant may still update an instruction they issued on another site', async () => {
       const res = await req(consultant(), 'PATCH', `${P()}/instructions/${w.instrBbyConsultant}`, { title: 'edited' });
       expect(res.statusCode).toBe(200);
@@ -371,6 +407,7 @@ describe.each([false, true])('SITE_SCOPE_STRICT=%s', (flag) => {
       const pm = w.users['project_manager']!;
       const res = await req(pm, 'POST', `${P()}/instructions`, {
         type: 'instruction', title: 'pm', issuedDate: '2026-04-10', siteId: w.siteB,
+        drawingId: w.drawingB, workPackageId: w.packageB, milestoneId: w.milestoneB,
       });
       expect(res.statusCode).toBe(201);
     });

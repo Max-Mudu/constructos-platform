@@ -130,33 +130,37 @@ async function instructionSiteWhere(
   return { AND: [{ OR: [{ siteId: { in: siteIds } }, { siteId: null }, { issuedById: actor.id }] }] };
 }
 
-/**
- * A site-scoped actor may only link an instruction to one of their sites (or
- * to none). Anything else is reported exactly like an unknown site.
- */
-async function assertSiteInScope(siteId: string | null | undefined, projectId: string, actor: RequestUser) {
-  if (!siteId) return;
-  const siteIds = await getDocumentSiteIds(projectId, actor.id, actor.role);
-  if (siteIds !== null && !siteIds.includes(siteId)) throw new NotFoundError('Site');
-}
-
 // ─── Validate optional links ───────────────────────────────────────────────────
 
+/**
+ * Every link must exist in this company and project. Under SITE_SCOPE_STRICT a
+ * site-scoped actor (siteIds !== null) may additionally only link records they
+ * could see: their own sites, and for drawings / revisions also project-level
+ * drawings (siteId null). Out-of-scope links get the same 404 as unknown ones.
+ */
 async function validateLinks(
   input: { siteId?: string | null; contractorId?: string | null; drawingId?: string | null; revisionId?: string | null; milestoneId?: string | null; workPackageId?: string | null },
   projectId: string,
-  companyId: string,
+  actor: RequestUser,
 ) {
+  const { companyId } = actor;
+  const siteIds = await getDocumentSiteIds(projectId, actor.id, actor.role);
+  const siteBound = siteIds === null ? {} : { siteId: { in: siteIds } };
+  const drawingVisible: Prisma.DrawingWhereInput = siteIds === null
+    ? {}
+    : { OR: [{ siteId: { in: siteIds } }, { siteId: null }] };
+
   if (input.siteId) {
     const site = await prisma.jobSite.findFirst({ where: { id: input.siteId, projectId, companyId }, select: { id: true } });
     if (!site) throw new NotFoundError('Site');
+    if (siteIds !== null && !siteIds.includes(input.siteId)) throw new NotFoundError('Site');
   }
   if (input.contractorId) {
     const contractor = await prisma.contractor.findFirst({ where: { id: input.contractorId, companyId }, select: { id: true } });
     if (!contractor) throw new NotFoundError('Contractor');
   }
   if (input.drawingId) {
-    const drawing = await prisma.drawing.findFirst({ where: { id: input.drawingId, projectId, companyId }, select: { id: true } });
+    const drawing = await prisma.drawing.findFirst({ where: { id: input.drawingId, projectId, companyId, ...drawingVisible }, select: { id: true } });
     if (!drawing) throw new NotFoundError('Drawing');
   }
   if (input.revisionId) {
@@ -166,7 +170,7 @@ async function validateLinks(
       where: {
         id: input.revisionId,
         companyId,
-        drawing: { projectId, companyId },
+        drawing: { projectId, companyId, ...drawingVisible },
         ...(input.drawingId && { drawingId: input.drawingId }),
       },
       select: { id: true },
@@ -174,11 +178,11 @@ async function validateLinks(
     if (!revision) throw new NotFoundError('Drawing revision');
   }
   if (input.milestoneId) {
-    const milestone = await prisma.scheduleMilestone.findFirst({ where: { id: input.milestoneId, projectId, companyId }, select: { id: true } });
+    const milestone = await prisma.scheduleMilestone.findFirst({ where: { id: input.milestoneId, projectId, companyId, ...siteBound }, select: { id: true } });
     if (!milestone) throw new NotFoundError('Milestone');
   }
   if (input.workPackageId) {
-    const pkg = await prisma.workPackage.findFirst({ where: { id: input.workPackageId, projectId, companyId }, select: { id: true } });
+    const pkg = await prisma.workPackage.findFirst({ where: { id: input.workPackageId, projectId, companyId, ...siteBound }, select: { id: true } });
     if (!pkg) throw new NotFoundError('Work package');
   }
 }
@@ -265,8 +269,7 @@ export async function createInstruction(
   if (!canIssue(actor.role)) throw new ForbiddenError('Only consultants and managers can create instructions');
   await assertProjectMember(projectId, actor);
 
-  await validateLinks(input, projectId, actor.companyId);
-  await assertSiteInScope(input.siteId, projectId, actor);
+  await validateLinks(input, projectId, actor);
 
   const instruction = await prisma.consultantInstruction.create({
     data: {
@@ -358,8 +361,7 @@ export async function updateInstruction(
     input.siteId !== undefined || input.contractorId !== undefined || input.drawingId !== undefined ||
     input.revisionId !== undefined || input.milestoneId !== undefined || input.workPackageId !== undefined
   ) {
-    await validateLinks(input, projectId, actor.companyId);
-    await assertSiteInScope(input.siteId, projectId, actor);
+    await validateLinks(input, projectId, actor);
   }
 
   const updated = await prisma.consultantInstruction.update({
