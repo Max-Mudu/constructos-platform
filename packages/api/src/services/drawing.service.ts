@@ -435,6 +435,10 @@ export async function listComments(
   if (!canViewDrawings(actor.role)) throw new ForbiddenError('Access denied');
   await assertProjectMember(projectId, actor);
 
+  // The drawing must belong to the project in the URL (membership was checked
+  // for that project only).
+  await findDrawing(drawingId, projectId, actor.companyId);
+
   const revision = await prisma.drawingRevision.findFirst({
     where: { id: revisionId, drawingId, companyId: actor.companyId },
     select: { id: true },
@@ -457,6 +461,10 @@ export async function addComment(
 ) {
   if (!canViewDrawings(actor.role)) throw new ForbiddenError('Access denied');
   await assertProjectMember(projectId, actor);
+
+  // The drawing must belong to the project in the URL (membership was checked
+  // for that project only).
+  await findDrawing(drawingId, projectId, actor.companyId);
 
   const revision = await prisma.drawingRevision.findFirst({
     where: { id: revisionId, drawingId, companyId: actor.companyId },
