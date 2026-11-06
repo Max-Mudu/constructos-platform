@@ -476,7 +476,14 @@ export async function requestPasswordReset(
   });
 
   const resetLink = `${env.APP_URL}/reset-password?token=${rawToken}`;
-  await emailService.sendPasswordResetEmail(email, resetLink);
+  try {
+    await emailService.sendPasswordResetEmail(email, resetLink);
+  } catch {
+    // Never surface delivery failures: a 500 that only registered addresses
+    // can trigger would reveal which emails have accounts. email.service
+    // errors are link-free; log only the user id (no address, no link).
+    console.warn(`[auth] password reset email delivery failed for userId=${user.id}`);
+  }
 
   if (!env.isProduction) {
     return { devLink: resetLink };
