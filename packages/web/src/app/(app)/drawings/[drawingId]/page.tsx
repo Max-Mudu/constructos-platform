@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
+import { UploadedFileLink } from '@/components/files/UploadedFile';
 import {
   FileStack, AlertCircle, ArrowLeft, Plus, CheckCircle2,
   Clock, FileText, MessageSquare, Download, Star,
@@ -62,14 +63,14 @@ function RevisionCard({
           </Badge>
         </div>
         <div className="flex items-center gap-2">
-          <a
-            href={revision.fileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
+          <UploadedFileLink
+            fileUrl={revision.fileUrl}
+            fileName={revision.fileName}
+            mimeType={revision.fileType}
             className="flex items-center gap-1 text-xs text-primary hover:underline"
           >
             <Download className="h-3.5 w-3.5" /> Download
-          </a>
+          </UploadedFileLink>
           {canApprove && revision.status !== 'issued_for_construction' && (
             <Button
               variant="outline"
