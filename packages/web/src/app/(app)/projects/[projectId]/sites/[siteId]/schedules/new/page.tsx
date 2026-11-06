@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { scheduleApi, contractorApi } from '@/lib/api';
+import { scheduleApi, contractorApi, ApiError } from '@/lib/api';
 import { formErrorState } from '@/lib/workflows-form-errors';
+import { groupWorkPackagesForContractor, otherContractorPackageLabel } from '@/lib/workflows-schedule';
 import { Contractor, WorkPackage } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -33,8 +34,11 @@ export default function NewScheduleTaskPage() {
   const [submitting, setSubmitting]   = useState(false);
   const [error, setError]             = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+  const [loadError, setLoadError]     = useState('');
 
   function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
+
+  const packageGroups = groupWorkPackagesForContractor(packages, form.contractorId);
 
   useEffect(() => {
     if (!projectId || !siteId) return;
@@ -42,8 +46,12 @@ export default function NewScheduleTaskPage() {
       contractorApi.list({ isActive: true }),
       scheduleApi.listPackages(projectId, siteId),
     ])
-      .then(([c, p]) => { setContractors(c.contractors); setPackages(p.packages); })
-      .catch(() => {});
+      .then(([c, p]) => { setContractors(c.contractors); setPackages(p.packages); setLoadError(''); })
+      .catch((err) => setLoadError(
+        err instanceof ApiError
+          ? `Could not load contractors and work packages: ${err.message}`
+          : 'Could not load contractors and work packages. Refresh the page to try again.',
+      ));
   }, [projectId, siteId]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -69,7 +77,7 @@ export default function NewScheduleTaskPage() {
       const { task } = await scheduleApi.createTask(projectId, siteId, payload);
       router.push(`/projects/${projectId}/sites/${siteId}/schedules/${task.id}`);
     } catch (e) {
-      const shown = formErrorState(e, ['contractorId', 'title', 'area', 'plannedStartDate', 'plannedEndDate', 'plannedProgress'], 'Something went wrong');
+      const shown = formErrorState(e, ['contractorId', 'workPackageId', 'title', 'area', 'plannedStartDate', 'plannedEndDate', 'plannedProgress'], 'Something went wrong');
       setFieldErrors(shown.fieldErrors);
       setError(shown.message);
     } finally {
@@ -87,6 +95,13 @@ export default function NewScheduleTaskPage() {
         { label: 'New Task' },
       ]} />
       <PageHeader title="Add Schedule Task" subtitle="Create a new task for contractor tracking." />
+
+      {loadError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{loadError}</AlertDescription>
+        </Alert>
+      )}
 
       {error && (
         <Alert variant="destructive">
@@ -119,11 +134,23 @@ export default function NewScheduleTaskPage() {
                   label="Work Package (optional)"
                   value={form.workPackageId}
                   onChange={(e) => set('workPackageId', e.target.value)}
+                  error={fieldErrors.workPackageId?.[0]}
                 >
                   <option value="">No package — standalone task</option>
-                  {packages.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
+                  {packageGroups.own.length > 0 && (
+                    <optgroup label="This contractor's packages">
+                      {packageGroups.own.map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {packageGroups.others.length > 0 && (
+                    <optgroup label={form.contractorId ? "Other contractors' packages" : 'All packages'}>
+                      {packageGroups.others.map((p) => (
+                        <option key={p.id} value={p.id}>{otherContractorPackageLabel(p)}</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </Select>
               </div>
             )}
