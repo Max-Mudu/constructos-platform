@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { attendanceApi, workerApi, ApiError } from '@/lib/api';
+import { attendanceApi, workerApi } from '@/lib/api';
+import { formErrorState } from '@/lib/workflows-form-errors';
 import { Worker, AttendanceStatus } from '@/lib/types';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
@@ -60,7 +61,7 @@ export default function NewAttendancePage() {
       });
       router.push(`/projects/${projectId}/sites/${siteId}/attendance`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to create attendance record');
+      setError(formErrorState(err, [], 'Failed to create attendance record').message);
     } finally {
       setSaving(false);
     }

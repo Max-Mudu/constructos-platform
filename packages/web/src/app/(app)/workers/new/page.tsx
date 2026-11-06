@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { workerApi, ApiError } from '@/lib/api';
+import { workerApi } from '@/lib/api';
+import { formErrorState } from '@/lib/workflows-form-errors';
 import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -87,12 +88,9 @@ export default function NewWorkerPage() {
       // so a just-created (unassigned) worker's detail page would 404 for them.
       router.push(canSetWage ? `/workers/${worker.id}` : '/workers');
     } catch (e) {
-      if (e instanceof ApiError) {
-        if (e.details) setFieldErrors(e.details);
-        else setError(e.message);
-      } else {
-        setError('Something went wrong');
-      }
+      const shown = formErrorState(e, ['firstName', 'lastName', 'email', 'phone', 'idNumber', 'trade', 'dailyWage', 'emergencyContactName', 'emergencyContactPhone'], 'Something went wrong');
+      setFieldErrors(shown.fieldErrors);
+      setError(shown.message);
     } finally {
       setSubmitting(false);
     }

@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { scheduleApi, contractorApi, ApiError } from '@/lib/api';
+import { scheduleApi, contractorApi } from '@/lib/api';
+import { formErrorState } from '@/lib/workflows-form-errors';
 import { Contractor, WorkPackage } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -68,12 +69,9 @@ export default function NewScheduleTaskPage() {
       const { task } = await scheduleApi.createTask(projectId, siteId, payload);
       router.push(`/projects/${projectId}/sites/${siteId}/schedules/${task.id}`);
     } catch (e) {
-      if (e instanceof ApiError) {
-        if (e.details) setFieldErrors(e.details);
-        else setError(e.message);
-      } else {
-        setError('Something went wrong');
-      }
+      const shown = formErrorState(e, ['contractorId', 'title', 'area', 'plannedStartDate', 'plannedEndDate', 'plannedProgress'], 'Something went wrong');
+      setFieldErrors(shown.fieldErrors);
+      setError(shown.message);
     } finally {
       setSubmitting(false);
     }

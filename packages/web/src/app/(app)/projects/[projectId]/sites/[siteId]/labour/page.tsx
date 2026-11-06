@@ -40,10 +40,14 @@ export default function LabourPage() {
   function load(date?: string) {
     if (!projectId || !siteId) return;
     setLoading(true);
+    setError('');
     labourApi
       .list(projectId, siteId, date ? { date } : {})
       .then((d) => setEntries(d.entries))
-      .catch((e) => setError(e instanceof ApiError ? e.message : 'Failed to load entries'))
+      .catch((e) => {
+        setEntries([]);
+        setError(e instanceof ApiError ? e.message : 'Failed to load entries');
+      })
       .finally(() => setLoading(false));
   }
 
