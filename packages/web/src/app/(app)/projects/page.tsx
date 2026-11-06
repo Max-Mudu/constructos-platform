@@ -10,21 +10,16 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Badge } from '@/components/ui/Badge';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
-import { Building2, MapPin, Calendar, ChevronRight, AlertCircle } from 'lucide-react';
+import { Button } from '@/components/ui/Button';
+import { useAuthStore } from '@/store/auth.store';
+import {
+  canCreateProject, selectableStatuses, statusLabel, statusVariant,
+} from '@/lib/projects-admin-api';
+import { Building2, MapPin, Calendar, ChevronRight, AlertCircle, Plus } from 'lucide-react';
 
-const STATUS_OPTIONS = [
-  { label: 'Active',    value: 'active'    },
-  { label: 'On Hold',   value: 'on_hold'   },
-  { label: 'Completed', value: 'completed' },
-  { label: 'Cancelled', value: 'cancelled' },
-];
-
-function statusVariant(s: string): 'active' | 'pending' | 'secondary' | 'inactive' {
-  if (s === 'active')    return 'active';
-  if (s === 'on_hold')   return 'pending';
-  if (s === 'completed') return 'secondary';
-  return 'inactive';
-}
+// The API enum is planning/active/on_hold/completed/archived; archived
+// projects are never returned by GET /projects, so they are not a filter.
+const STATUS_OPTIONS = selectableStatuses();
 
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -32,6 +27,8 @@ export default function ProjectsPage() {
   const [error,    setError]    = useState('');
   const [search,   setSearch]   = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const user = useAuthStore((s) => s.user);
+  const canCreate = canCreateProject(user?.role);
 
   useEffect(() => {
     projectApi.list()
@@ -51,6 +48,11 @@ export default function ProjectsPage() {
       <PageHeader
         title="Projects"
         subtitle={`${projects.length} project${projects.length !== 1 ? 's' : ''} total`}
+        action={canCreate ? (
+          <Link href="/projects/new">
+            <Button><Plus className="h-4 w-4" /> New Project</Button>
+          </Link>
+        ) : undefined}
       />
 
       <SearchFilterBar
@@ -82,6 +84,10 @@ export default function ProjectsPage() {
         <EmptyState
           icon={<Building2 className="h-12 w-12" />}
           title={search || statusFilter ? 'No projects match your filter' : 'No projects yet'}
+          description={!search && !statusFilter && !canCreate
+            ? 'Ask your company admin to add you to a project.'
+            : undefined}
+          action={!search && !statusFilter && canCreate ? { label: 'New Project', href: '/projects/new' } : undefined}
         />
       ) : (
         <div className="space-y-2">
@@ -98,7 +104,7 @@ export default function ProjectsPage() {
                         {p.name}
                       </p>
                       <Badge variant={statusVariant(p.status)}>
-                        {p.status.replace(/_/g, ' ')}
+                        {statusLabel(p.status)}
                       </Badge>
                       {p.code && (
                         <span className="font-mono text-xs text-muted-foreground">{p.code}</span>
