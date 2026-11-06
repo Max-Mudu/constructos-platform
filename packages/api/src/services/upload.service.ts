@@ -2,6 +2,9 @@ import fs from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import os from 'os';
+import { StorageDriver } from './storage/types';
+import { LocalStorageDriver } from './storage/local';
+import { isValidStorageKey } from './storage/signed-url';
 
 // ── Storage root ──────────────────────────────────────────────────────────────
 
@@ -13,8 +16,28 @@ function getUploadDir(): string {
   return path.resolve(process.cwd(), 'uploads');
 }
 
-async function ensureDir(dir: string): Promise<void> {
-  await fs.mkdir(dir, { recursive: true });
+/** Directory that has always held delivery, drawing and instruction uploads. */
+export function legacyUploadRoot(): string {
+  return path.resolve(getUploadDir());
+}
+
+let legacyLocalDriver: LocalStorageDriver | undefined;
+
+/**
+ * Local driver rooted at the legacy upload directory: the same directory and
+ * key layout as before (`photos/<uuid>.jpg` → `<root>/photos/<uuid>.jpg`).
+ * Used for these uploads when STORAGE_DRIVER=local, and as the default when no
+ * driver is passed.
+ */
+export function legacyLocalUploadDriver(): StorageDriver {
+  return (legacyLocalDriver ??= new LocalStorageDriver(getUploadDir()));
+}
+
+/** Resolves `fileKey` strictly inside the legacy root, or null if it escapes. */
+function legacyPath(fileKey: string): string | null {
+  const root = legacyUploadRoot();
+  const resolved = path.resolve(root, fileKey);
+  return resolved.startsWith(root + path.sep) ? resolved : null;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -123,30 +146,28 @@ export interface UploadResult {
 }
 
 /**
- * Persists a file buffer to local disk.
+ * Persists a file buffer through the upload storage driver (default: local
+ * disk under the legacy upload root, exactly as before).
  * Returns metadata needed to save to the database.
  *
  * @param buffer       Raw file bytes
  * @param originalName Original filename (returned as fileName for display only)
  * @param mimeType     MIME type of the file
- * @param subdir       Sub-directory under the upload root (e.g. "photos", "documents")
+ * @param subdir       Key prefix (e.g. "photos", "documents")
+ * @param storage      Upload storage (routes pass `fastify.uploadStorage`)
  */
 export async function storeFile(
   buffer: Buffer,
   originalName: string,
   mimeType: string,
   subdir: string,
+  storage: StorageDriver = legacyLocalUploadDriver(),
 ): Promise<UploadResult> {
-  const uploadDir = getUploadDir();
-  const targetDir = path.join(uploadDir, subdir);
-  await ensureDir(targetDir);
-
   const ext    = storedFileExtension(mimeType);
   const fileId = randomUUID();
   const fileKey = `${subdir}/${fileId}${ext}`;
-  const filePath = path.join(uploadDir, fileKey);
 
-  await fs.writeFile(filePath, buffer);
+  await storage.put(fileKey, buffer, { contentType: mimeType });
 
   return {
     fileKey,
@@ -158,12 +179,23 @@ export async function storeFile(
 }
 
 /**
- * Removes a previously uploaded file from disk.
- * Silently ignores missing files (idempotent).
+ * Removes a previously uploaded file from the upload storage and, best effort,
+ * from the legacy local directory (files written before the storage driver
+ * was used for uploads). Silently ignores missing files (idempotent).
  */
-export async function removeFile(fileKey: string): Promise<void> {
-  const uploadDir = getUploadDir();
-  const filePath  = path.join(uploadDir, fileKey);
+export async function removeFile(
+  fileKey: string,
+  storage: StorageDriver = legacyLocalUploadDriver(),
+): Promise<void> {
+  if (isValidStorageKey(fileKey)) {
+    try {
+      await storage.delete(fileKey);
+    } catch {
+      // Best effort, as before: the database row is already gone.
+    }
+  }
+  const filePath = legacyPath(fileKey);
+  if (!filePath) return;
   try {
     await fs.unlink(filePath);
   } catch {
@@ -172,12 +204,22 @@ export async function removeFile(fileKey: string): Promise<void> {
 }
 
 /**
- * Reads a file from disk and returns its content.
- * Returns null if the file does not exist.
+ * Reads an uploaded file. Tries the upload storage first, then the legacy
+ * local directory, so files stored before a switch to STORAGE_DRIVER=s3 (or
+ * with keys the driver's strict key rules reject) are still served.
+ * Returns null if the file exists in neither. Storage errors other than
+ * "not found" propagate.
  */
-export async function readFile(fileKey: string): Promise<Buffer | null> {
-  const uploadDir = getUploadDir();
-  const filePath  = path.join(uploadDir, fileKey);
+export async function readFile(
+  fileKey: string,
+  storage: StorageDriver = legacyLocalUploadDriver(),
+): Promise<Buffer | null> {
+  if (isValidStorageKey(fileKey)) {
+    const stored = await storage.get(fileKey);
+    if (stored) return stored;
+  }
+  const filePath = legacyPath(fileKey);
+  if (!filePath) return null;
   try {
     return await fs.readFile(filePath);
   } catch {
