@@ -16,6 +16,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Table, TableHead, TableRow, TableHeader, TableBody, TableCell } from '@/components/ui/Table';
 import { Target, Plus, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
+import { canCreateInModule } from '@/lib/workflows-site-hub';
 
 function today(): string { return new Date().toISOString().split('T')[0]; }
 
@@ -38,6 +39,8 @@ export default function TargetsPage() {
   const [approving, setApproving] = useState<string | null>(null);
 
   const canApprove = user?.role === 'company_admin' || user?.role === 'project_manager' || user?.role === 'site_supervisor';
+  // finance_officer can view targets but the API rejects creating them.
+  const canCreate = canCreateInModule(user?.role, 'targets');
 
   const load = (d: string) => {
     if (!projectId || !siteId) return;
@@ -85,9 +88,11 @@ export default function TargetsPage() {
               onChange={(e) => setDate(e.target.value)}
               className="h-9 rounded-lg border border-border bg-navy-base px-3 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
-            <Link href={`/projects/${projectId}/sites/${siteId}/targets/new`}>
-              <Button><Plus className="h-4 w-4" /> Add Target</Button>
-            </Link>
+            {canCreate && (
+              <Link href={`/projects/${projectId}/sites/${siteId}/targets/new`}>
+                <Button><Plus className="h-4 w-4" /> Add Target</Button>
+              </Link>
+            )}
           </div>
         }
       />
@@ -114,7 +119,7 @@ export default function TargetsPage() {
         <EmptyState
           icon={<Target className="h-12 w-12" />}
           title="No targets set for this date"
-          action={{ label: 'Add Target', href: `/projects/${projectId}/sites/${siteId}/targets/new` }}
+          action={canCreate ? { label: 'Add Target', href: `/projects/${projectId}/sites/${siteId}/targets/new` } : undefined}
         />
       ) : (
         <Table>
