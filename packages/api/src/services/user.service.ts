@@ -389,6 +389,14 @@ const STATUS_USER_SELECT = {
  *
  * Access JWTs already issued stop working on the next request, because
  * middleware/authenticate.ts re-checks the user (active, same company) per request.
+ *
+ * Project access is a suspension, not a reset: project_members rows are not
+ * touched in either direction. On reactivation the user gets back exactly the
+ * memberships that are still active at that moment — any membership an admin
+ * removed while the user was inactive stays removed, and a defaultProjectId /
+ * defaultSiteId is only a preference that never grants access by itself
+ * (requireProjectAccess checks the live membership on every request).
+ * See tests/company-users-reactivation.test.ts.
  */
 export async function setCompanyUserStatus(
   targetUserId: string,
