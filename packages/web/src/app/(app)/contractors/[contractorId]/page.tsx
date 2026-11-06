@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Separator } from '@/components/ui/Separator';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { canManageContractors } from '../contractor-form';
 import { AlertCircle, Phone, Mail, Hash, Truck } from 'lucide-react';
 
 export default function ContractorDetailPage() {
@@ -23,8 +24,26 @@ export default function ContractorDetailPage() {
   const [contractor, setContractor]     = useState<Contractor | null>(null);
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState('');
+  const [confirming, setConfirming]     = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
+  const [actionError, setActionError]   = useState('');
 
-  const canManage = user?.role === 'company_admin' || user?.role === 'project_manager';
+  // PATCH / DELETE /contractors/:id are company_admin + project_manager (contractor.routes.ts).
+  const canManage = canManageContractors(user?.role);
+
+  async function handleDeactivate() {
+    setDeactivating(true);
+    setActionError('');
+    try {
+      await contractorApi.deactivate(contractorId);
+      setContractor((c) => (c ? { ...c, isActive: false } : c));
+      setConfirming(false);
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : 'Failed to deactivate contractor');
+    } finally {
+      setDeactivating(false);
+    }
+  }
 
   useEffect(() => {
     if (!contractorId) return;
@@ -60,9 +79,14 @@ export default function ContractorDetailPage() {
         title={contractor.name}
         actions={
           canManage ? (
-            <Link href={`/contractors/${contractorId}/edit`}>
-              <Button variant="outline" size="sm">Edit</Button>
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link href={`/contractors/${contractorId}/edit`}>
+                <Button variant="outline" size="sm">Edit</Button>
+              </Link>
+              {contractor.isActive && !confirming && (
+                <Button variant="destructive" size="sm" onClick={() => setConfirming(true)}>Deactivate</Button>
+              )}
+            </div>
           ) : undefined
         }
       />
@@ -79,6 +103,23 @@ export default function ContractorDetailPage() {
               {contractor.isActive ? 'Active' : 'Inactive'}
             </Badge>
           </div>
+          {actionError && (
+            <Alert variant="destructive"><AlertCircle /><AlertDescription>{actionError}</AlertDescription></Alert>
+          )}
+          {confirming && (
+            <Alert variant="destructive">
+              <AlertCircle />
+              <AlertDescription>
+                <span className="block">Deactivate {contractor.name}? Their history is kept and you can reactivate them from Edit.</span>
+                <span className="mt-2 flex gap-2">
+                  <Button variant="destructive" size="sm" disabled={deactivating} onClick={() => void handleDeactivate()}>
+                    {deactivating ? 'Deactivating…' : 'Confirm deactivate'}
+                  </Button>
+                  <Button variant="ghost" size="sm" disabled={deactivating} onClick={() => setConfirming(false)}>Cancel</Button>
+                </span>
+              </AlertDescription>
+            </Alert>
+          )}
         </div>
 
         <Card>

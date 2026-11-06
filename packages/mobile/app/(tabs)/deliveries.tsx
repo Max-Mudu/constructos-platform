@@ -534,30 +534,28 @@ export default function DeliveriesScreen() {
     const statusQ   = opts.statusF   ?? statusFilter;
     const newOffset = opts.reset ? 0 : offset;
 
+    // "Pending" means no acceptance decision yet (null), which the API's
+    // acceptanceStatus enum filter cannot express — filter that one locally.
+    const pendingOnly = statusQ === 'pending_inspection';
     try {
       const res      = await deliveriesApi.list({
         projectId:        pid,
         siteId:           sid,
         search:           searchQ || undefined,
-        acceptanceStatus: statusQ || undefined,
+        acceptanceStatus: statusQ && !pendingOnly ? statusQ : undefined,
         limit:  PAGE_SIZE,
         offset: newOffset,
       });
-      const fetched  = Array.isArray(res?.records) ? res.records : [];
+      const fetched = Array.isArray(res?.records) ? res.records : [];
+      const shown   = pendingOnly ? fetched.filter((d) => d.acceptanceStatus == null) : fetched;
+      const next    = [...(opts.reset || newOffset === 0 ? [] : (records ?? [])), ...shown];
 
-      // Backend ignores acceptanceStatus param — filter client-side
-      const filtered =
-        statusQ === ''                  ? fetched :
-        statusQ === 'pending_inspection'? fetched.filter((d) => d.acceptanceStatus == null) :
-                                          fetched.filter((d) => d.acceptanceStatus === statusQ);
-
-      if (opts.reset || newOffset === 0) {
-        setRecords(filtered);
-      } else {
-        setRecords((prev) => [...(prev ?? []), ...filtered]);
-      }
-      setTotal(filtered.length);
-      setOffset(newOffset + filtered.length);
+      setRecords(next);
+      // Server-side paging: advance by what the server returned.
+      setOffset(newOffset + fetched.length);
+      setTotal(pendingOnly
+        ? next.length + (res.pagination.hasMore ? 1 : 0) // remainder unknown until fetched
+        : res.pagination.total);
     } catch { /* non-fatal */ }
   }
 

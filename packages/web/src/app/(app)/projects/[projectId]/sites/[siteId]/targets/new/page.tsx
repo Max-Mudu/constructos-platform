@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { targetsApi, workerApi, ApiError } from '@/lib/api';
+import { formErrorState } from '@/lib/workflows-form-errors';
+import { localToday } from '@/lib/workflows-dates';
 import { Worker } from '@/lib/types';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
@@ -11,16 +13,12 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
 
-function today(): string {
-  return new Date().toISOString().split('T')[0];
-}
-
 export default function NewTargetPage() {
   const { projectId, siteId } = useParams<{ projectId: string; siteId: string }>()!;
   const router = useRouter();
 
   const [workers,      setWorkers]      = useState<Worker[]>([]);
-  const [date,         setDate]         = useState(today());
+  const [date,         setDate]         = useState(() => localToday());
   const [description,  setDescription]  = useState('');
   const [targetValue,  setTargetValue]  = useState('');
   const [targetUnit,   setTargetUnit]   = useState('');
@@ -29,18 +27,26 @@ export default function NewTargetPage() {
   const [notes,        setNotes]        = useState('');
   const [saving,       setSaving]       = useState(false);
   const [error,        setError]        = useState('');
+  const [workersError, setWorkersError] = useState('');
+  const [workersLoaded, setWorkersLoaded] = useState(false);
 
   useEffect(() => {
     if (!projectId || !siteId) return;
     workerApi.listSiteWorkers(projectId, siteId)
-      .then((d) => setWorkers(d.workers))
-      .catch(() => {});
+      .then((d) => { setWorkers(d.workers); setWorkersLoaded(true); })
+      .catch((err) => setWorkersError(
+        `Could not load this site's workers: ${err instanceof ApiError ? err.message : 'request failed'}`,
+      ));
   }, [projectId, siteId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!description || !targetValue || !targetUnit) {
       setError('Description, target value, and unit are required');
+      return;
+    }
+    if (!(parseFloat(targetValue) > 0)) {
+      setError('Target value must be greater than 0');
       return;
     }
     setSaving(true);
@@ -57,7 +63,7 @@ export default function NewTargetPage() {
       });
       router.push(`/projects/${projectId}/sites/${siteId}/targets`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to create target');
+      setError(formErrorState(err, [], 'Failed to create target').message);
     } finally {
       setSaving(false);
     }
@@ -164,6 +170,10 @@ export default function NewTargetPage() {
                   </option>
                 ))}
               </select>
+              {workersError && <p className="text-xs text-red-400">{workersError}</p>}
+              {workersLoaded && workers.length === 0 && (
+                <p className="text-xs text-muted-foreground">No workers are assigned to this site yet — the target will be site-wide.</p>
+              )}
             </div>
 
             {/* Notes */}

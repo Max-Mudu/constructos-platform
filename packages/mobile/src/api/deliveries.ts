@@ -11,16 +11,21 @@ export const deliveriesApi = {
     limit?:            number;
     offset?:           number;
   }): Promise<{ records: DeliveryRecord[]; pagination: { total: number; limit: number; offset: number; hasMore: boolean } }> => {
-    const { projectId, siteId, ...rest } = params ?? {};
-    if (!projectId || !siteId) return { records: [], pagination: { total: 0, limit: 0, offset: 0, hasMore: false } };
-    const res = await apiClient.get<{ deliveries: DeliveryRecord[]; pagination?: { total: number; limit: number; offset: number; hasMore: boolean } }>(
-      `/projects/${projectId}/sites/${siteId}/deliveries`,
-      { params: rest },
-    );
-    const deliveries = Array.isArray(res.data?.deliveries) ? res.data.deliveries : [];
+    const empty = { records: [], pagination: { total: 0, limit: 0, offset: 0, hasMore: false } };
+    if (!params?.projectId || !params.siteId) return empty;
+    // GET /api/v1/deliveries (mobile.routes) applies projectId/siteId scope,
+    // supplier search, date, acceptanceStatus and limit/offset server-side and
+    // includes photos. The site route ignores every query param and returns
+    // records without `photos`.
+    const res = await apiClient.get<{
+      records:     DeliveryRecord[];
+      pagination?: { total: number; limit: number; offset: number; hasMore: boolean };
+    }>('/deliveries', { params });
+    const records = (Array.isArray(res.data?.records) ? res.data.records : [])
+      .map((r) => ({ ...r, photos: Array.isArray(r.photos) ? r.photos : [] }));
     return {
-      records:    deliveries,
-      pagination: res.data.pagination ?? { total: deliveries.length, limit: deliveries.length, offset: 0, hasMore: false },
+      records,
+      pagination: res.data.pagination ?? { total: records.length, limit: records.length, offset: 0, hasMore: false },
     };
   },
 

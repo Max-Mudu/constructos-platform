@@ -705,6 +705,7 @@ export default function ScheduleScreen() {
         setSites(allSites);
 
         const allTasks: ScheduleTaskWithContext[] = [];
+        let failedSites = 0;
         for (const site of allSites) {
           const project = projectList.find((p) => p.id === site.projectId);
           try {
@@ -712,7 +713,14 @@ export default function ScheduleScreen() {
             siteTasks.forEach((task) => {
               allTasks.push({ ...task, projectName: project?.name, siteName: site.name });
             });
-          } catch { /* skip */ }
+          } catch (err) {
+            // 403/404: a site outside this user's scope — expected, skip it.
+            const status = (err as { response?: { status?: number } })?.response?.status;
+            if (status !== 403 && status !== 404) failedSites++;
+          }
+        }
+        if (failedSites > 0 && failedSites === allSites.length) {
+          throw new Error('Could not load schedule tasks. Check your connection and pull to refresh.');
         }
 
         allTasks.sort((a, b) => {
@@ -729,6 +737,12 @@ export default function ScheduleScreen() {
           setContractors(cl);
         } catch { /* non-fatal */ }
       }
+    } catch (err) {
+      const msg =
+        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+        (err as Error)?.message ??
+        'Could not load the schedule.';
+      Alert.alert('Schedule', msg);
     } finally {
       setLoading(false);
     }

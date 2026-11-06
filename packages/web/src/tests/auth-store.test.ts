@@ -1,4 +1,8 @@
-import { act } from 'react';
+// React is deduped to 18.2.0 across the workspace (commit 115a578, required by
+// React Native 0.74 in packages/mobile). React 18.2 does not export `act` from
+// 'react' (that arrived in 18.3), so use the Testing Library re-export, which
+// delegates to react-dom/test-utils on 18.2 and React.act on newer versions.
+import { act } from '@testing-library/react';
 import { useAuthStore } from '@/store/auth.store';
 import { AuthUser } from '@/lib/types';
 

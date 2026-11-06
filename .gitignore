@@ -9,3 +9,22 @@ dist/
 prisma/migrations/*.sql.bak
 coverage/
 packages/api/uploads/
+
+# TypeScript incremental build output
+*.tsbuildinfo
+
+# Mobile signing / store credentials — never commit
+google-service-account.json
+credentials.json
+*.keystore
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+
+# Stray Windows profile folder created by tooling in packages/mobile
+%ProgramData%/
+
+# Local agent ledgers
+.unlazy/
+.unlazy-hook-state.json
