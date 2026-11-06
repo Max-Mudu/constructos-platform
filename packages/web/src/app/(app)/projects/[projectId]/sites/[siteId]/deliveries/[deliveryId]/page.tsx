@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { deliveryApi, ApiError } from '@/lib/api';
 import { DeliveryRecord, DeliveryPhoto, DeliveryDocument } from '@/lib/types';
+import { acceptanceDisplay } from '@/lib/workflows-delivery';
 import { useAuthStore } from '@/store/auth.store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -51,10 +52,9 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
   );
 }
 
-function acceptanceBadge(status: DeliveryRecord['acceptanceStatus']) {
-  if (status === 'accepted')           return <Badge variant="active">Accepted</Badge>;
-  if (status === 'partially_accepted') return <Badge variant="secondary">Partially Accepted</Badge>;
-  return                                      <Badge variant="destructive">Rejected</Badge>;
+function acceptanceBadge(status: DeliveryRecord['acceptanceStatus'] | null) {
+  const { label, variant } = acceptanceDisplay(status);
+  return <Badge variant={variant}>{label}</Badge>;
 }
 
 function inspectionBadge(status: DeliveryRecord['inspectionStatus']) {

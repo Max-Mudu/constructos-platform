@@ -3,7 +3,8 @@
 import { useState, useEffect, FormEvent, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { deliveryApi, supplierApi, ApiError } from '@/lib/api';
+import { deliveryApi, supplierApi } from '@/lib/api';
+import { formErrorState } from '@/lib/workflows-form-errors';
 import { DeliveryCondition, InspectionStatus, AcceptanceStatus, Supplier } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -106,12 +107,9 @@ export default function NewDeliveryPage() {
       });
       router.push(`/projects/${projectId}/sites/${siteId}/deliveries`);
     } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.details) setFieldErrors(err.details);
-        else setError(err.message);
-      } else {
-        setError('Failed to save delivery record');
-      }
+      const shown = formErrorState(err, ['supplierName', 'deliveryDate', 'itemDescription'], 'Failed to save delivery record');
+      setFieldErrors(shown.fieldErrors);
+      setError(shown.message);
       setSubmitting(false);
     }
   }

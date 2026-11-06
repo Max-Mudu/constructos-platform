@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { workerApi, ApiError } from '@/lib/api';
+import { formErrorState, currencyOptions } from '@/lib/workflows-form-errors';
 import { WorkerEmploymentStatus } from '@/lib/types';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -93,12 +94,9 @@ export default function EditWorkerPage() {
       });
       router.push(`/workers/${workerId}`);
     } catch (e) {
-      if (e instanceof ApiError) {
-        if (e.details) setFieldErrors(e.details);
-        else setError(e.message);
-      } else {
-        setError('Something went wrong');
-      }
+      const shown = formErrorState(e, ['firstName', 'lastName', 'email', 'phone', 'idNumber', 'trade', 'dailyWage', 'emergencyContactName', 'emergencyContactPhone'], 'Something went wrong');
+      setFieldErrors(shown.fieldErrors);
+      setError(shown.message);
     } finally {
       setSubmitting(false);
     }
@@ -194,10 +192,9 @@ export default function EditWorkerPage() {
                   value={form.currency}
                   onChange={(e) => set('currency', e.target.value)}
                 >
-                  <option value="KES">KES</option>
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
-                  <option value="GBP">GBP</option>
+                  {currencyOptions(form.currency).map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
                 </Select>
               </>
             )}

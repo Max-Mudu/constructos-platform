@@ -703,7 +703,14 @@ export default function ReportsPage() {
                   <label className="text-xs font-medium text-muted-foreground">Project *</label>
                   <select
                     value={projectId}
-                    onChange={(e) => { setProjectId(e.target.value); setReportData(null); }}
+                    onChange={(e) => {
+                      // A site belongs to one project: never carry it over, or
+                      // "Generate" stays enabled and the API answers "Site not found".
+                      setProjectId(e.target.value);
+                      setSiteId('');
+                      setSites([]);
+                      setReportData(null);
+                    }}
                     className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                   >
                     <option value="">Select project…</option>

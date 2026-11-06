@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { targetsApi, workerApi, ApiError } from '@/lib/api';
+import { targetsApi, workerApi } from '@/lib/api';
+import { formErrorState } from '@/lib/workflows-form-errors';
 import { Worker } from '@/lib/types';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
@@ -43,6 +44,10 @@ export default function NewTargetPage() {
       setError('Description, target value, and unit are required');
       return;
     }
+    if (!(parseFloat(targetValue) > 0)) {
+      setError('Target value must be greater than 0');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -57,7 +62,7 @@ export default function NewTargetPage() {
       });
       router.push(`/projects/${projectId}/sites/${siteId}/targets`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to create target');
+      setError(formErrorState(err, [], 'Failed to create target').message);
     } finally {
       setSaving(false);
     }
