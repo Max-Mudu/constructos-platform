@@ -11,6 +11,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { NAV_ITEMS } from '@/components/sidebar/nav-config';
+import { SITE_MODULES } from '@/lib/workflows-site-hub';
 
 const APP_DIR = path.resolve(__dirname, '..', 'app', '(app)');
 const DAILY_DIR = path.resolve(__dirname, '..', 'app', '(daily)');
@@ -38,52 +39,56 @@ function pageExists(href: string): boolean {
 // ── Sidebar nav items ─────────────────────────────────────────────────────────
 
 /**
- * Site-context shortcuts. Sidebar.tsx (since 4c456a3 / eb268b2) does not link
- * these hrefs directly: it hides them unless the user has a default project and
- * site, and then links to /projects/:projectId/sites/:siteId<href>. The list is
- * read from Sidebar.tsx itself so this test follows the real link logic instead
- * of a hand-maintained copy.
+ * Sidebar.tsx links every nav item to its own href. Site workflows (attendance,
+ * labour, targets, inventory, deliveries, schedules) used to be rewritten to
+ * /projects/:projectId/sites/:siteId<href> and hidden without a default site;
+ * they now link to top-level hub pages (SiteModuleHub) that open the default
+ * site or a site picker. Sidebar.tsx is read here so the test follows the real
+ * link logic instead of a hand-maintained copy.
  */
 const SIDEBAR_SRC = fs.readFileSync(
   path.resolve(__dirname, '..', 'components', 'sidebar', 'Sidebar.tsx'),
   'utf8',
 );
 
-function siteContextShortcutHrefs(): string[] {
-  const m = SIDEBAR_SRC.match(/const isDefaultsShortcut\s*=\s*([^;]+);/);
-  if (!m) throw new Error('isDefaultsShortcut not found in Sidebar.tsx — update route-integrity.test.ts');
-  return Array.from(m[1].matchAll(/item\.href === '([^']+)'/g), (x) => x[1]);
-}
+const SITE_MODULE_HREFS = SITE_MODULES.map((m) => `/${m}`);
 
-const SITE_CONTEXT_SHORTCUTS = new Set(siteContextShortcutHrefs());
-
-/** The page a sidebar link actually points at, for a user with defaults set. */
-function sidebarTargetExists(href: string): boolean {
-  if (SITE_CONTEXT_SHORTCUTS.has(href)) {
-    return pageExists(`/projects/[projectId]/sites/[siteId]${href}`);
-  }
-  return pageExists(href);
+/** True when the page at `href` is a SiteModuleHub for `module`. */
+function isHubPageFor(href: string, module: string): boolean {
+  const file = resolvePagePath(href);
+  if (!fs.existsSync(file)) return false;
+  const src = fs.readFileSync(file, 'utf8');
+  return src.includes('SiteModuleHub') && src.includes(`module="${module}"`);
 }
 
 describe('Sidebar nav links — all hrefs resolve to a real page.tsx', () => {
-  it('site-context shortcut list was parsed from Sidebar.tsx (positive control)', () => {
-    expect(Array.from(SITE_CONTEXT_SHORTCUTS).sort()).toEqual(
-      ['/attendance', '/deliveries', '/inventory', '/labour', '/schedules'],
-    );
+  it('Sidebar links item.href directly, with no site-context rewrite (positive control)', () => {
+    expect(SIDEBAR_SRC).toMatch(/href=\{item\.href\}/);
+    expect(SIDEBAR_SRC).not.toMatch(/isDefaultsShortcut|resolvedHref|\/sites\/\$\{/);
   });
 
   it.each(NAV_ITEMS.map((item) => [item.label, item.href]))(
     '%s (%s) has a corresponding page.tsx',
     (_label, href) => {
-      expect(sidebarTargetExists(href as string)).toBe(true);
+      expect(pageExists(href as string)).toBe(true);
     },
   );
 
-  it('a site-context shortcut with no site-scoped page fails to resolve (negative control)', () => {
+  it('every site workflow in the sidebar is a hub over a real site-scoped page', () => {
+    const navSiteModules = NAV_ITEMS.map((i) => i.href).filter((h) => SITE_MODULE_HREFS.includes(h));
+    expect(navSiteModules.sort()).toEqual([...SITE_MODULE_HREFS].sort());
+    for (const href of navSiteModules) {
+      expect(isHubPageFor(href, href.slice(1))).toBe(true);
+      expect(pageExists(`/projects/[projectId]/sites/[siteId]${href}`)).toBe(true);
+    }
+  });
+
+  it('paths that do not exist fail to resolve (negative control)', () => {
+    expect(pageExists('/no-such-module')).toBe(false);
     expect(pageExists('/projects/[projectId]/sites/[siteId]/no-such-page')).toBe(false);
-    // /inventory has no top-level page; only the site-scoped one exists.
-    expect(pageExists('/inventory')).toBe(false);
-    expect(sidebarTargetExists('/inventory')).toBe(true);
+    // The hub detector rejects a real page that is not a hub, and a hub for another module.
+    expect(isHubPageFor('/dashboard', 'dashboard')).toBe(false);
+    expect(isHubPageFor('/inventory', 'deliveries')).toBe(false);
   });
 });
 
@@ -100,6 +105,10 @@ describe('Critical app routes exist', () => {
     '/labour',
     '/attendance',
     '/targets',
+    '/inventory',
+    '/deliveries',
+    '/schedules',
+    '/settings/team',
     '/contractors',
     '/contractors/new',
     '/consultants',

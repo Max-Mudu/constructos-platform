@@ -3,28 +3,18 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import {
-  LayoutDashboard, Building2, HardHat, ClipboardCheck, ClipboardList, Target,
-  Truck, UserCheck, FileStack, PieChart, Receipt, Lock,
-  ScrollText, Settings, LogOut, Menu, X, Bell, Layers, Package, CalendarDays,
-  BarChart2, ClipboardPen,
-} from 'lucide-react';
+import { Building2, Lock, LogOut, Menu, X } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi } from '@/lib/api';
-import { getVisibleNavItems } from './nav-config';
+import { activeNavHref, getVisibleNavItems } from './nav-config';
+import { NAV_ICON_MAP } from './nav-icons';
 import { cn } from '@/lib/utils';
 import { Separator } from '@/components/ui/Separator';
 import { NotificationBell } from '@/components/notifications/NotificationBell';
 import { useSSE } from '@/providers/SSEProvider';
 
-const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
-  LayoutDashboard, Building2, HardHat, ClipboardCheck, ClipboardList, Target,
-  Truck, UserCheck, FileStack, PieChart, Receipt, Lock,
-  ScrollText, Settings, Bell, Layers, Package, CalendarDays, BarChart2, ClipboardPen,
-};
-
 function NavIcon({ name, className }: { name: string; className?: string }) {
-  const Icon = ICON_MAP[name];
+  const Icon = NAV_ICON_MAP[name];
   return Icon ? <Icon className={className} /> : null;
 }
 
@@ -55,6 +45,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   if (!user) return null;
 
   const visibleItems = getVisibleNavItems(user.role, user.canViewFinance);
+  const activeHref = activeNavHref(visibleItems.map((i) => i.href), pathname);
 
   // Group items by their `group` field, preserving order
   type Group = { group: string; items: typeof visibleItems };
@@ -102,18 +93,14 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             )}
             <ul className="space-y-0.5">
               {items.map((item) => {
-                const isDefaultsShortcut = item.href === '/inventory' || item.href === '/deliveries' || item.href === '/schedules' || item.href === '/labour' || item.href === '/attendance';
-                if (isDefaultsShortcut && !(user.defaultProjectId && user.defaultSiteId)) return null;
-                const resolvedHref = (isDefaultsShortcut && user.defaultProjectId && user.defaultSiteId)
-                  ? `/projects/${user.defaultProjectId}/sites/${user.defaultSiteId}${item.href}`
-                  : item.href;
-                const active =
-                  pathname === resolvedHref ||
-                  (resolvedHref !== '/dashboard' && pathname.startsWith(resolvedHref + '/'));
+                // Site workflows (Attendance, Labour, Targets, Inventory, Deliveries,
+                // Schedules) link to their top-level hub, which opens the user's
+                // default site when it is still reachable or offers a site picker.
+                const active = item.href === activeHref;
                 return (
                   <li key={item.href}>
                     <Link
-                      href={resolvedHref}
+                      href={item.href}
                       onClick={onNavigate}
                       className={cn(
                         'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
