@@ -20,6 +20,7 @@ import {
   Trash2, Plus, Calendar, User, Building2, FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { localToday } from '@/lib/workflows-dates';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -70,7 +71,7 @@ function RecordPaymentForm({
   const [error,   setError]   = useState('');
   const [form, setForm] = useState({
     amount:      '',
-    paymentDate: new Date().toISOString().split('T')[0],
+    paymentDate: localToday(),
     method:      'bank_transfer',
     reference:   '',
     notes:       '',
@@ -98,7 +99,7 @@ function RecordPaymentForm({
         reference:   form.reference.trim() || undefined,
         notes:       form.notes.trim()     || undefined,
       });
-      setForm({ amount: '', paymentDate: new Date().toISOString().split('T')[0], method: 'bank_transfer', reference: '', notes: '' });
+      setForm({ amount: '', paymentDate: localToday(), method: 'bank_transfer', reference: '', notes: '' });
       setOpen(false);
       onRecorded();
     } catch (e) {
