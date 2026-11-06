@@ -30,8 +30,40 @@ describe('uploadedFileUrl', () => {
     ['/uploads/../.env'],
     ['/uploads/photos/../../secret'],
     ['/uploads/photos//x.jpg'],
+    // Inputs the WHATWG URL parser would normalise onto another API path.
+    ['/uploads/%2e%2e/api/v1/auth/me'],
+    ['/uploads/.%2E/api/v1/auth/me'],
+    ['/uploads/%2E./api/v1/auth/me'],
+    ['/uploads/..\\api/v1/auth/me'],
+    ['/uploads/photos\\..\\..\\api/v1/auth/me'],
+    ['/uploads/photos%2F..%2F..%2Fapi'],
+    ['/uploads/photos/a%00.jpg'],
+    ['/uploads/photos/a%0a.jpg'],
+    ['/uploads/photos/a\u0000.jpg'],
+    ['/uploads/photos/a\n.jpg'],
+    ['/uploads/photos/a\t.jpg'],
+    ['/uploads/photos/a .jpg'],
+    ['/uploads//evil.com/x.jpg'],
+    ['/uploads/\\\\evil.com/x.jpg'],
+    ['/api/v1/uploads/%2e%2e/api/v1/auth/me'],
+    ['/uploads/photos/a.jpg?redirect=1'],
+    ['/uploads/photos/a.jpg#frag'],
+    ['/uploads/photos/a@evil.com'],
   ])('rejects %p so the token is never sent elsewhere', (value) => {
     expect(uploadedFileUrl(value as string | null | undefined, ORIGIN)).toBeNull();
+  });
+
+  it('positive control: a real API key shape is accepted', () => {
+    const key = '/uploads/photos/0b6f3c2e-1a2b-4c5d-8e9f-0123456789ab.jpeg';
+    expect(uploadedFileUrl(key, ORIGIN)).toBe(`${ORIGIN}${key}`);
+  });
+
+  it('keeps a path prefix on the API URL and still pins the origin', () => {
+    expect(uploadedFileUrl('/uploads/a/b.png', 'https://h.test/api/')).toBe('https://h.test/api/uploads/a/b.png');
+  });
+
+  it('rejects an unparseable API origin', () => {
+    expect(uploadedFileUrl('/uploads/a/b.png', 'not a url')).toBeNull();
   });
 
   it('defaults to NEXT_PUBLIC_API_URL without a trailing slash', () => {

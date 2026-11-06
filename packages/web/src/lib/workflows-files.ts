@@ -29,8 +29,31 @@ export function uploadedFileUrl(fileUrl: string | null | undefined, origin: stri
   const path = fileUrl.startsWith('/api/v1/uploads/') ? fileUrl.slice('/api/v1'.length) : fileUrl;
   if (!path.startsWith('/uploads/')) return null;
   const key = path.slice('/uploads/'.length);
-  if (!key || key.split('/').some((seg) => seg === '..' || seg === '.' || seg === '')) return null;
-  return `${origin}${path}`;
+  // Keys written by the API are "<subdir>/<uuid><ext>". Refuse anything the URL
+  // parser could reinterpret: percent-escapes ("%2e%2e" is a dot-segment,
+  // "%2F" a slash), backslashes (parsed as "/"), "?"/"#", whitespace and
+  // control characters.
+  if (!key || !/^[A-Za-z0-9._\-/]+$/.test(key)) return null;
+  if (key.split('/').some((seg) => seg === '..' || seg === '.' || seg === '')) return null;
+
+  let base: URL;
+  let url: URL;
+  let expected: string;
+  try {
+    base = new URL(origin);
+    // Keep a path prefix on NEXT_PUBLIC_API_URL, as next.config.js does.
+    const prefix = base.pathname.replace(/\/+$/, '');
+    expected = `${prefix}${path}`;
+    url = new URL(expected, base.origin);
+  } catch {
+    return null;
+  }
+  // Defence in depth: the parsed URL must be exactly the API origin plus the
+  // unmodified path — no normalisation, no query, no fragment.
+  if (url.origin !== base.origin) return null;
+  if (url.pathname !== expected || !url.pathname.endsWith(path)) return null;
+  if (url.search || url.hash || url.username || url.password) return null;
+  return url.href;
 }
 
 export interface FetchUploadedFileDeps {
