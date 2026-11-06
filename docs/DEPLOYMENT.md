@@ -15,6 +15,11 @@
 
 Set these in **Railway → Service → Variables** before the first deploy.
 
+> The complete, current list of API variables (including proxy, SMTP, storage
+> and Daily Report settings) and the production rules for each is in
+> [`packages/api/docs/PRODUCTION-CONFIG.md`](../packages/api/docs/PRODUCTION-CONFIG.md).
+> The `AWS_*` variables below are no longer read; use the `S3_*` variables.
+
 ### API service
 
 | Variable               | Required | Notes |

@@ -174,7 +174,7 @@ export async function instructionRoutes(fastify: FastifyInstance): Promise<void>
           });
         }
 
-        const stored = await storeFile(buffer, data.filename, data.mimetype, 'instructions');
+        const stored = await storeFile(buffer, data.filename, data.mimetype, 'instructions', fastify.uploadStorage);
 
         const attachment = await instructionService.addAttachment(
           instructionId, projectId, stored, request.user,
