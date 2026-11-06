@@ -4,7 +4,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
-import { dateOnly, localToday, todayInTimeZone } from '@/lib/workflows-dates';
+import { dateOnly, formatCalendarDate, localToday, todayInTimeZone } from '@/lib/workflows-dates';
 
 describe('localToday', () => {
   it('uses the local calendar date (constructed from local fields, so TZ-independent)', () => {
@@ -50,7 +50,7 @@ describe('dateOnly', () => {
 
 describe('site workflow pages no longer derive "today" from the UTC date', () => {
   const APP = path.resolve(__dirname, '..', 'app', '(app)');
-  const DIRS = ['projects', 'consultants', 'drawings', 'contractors', 'attendance', 'labour', 'targets'];
+  const DIRS = ['projects', 'consultants', 'drawings', 'contractors', 'attendance', 'labour', 'targets', 'invoices', 'reports'];
   const UTC_TODAY = /new Date\(\)\.toISOString\(\)\.(split\('T'\)\[0\]|slice\(0,\s*10\)|substring\(0,\s*10\))/;
 
   function files(dir: string): string[] {
@@ -84,8 +84,44 @@ describe('site workflow pages no longer derive "today" from the UTC date', () =>
       path.join(S, 'schedules', '[taskId]', 'page.tsx'),
       path.join(S, 'deliveries', 'new', 'page.tsx'),
       path.join(APP, 'consultants', 'instructions', 'new', 'page.tsx'),
+      path.join(APP, 'invoices', 'new', 'page.tsx'),
+      path.join(APP, 'invoices', '[invoiceId]', 'page.tsx'),
+      path.join(APP, 'reports', 'page.tsx'),
     ]) {
       expect(fs.readFileSync(f, 'utf8')).toMatch(/localToday\(\)/);
+    }
+  });
+});
+
+describe('formatCalendarDate', () => {
+  it('formats the stored calendar date itself, whatever the browser zone', () => {
+    expect(formatCalendarDate('2026-11-06T00:00:00.000Z')).toBe('06 Nov 2026');
+    expect(formatCalendarDate('2026-11-06T00:00:00.000Z', 'long')).toBe('06 November 2026');
+    expect(formatCalendarDate('2026-01-01')).toBe('01 Jan 2026');
+  });
+
+  it('positive control: formatting in a zone west of UTC moves the day', () => {
+    const old = new Date('2026-11-06T00:00:00.000Z').toLocaleDateString('en-GB', {
+      day: '2-digit', month: 'short', year: 'numeric', timeZone: 'America/New_York',
+    });
+    expect(old).toBe('05 Nov 2026');
+  });
+
+  it('handles empty and non-date values', () => {
+    expect(formatCalendarDate(null)).toBe('—');
+    expect(formatCalendarDate('')).toBe('—');
+    expect(formatCalendarDate('soon')).toBe('soon');
+  });
+
+  it('date-only fields on the labour, delivery and inventory pages use it', () => {
+    const S = path.resolve(__dirname, '..', 'app', '(app)', 'projects', '[projectId]', 'sites', '[siteId]');
+    for (const f of [
+      path.join(S, 'labour', 'page.tsx'),
+      path.join(S, 'deliveries', 'page.tsx'),
+      path.join(S, 'deliveries', '[deliveryId]', 'page.tsx'),
+      path.join(S, 'inventory', 'page.tsx'),
+    ]) {
+      expect(fs.readFileSync(f, 'utf8')).toMatch(/formatCalendarDate\(/);
     }
   });
 });

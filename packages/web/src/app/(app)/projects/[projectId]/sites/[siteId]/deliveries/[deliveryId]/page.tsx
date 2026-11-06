@@ -7,6 +7,7 @@ import { deliveryApi, ApiError } from '@/lib/api';
 import { DeliveryRecord, DeliveryPhoto, DeliveryDocument } from '@/lib/types';
 import { formatQuantity } from '@/components/projects/format-quantity';
 import { acceptanceDisplay } from '@/lib/workflows-delivery';
+import { formatCalendarDate } from '@/lib/workflows-dates';
 import { useAuthStore } from '@/store/auth.store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -28,11 +29,8 @@ const DELETE_ROLES = ['company_admin', 'project_manager'] as const;
 function canWrite(role: string) { return (WRITE_ROLES as readonly string[]).includes(role); }
 function canDelete(role: string) { return (DELETE_ROLES as readonly string[]).includes(role); }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'long', year: 'numeric',
-  });
-}
+// deliveryDate is a calendar date: format it without a time-zone shift.
+const formatDate = (iso: string) => formatCalendarDate(iso, 'long');
 
 function formatDateTime(iso: string) {
   return new Date(iso).toLocaleString('en-GB', {
@@ -344,11 +342,11 @@ export default function DeliveryDetailPage() {
             <DetailRow label="Inspection"   value={inspectionBadge(delivery.inspectionStatus)} />
             <DetailRow label="Acceptance"   value={acceptanceBadge(delivery.acceptanceStatus)} />
             {hasDiscrepancy && (
-              <>
-                <DetailRow label="Rejection Reason"   value={delivery.rejectionReason} />
-                <DetailRow label="Discrepancy Notes"  value={delivery.discrepancyNotes} />
-              </>
+              <DetailRow label="Rejection Reason"   value={delivery.rejectionReason} />
             )}
+            {/* Notes can be recorded whatever the decision (e.g. "20 bars short"
+                on an accepted load); DetailRow hides an empty value. */}
+            <DetailRow label="Discrepancy Notes"  value={delivery.discrepancyNotes} />
           </dl>
         </CardContent>
       </Card>

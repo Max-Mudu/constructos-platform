@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { reportApi, projectApi, siteApi, ApiError } from '@/lib/api';
 import { ReportData, ReportType, ReportFormat, UserRole } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
+import { localToday } from '@/lib/workflows-dates';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -78,7 +79,7 @@ const REPORT_CONFIGS: ReportConfig[] = [
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return localToday();
 }
 
 function monthStart() {

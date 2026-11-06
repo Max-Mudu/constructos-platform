@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { labourApi, workerApi } from '@/lib/api';
 import { formErrorState } from '@/lib/workflows-form-errors';
 import { localToday } from '@/lib/workflows-dates';
+import { rateForWorker } from '@/lib/workflows-labour';
 import { Worker } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/Button';
@@ -56,7 +57,7 @@ export default function NewLabourEntryPage() {
           setForm((f) => ({
             ...f,
             workerId:  w.id,
-            dailyRate: w.dailyWage ? String(Number(w.dailyWage)) : '',
+            dailyRate: rateForWorker(w.dailyWage),
             currency:  w.currency ?? 'KES',
           }));
         }
@@ -70,7 +71,8 @@ export default function NewLabourEntryPage() {
     setForm((f) => ({
       ...f,
       workerId,
-      dailyRate: w?.dailyWage ? String(Number(w.dailyWage)) : f.dailyRate,
+      // A worker with no wage on record must not inherit the previous worker's rate.
+      dailyRate: rateForWorker(w?.dailyWage),
       currency:  w?.currency ?? f.currency,
     }));
   }
