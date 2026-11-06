@@ -243,7 +243,7 @@ export async function deliveryRoutes(fastify: FastifyInstance): Promise<void> {
         });
       }
 
-      const uploaded = await storeFile(buffer, data.filename, data.mimetype, 'photos');
+      const uploaded = await storeFile(buffer, data.filename, data.mimetype, 'photos', fastify.uploadStorage);
 
       const photo = await prisma.deliveryPhoto.create({
         data: {
@@ -307,7 +307,7 @@ export async function deliveryRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       await prisma.deliveryPhoto.delete({ where: { id: photoId } });
-      await removeFile(photo.fileKey);
+      await removeFile(photo.fileKey, fastify.uploadStorage);
 
       await prisma.auditLog.create({
         data: {
@@ -381,7 +381,7 @@ export async function deliveryRoutes(fastify: FastifyInstance): Promise<void> {
         });
       }
 
-      const uploaded = await storeFile(buffer, data.filename, data.mimetype, 'documents');
+      const uploaded = await storeFile(buffer, data.filename, data.mimetype, 'documents', fastify.uploadStorage);
 
       const document = await prisma.deliveryDocument.create({
         data: {
@@ -445,7 +445,7 @@ export async function deliveryRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       await prisma.deliveryDocument.delete({ where: { id: documentId } });
-      await removeFile(document.fileKey);
+      await removeFile(document.fileKey, fastify.uploadStorage);
 
       await prisma.auditLog.create({
         data: {
