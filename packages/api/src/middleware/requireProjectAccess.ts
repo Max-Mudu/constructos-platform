@@ -2,6 +2,7 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../utils/prisma';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import { Project, UserRole } from '@prisma/client';
+import { env } from '../utils/env';
 
 // Roles that see all projects in their company without needing a project_member row
 const COMPANY_WIDE_ROLES: UserRole[] = ['super_admin', 'company_admin', 'finance_officer'];
@@ -77,7 +78,7 @@ export async function requireProjectAccess(
   // Routes mounted under /projects/:projectId/sites/:siteId/... — the site must
   // belong to this project and company. One generic 404 for every failure mode
   // (wrong project, other tenant, nonexistent) so nothing is disclosed.
-  // Site-supervisor site scoping stays in the services (getAccessibleSiteIds).
+  // Site scoping for site-scoped roles stays in the services (getAccessibleSiteIds).
   const { siteId } = request.params as { siteId?: string };
   if (siteId !== undefined) {
     const site = await prisma.jobSite.findFirst({
@@ -114,23 +115,40 @@ export async function getAccessibleProjectIds(
   return memberships.map((m) => m.projectId);
 }
 
+/** Site-scoped roles while SITE_SCOPE_STRICT is off (the long-standing rule). */
+const DEFAULT_SITE_SCOPED_ROLES: readonly UserRole[] = ['site_supervisor'];
+
 /**
- * For site_supervisor: returns the site IDs they are explicitly assigned to.
- * Returns null for roles that can see all sites in a project.
+ * Site-scoped roles while SITE_SCOPE_STRICT is on: the same set as the Daily
+ * Report policy (DAILY_REPORT_SITE_SCOPED_ROLES). Project managers stay
+ * project-wide; company-wide roles never reach a site check.
+ */
+export const STRICT_SITE_SCOPED_ROLES: readonly UserRole[] = ['site_supervisor', 'viewer', 'consultant'];
+
+/** Roles whose project membership siteId limits them, under the current flag. */
+export function siteScopedRoles(): readonly UserRole[] {
+  return env.SITE_SCOPE_STRICT ? STRICT_SITE_SCOPED_ROLES : DEFAULT_SITE_SCOPED_ROLES;
+}
+
+/**
+ * For site-scoped roles (site_supervisor; plus viewer and consultant when
+ * SITE_SCOPE_STRICT is on): the site IDs they are assigned to in the project.
+ * A membership with no site_id means the whole project (null). Returns null
+ * for roles that can see all sites in a project.
  */
 export async function getAccessibleSiteIds(
   projectId: string,
   userId: string,
   role: UserRole,
 ): Promise<string[] | null> {
-  if (role !== 'site_supervisor') return null;
+  if (!siteScopedRoles().includes(role)) return null;
 
   const memberships = await prisma.projectMember.findMany({
     where: { projectId, userId, removedAt: null, siteId: { not: null } },
     select: { siteId: true },
   });
 
-  // If supervisor has a membership with no site_id, they can see all sites
+  // A membership with no site_id grants every site of the project
   const openMembership = await prisma.projectMember.findFirst({
     where: { projectId, userId, removedAt: null, siteId: null },
   });
@@ -138,4 +156,20 @@ export async function getAccessibleSiteIds(
   if (openMembership) return null;
 
   return memberships.map((m) => m.siteId as string);
+}
+
+/**
+ * Site allow-list for project documents whose siteId is optional (drawings,
+ * consultant instructions). null = no site filter.
+ *  - SITE_SCOPE_STRICT off (default): always null — project membership alone.
+ *  - on: getAccessibleSiteIds (site_supervisor, viewer, consultant). Callers
+ *    keep records with siteId null (project-level documents) visible.
+ */
+export async function getDocumentSiteIds(
+  projectId: string,
+  userId: string,
+  role: UserRole,
+): Promise<string[] | null> {
+  if (!env.SITE_SCOPE_STRICT) return null;
+  return getAccessibleSiteIds(projectId, userId, role);
 }
