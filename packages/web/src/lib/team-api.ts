@@ -92,6 +92,24 @@ export interface CreateTeamMemberResponse {
   setupEmailSent: boolean;
 }
 
+/** PATCH /companies/me/users/:id/status — the same allowlist the API returns. */
+export interface TeamStatusUser {
+  id:        string;
+  email:     string;
+  firstName: string;
+  lastName:  string;
+  role:      UserRole;
+  isActive:  boolean;
+}
+
+export interface SetTeamMemberStatusResponse {
+  user:                   TeamStatusUser;
+  /** false when the member already had the requested status. */
+  changed:                boolean;
+  refreshTokensRevoked:   number;
+  setupTokensInvalidated: number;
+}
+
 export function buildListQueryString(q: TeamListQuery = {}): string {
   const qs = new URLSearchParams();
   if (q.role) qs.set('role', q.role);
@@ -193,4 +211,16 @@ export const teamApi = {
    */
   create: (payload: CreateMemberPayload) =>
     call<CreateTeamMemberResponse>(USERS_PATH, { method: 'POST', json: payload }),
+
+  /**
+   * PATCH /companies/me/users/:id/status. Deactivating signs the member out
+   * everywhere at once; the API refuses (409) self-deactivation and the last
+   * active company admin, and those messages are meant to be shown as-is.
+   * Idempotent on the server, so a repeat is harmless.
+   */
+  setStatus: (userId: string, isActive: boolean) =>
+    call<SetTeamMemberStatusResponse>(
+      `${USERS_PATH}/${encodeURIComponent(userId)}/status`,
+      { method: 'PATCH', json: { isActive } },
+    ),
 };

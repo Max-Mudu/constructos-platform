@@ -12,5 +12,6 @@ import { TeamManagement } from '@/components/team/TeamManagement';
  */
 export default function TeamSettingsPage() {
   const role = useAuthStore((s) => s.user?.role);
-  return <TeamManagement role={role} />;
+  const userId = useAuthStore((s) => s.user?.id);
+  return <TeamManagement role={role} currentUserId={userId} />;
 }

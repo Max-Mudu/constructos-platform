@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { getAccessToken } from '../auth/secureStorage';
 import { API_BASE_URL } from '../constants/api';
 

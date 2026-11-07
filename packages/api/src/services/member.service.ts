@@ -1,7 +1,7 @@
 import { prisma } from '../utils/prisma';
 import { NotFoundError, ConflictError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
-import { UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 
 // Roles that can be assigned as project members
 const ASSIGNABLE_ROLES: UserRole[] = [
@@ -84,40 +84,103 @@ export async function addMember(
     if (!site) throw new NotFoundError('Job site');
   }
 
-  // Check if already an active member
-  const existing = await prisma.projectMember.findFirst({
-    where: { projectId, userId: input.userId, removedAt: null },
-  });
-  if (existing) throw new ConflictError('User is already a member of this project');
+  // (projectId, userId) is unique and removal is a soft delete, so a
+  // previously removed member still owns that row. Re-adding restores it with
+  // the scope from THIS request (the old siteId is not carried over); an
+  // active membership is a conflict. Everything happens in one transaction,
+  // and the restore is conditional on the row still being removed, so two
+  // concurrent adds cannot both succeed.
+  const siteId = input.siteId ?? null;
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const existing = await tx.projectMember.findUnique({
+        where:  { projectId_userId: { projectId, userId: input.userId } },
+        select: { id: true, siteId: true, removedAt: true },
+      });
+      if (existing && existing.removedAt === null) {
+        throw new ConflictError('User is already a member of this project');
+      }
 
-  const member = await prisma.projectMember.create({
-    data: {
-      companyId: actor.companyId,
-      projectId,
-      userId: input.userId,
-      siteId: input.siteId ?? null,
-    },
-    select: MEMBER_SELECT,
-  });
+      if (existing) {
+        const restored = await tx.projectMember.updateMany({
+          where: { id: existing.id, removedAt: { not: null } },
+          data:  {
+            companyId:  actor.companyId,
+            siteId,
+            removedAt:  null,
+            assignedAt: new Date(),
+          },
+        });
+        if (restored.count === 0) {
+          throw new ConflictError('User is already a member of this project');
+        }
 
-  await prisma.auditLog.create({
-    data: {
-      companyId: actor.companyId,
-      userId: actor.id,
-      userEmail: actor.email,
-      userRole: actor.role,
-      action: 'create',
-      entityType: 'project_member',
-      entityId: member.id,
-      changesAfter: {
-        projectId,
-        addedUserId: input.userId,
-        siteId: input.siteId ?? null,
-      },
-    },
-  });
+        await tx.auditLog.create({
+          data: {
+            companyId:  actor.companyId,
+            userId:     actor.id,
+            userEmail:  actor.email,
+            userRole:   actor.role,
+            action:     'create',
+            entityType: 'project_member',
+            entityId:   existing.id,
+            changesBefore: {
+              projectId,
+              userId:    input.userId,
+              siteId:    existing.siteId,
+              removedAt: existing.removedAt!.toISOString(),
+            },
+            changesAfter: {
+              event:       'member_readded',
+              projectId,
+              addedUserId: input.userId,
+              siteId,
+            },
+          },
+        });
 
-  return member;
+        return tx.projectMember.findUniqueOrThrow({
+          where:  { id: existing.id },
+          select: MEMBER_SELECT,
+        });
+      }
+
+      const member = await tx.projectMember.create({
+        data: {
+          companyId: actor.companyId,
+          projectId,
+          userId: input.userId,
+          siteId,
+        },
+        select: MEMBER_SELECT,
+      });
+
+      await tx.auditLog.create({
+        data: {
+          companyId: actor.companyId,
+          userId: actor.id,
+          userEmail: actor.email,
+          userRole: actor.role,
+          action: 'create',
+          entityType: 'project_member',
+          entityId: member.id,
+          changesAfter: {
+            projectId,
+            addedUserId: input.userId,
+            siteId,
+          },
+        },
+      });
+
+      return member;
+    });
+  } catch (err) {
+    // A concurrent first-time add won the insert race.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      throw new ConflictError('User is already a member of this project');
+    }
+    throw err;
+  }
 }
 
 export async function removeMember(

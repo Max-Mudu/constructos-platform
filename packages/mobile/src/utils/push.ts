@@ -4,7 +4,7 @@
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 
 function easProjectId(): string | undefined {
   return (
@@ -27,9 +27,20 @@ async function ensureAndroidChannel(): Promise<void> {
   });
 }
 
+/**
+ * Expo Go on Android no longer supports remote push (removed in SDK 53); the
+ * push-token APIs throw there. Development and store builds are unaffected.
+ */
+function remotePushUnavailable(): boolean {
+  return (
+    Platform.OS === 'android' &&
+    Constants.executionEnvironment === ExecutionEnvironment.StoreClient
+  );
+}
+
 /** The current device's Expo push token, without prompting. Null if unavailable. */
 export async function getExpoPushToken(): Promise<string | null> {
-  if (!Device.isDevice) return null;
+  if (!Device.isDevice || remotePushUnavailable()) return null;
   const projectId = easProjectId();
   const tokenData = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
   return tokenData.data;
@@ -40,7 +51,7 @@ export async function getExpoPushToken(): Promise<string | null> {
  * push token, or null on simulators/emulators or when permission is denied.
  */
 export async function registerForPushNotifications(): Promise<string | null> {
-  if (!Device.isDevice) return null;
+  if (!Device.isDevice || remotePushUnavailable()) return null;
 
   await ensureAndroidChannel();
 

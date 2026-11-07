@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import { AlertCircle, ChevronLeft, ShieldAlert, UserPlus } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronLeft, ShieldAlert, UserPlus, X } from 'lucide-react';
 import { ApiError } from '@/lib/api';
 import type { UserRole } from '@/lib/types';
 import {
   teamApi,
   TEAM_LIST_MAX_LIMIT,
   type CreateTeamMemberResponse,
+  type SetTeamMemberStatusResponse,
   type TeamMember,
 } from '@/lib/team-api';
 import { canManageTeam } from '@/lib/team-roles';
@@ -19,6 +20,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Select } from '@/components/ui/Select';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { AddMemberForm } from './AddMemberForm';
+import { MemberStatusDialog, type StatusAction } from './MemberStatusDialog';
 import { SetupLinkPanel } from './SetupLinkPanel';
 import { TeamMemberList } from './TeamMemberList';
 
@@ -51,7 +53,24 @@ export function NotTeamAdmin() {
   );
 }
 
-export function TeamManagement({ role }: { role: UserRole | null | undefined }) {
+/** Confirmation shown after a status change; names only, nothing sensitive. */
+export function statusNotice(res: SetTeamMemberStatusResponse): string {
+  const name = `${res.user.firstName} ${res.user.lastName}`.trim() || res.user.email;
+  if (!res.changed) {
+    return res.user.isActive ? `${name} is already active.` : `${name} is already deactivated.`;
+  }
+  return res.user.isActive
+    ? `${name} was reactivated and can sign in again.`
+    : `${name} was deactivated and signed out everywhere.`;
+}
+
+export interface TeamManagementProps {
+  role:           UserRole | null | undefined;
+  /** The signed-in user's id; their own row gets no status action. */
+  currentUserId?: string | null;
+}
+
+export function TeamManagement({ role, currentUserId }: TeamManagementProps) {
   const isAdmin = canManageTeam(role);
 
   const [members, setMembers]   = useState<TeamMember[]>([]);
@@ -65,6 +84,8 @@ export function TeamManagement({ role }: { role: UserRole | null | undefined }) 
   const [showForm, setShowForm] = useState(false);
   const [notice, setNotice]     = useState<CreatedNotice | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [pending, setPending]   = useState<{ member: TeamMember; action: StatusAction } | null>(null);
+  const [statusMsg, setStatusMsg] = useState('');
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 300);
@@ -95,6 +116,20 @@ export function TeamManagement({ role }: { role: UserRole | null | undefined }) 
     setNotice(null); // a previous setup link must not linger next to a new form
     setShowForm(true);
   }, []);
+
+  const openStatus = useCallback((member: TeamMember, action: StatusAction) => {
+    setStatusMsg('');
+    setPending({ member, action });
+  }, []);
+  const closeStatus = useCallback(() => setPending(null), []);
+
+  function handleStatusDone(res: SetTeamMemberStatusResponse) {
+    setPending(null);
+    setStatusMsg(statusNotice(res));
+    // Reflect it at once, then reload so the status filter and counts agree.
+    setMembers((list) => list.map((m) => (m.id === res.user.id ? { ...m, isActive: res.user.isActive } : m)));
+    setReloadKey((k) => k + 1);
+  }
 
   function handleCreated(res: CreateTeamMemberResponse) {
     setShowForm(false);
@@ -129,6 +164,18 @@ export function TeamManagement({ role }: { role: UserRole | null | undefined }) 
   return (
     <div className="px-6 py-8 space-y-6 animate-fade-in">
       {header}
+
+      {statusMsg && (
+        <Alert variant="success" role="status">
+          <CheckCircle2 className="h-4 w-4" />
+          <AlertDescription className="flex items-center justify-between gap-3">
+            <span>{statusMsg}</span>
+            <Button variant="ghost" size="icon" aria-label="Dismiss" onClick={() => setStatusMsg('')}>
+              <X className="h-4 w-4" />
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {notice && (
         <SetupLinkPanel
@@ -194,7 +241,13 @@ export function TeamManagement({ role }: { role: UserRole | null | undefined }) 
           </div>
         ) : (
           <>
-            <TeamMemberList members={members} filtered={filtered} onAddClick={openForm} />
+            <TeamMemberList
+              members={members}
+              filtered={filtered}
+              onAddClick={openForm}
+              currentUserId={currentUserId}
+              onStatusAction={openStatus}
+            />
             {total > members.length && (
               <p className="text-xs text-muted-foreground">
                 Showing {members.length} of {total}. Refine the search to find someone else.
@@ -203,6 +256,15 @@ export function TeamManagement({ role }: { role: UserRole | null | undefined }) 
           </>
         )}
       </section>
+
+      {pending && (
+        <MemberStatusDialog
+          member={pending.member}
+          action={pending.action}
+          onClose={closeStatus}
+          onDone={handleStatusDone}
+        />
+      )}
     </div>
   );
 }

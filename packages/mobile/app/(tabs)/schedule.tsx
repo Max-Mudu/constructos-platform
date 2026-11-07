@@ -929,7 +929,7 @@ export default function ScheduleScreen() {
                 );
               })}
             </View>
-          ) : null
+          ) : undefined
         }
         ListEmptyComponent={
           <View style={A.empty}>

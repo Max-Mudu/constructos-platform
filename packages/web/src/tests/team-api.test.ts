@@ -83,6 +83,25 @@ describe('teamApi', () => {
     expect(res.setupLink).toBe('L');
   });
 
+  it('setStatus PATCHes only { isActive } to the member status endpoint', async () => {
+    responses.push(json(200, {
+      user: { id: 'u 1', email: 'a@b.co', firstName: 'A', lastName: 'B', role: 'viewer', isActive: false },
+      changed: true, refreshTokensRevoked: 2, setupTokensInvalidated: 0,
+    }));
+    const res = await teamApi.setStatus('u 1', false);
+    expect(calls[0].url).toBe('/api/v1/companies/me/users/u%201/status');
+    expect(calls[0].init.method).toBe('PATCH');
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({ isActive: false });
+    expect(calls[0].init.cache).toBe('no-store');
+    expect((calls[0].init.headers as Record<string, string>).Authorization).toBe('Bearer T1');
+    expect(res).toMatchObject({ changed: true, user: { isActive: false } });
+
+    responses.push(json(409, { error: 'The last active company admin cannot be deactivated', code: 'CONFLICT' }));
+    const err = await teamApi.setStatus('u2', false).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 409, message: 'The last active company admin cannot be deactivated' });
+  });
+
   it('keeps status, code, message and field details on errors', async () => {
     responses.push(json(422, { error: 'Validation failed', code: 'VALIDATION_ERROR', details: { email: ['Invalid email'] } }));
     const err = await teamApi.create({ email: 'x', firstName: 'A', lastName: 'B', role: 'viewer' }).catch((e) => e);
