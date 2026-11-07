@@ -1491,4 +1491,15 @@ export const inventoryApi = {
       `/projects/${projectId}/sites/${siteId}/inventory/${inventoryId}/use`,
       { method: 'POST', body: JSON.stringify(data) },
     ),
+  /** Corrects the book stock up or down with a reason (adjustment_in / adjustment_out). */
+  adjust: (projectId: string, siteId: string, inventoryId: string, data: {
+    direction: import('./types').InventoryAdjustmentDirection;
+    quantity:  number;
+    reason:    import('./types').InventoryAdjustmentReason;
+    note?:     string;
+  }) =>
+    request<{ item: import('./types').SiteInventoryItem & { isLowStock: boolean } }>(
+      `/projects/${projectId}/sites/${siteId}/inventory/${inventoryId}/adjust`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
 };
