@@ -263,6 +263,8 @@ const LIST_USER_SELECT = {
   consultantType: true,
   isActive:       true,
   createdAt:      true,
+  // Read only to derive `setupPending`; the timestamp itself is never returned.
+  lastLoginAt:    true,
   defaultProject: { select: { id: true, name: true, companyId: true } },
   defaultSite:    { select: { id: true, name: true, companyId: true } },
 } as const;
@@ -334,6 +336,8 @@ export async function listCompanyUsers(
     consultantType: row.consultantType,
     isActive:       row.isActive,
     createdAt:      row.createdAt,
+    /** Never signed in — a new setup link may be issued (reissueSetupLink). */
+    setupPending:   row.lastLoginAt === null,
     defaultProject: own(row.defaultProject),
     defaultSite:    own(row.defaultSite),
     projectMemberships: row.projectMembers
@@ -497,4 +501,124 @@ export async function setCompanyUserStatus(
 
     return { user, changed, refreshTokensRevoked, setupTokensInvalidated };
   });
+}
+
+// ─── Re-issue a setup link ───────────────────────────────────────────────────
+
+/**
+ * Issues a fresh one-time setup link for a member who has not signed in yet
+ * (their first link expired, was lost, or was invalidated by a deactivation).
+ *
+ * Same mechanism and semantics as the link minted by createCompanyUser:
+ *  - a password-reset token (hash stored, raw token never persisted or
+ *    logged), 60-minute expiry, single use;
+ *  - every other unused reset/setup token of the target is consumed first,
+ *    so only the newest link works;
+ *  - emailed best-effort; the raw link is returned only outside production.
+ *
+ * Guards, inside one transaction:
+ *  - the actor must still be an ACTIVE company_admin of this company in the
+ *    database (the JWT's role claim alone is not trusted);
+ *  - the target must belong to the same company and must not be super_admin
+ *    (otherwise 404, indistinguishable from "does not exist");
+ *  - the target must not be the actor (409), must be active (409) and must
+ *    never have signed in (409):
+ *    once someone uses their account, choosing a new password is theirs to
+ *    do through "Forgot password", never an admin's.
+ */
+export async function reissueSetupLink(
+  targetUserId: string,
+  actor: RequestUser,
+  context: RequestContext = {},
+) {
+  const companyId = actor.companyId;
+
+  const rawSetupToken  = generateToken(48);
+  const setupTokenHash = hashToken(rawSetupToken);
+  const expiresAt      = new Date(Date.now() + SETUP_TOKEN_EXPIRES_MINUTES * 60 * 1000);
+
+  const user = await prisma.$transaction(async (tx) => {
+    const actorRow = await tx.user.findFirst({
+      where:  { id: actor.id, companyId, role: 'company_admin', isActive: true },
+      select: { id: true },
+    });
+    if (!actorRow) throw new ForbiddenError('Insufficient permissions');
+
+    // Lock the target row so two concurrent re-issues serialise and only the
+    // later link survives.
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM users
+      WHERE id = ${targetUserId} AND "companyId" = ${companyId}
+        AND role <> 'super_admin'::"UserRole"
+      FOR UPDATE
+    `;
+    if (locked.length === 0) throw new NotFoundError('User');
+
+    const target = await tx.user.findFirstOrThrow({
+      where:  { id: targetUserId, companyId },
+      select: { ...STATUS_USER_SELECT, lastLoginAt: true },
+    });
+
+    if (target.id === actor.id) {
+      throw new ConflictError('Use "Forgot password" to change your own password');
+    }
+    if (!target.isActive) {
+      throw new ConflictError('Reactivate this user before sending a new setup link');
+    }
+    if (target.lastLoginAt !== null) {
+      throw new ConflictError(
+        'This user has already signed in. They can reset their own password with "Forgot password"',
+      );
+    }
+
+    const now = new Date();
+    const invalidated = await tx.passwordResetToken.updateMany({
+      where: { userId: target.id, usedAt: null },
+      data:  { usedAt: now },
+    });
+
+    await tx.passwordResetToken.create({
+      data: { userId: target.id, tokenHash: setupTokenHash, expiresAt },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        companyId,
+        userId:     actor.id,
+        userEmail:  actor.email,
+        userRole:   actor.role,
+        action:     'update',
+        entityType: 'user',
+        entityId:   target.id,
+        changesAfter: {
+          event:                  'setup_link_reissued',
+          setupTokensInvalidated: invalidated.count,
+        },
+        ipAddress: context.ipAddress ?? null,
+        userAgent: context.userAgent ?? null,
+      },
+    });
+
+    return {
+      id:        target.id,
+      email:     target.email,
+      firstName: target.firstName,
+      lastName:  target.lastName,
+      role:      target.role,
+      isActive:  target.isActive,
+    };
+  });
+
+  const setupLink = `${env.APP_URL}/reset-password?token=${rawSetupToken}`;
+
+  let setupEmailSent = false;
+  try {
+    setupEmailSent = await emailService.sendAccountSetupEmail(user.email, setupLink);
+  } catch {
+    console.warn(`[email] account setup email failed for userId=${user.id}; the user can use "Forgot password"`);
+  }
+
+  return env.isProduction
+    ? { user, setupEmailSent }
+    : { user, setupLink, setupEmailSent };
 }

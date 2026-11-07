@@ -1,7 +1,8 @@
 import { prisma } from '../utils/prisma';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import { RequestUser } from '../types';
-import { DrawingStatus } from '@prisma/client';
+import { DrawingStatus, Prisma } from '@prisma/client';
+import { getDocumentSiteIds } from '../middleware/requireProjectAccess';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -134,9 +135,25 @@ async function assertProjectMember(projectId: string, actor: RequestUser): Promi
   if (!member) throw new ForbiddenError('You are not a member of this project');
 }
 
-async function findDrawing(drawingId: string, projectId: string, companyId: string) {
+/**
+ * Site visibility for drawings (SITE_SCOPE_STRICT only; empty otherwise): a
+ * site-scoped actor sees drawings of their sites and project-level drawings
+ * (siteId null). AND-wrapped so it never collides with a caller's OR.
+ */
+async function drawingSiteWhere(projectId: string, actor: RequestUser): Promise<Prisma.DrawingWhereInput> {
+  const siteIds = await getDocumentSiteIds(projectId, actor.id, actor.role);
+  if (siteIds === null) return {};
+  return { AND: [{ OR: [{ siteId: { in: siteIds } }, { siteId: null }] }] };
+}
+
+async function findDrawing(
+  drawingId: string,
+  projectId: string,
+  companyId: string,
+  visibility: Prisma.DrawingWhereInput = {},
+) {
   const drawing = await prisma.drawing.findFirst({
-    where: { id: drawingId, projectId, companyId },
+    where: { id: drawingId, projectId, companyId, ...visibility },
     select: DRAWING_SELECT,
   });
   if (!drawing) throw new NotFoundError('Drawing');
@@ -160,6 +177,7 @@ export async function listDrawings(
 
   if (filters.siteId)     where['siteId']     = filters.siteId;
   if (filters.discipline) where['discipline'] = filters.discipline;
+  Object.assign(where, await drawingSiteWhere(projectId, actor));
   if (filters.search) {
     where['OR'] = [
       { title:         { contains: filters.search, mode: 'insensitive' } },
@@ -189,7 +207,7 @@ export async function getDrawing(drawingId: string, projectId: string, actor: Re
   if (!canViewDrawings(actor.role)) throw new ForbiddenError('Access denied');
   await assertProjectMember(projectId, actor);
 
-  return findDrawing(drawingId, projectId, actor.companyId);
+  return findDrawing(drawingId, projectId, actor.companyId, await drawingSiteWhere(projectId, actor));
 }
 
 export async function createDrawing(
@@ -438,8 +456,8 @@ export async function listComments(
   await assertProjectMember(projectId, actor);
 
   // The drawing must belong to the project in the URL (membership was checked
-  // for that project only).
-  await findDrawing(drawingId, projectId, actor.companyId);
+  // for that project only) and be visible to the actor.
+  await findDrawing(drawingId, projectId, actor.companyId, await drawingSiteWhere(projectId, actor));
 
   const revision = await prisma.drawingRevision.findFirst({
     where: { id: revisionId, drawingId, companyId: actor.companyId },
@@ -465,8 +483,8 @@ export async function addComment(
   await assertProjectMember(projectId, actor);
 
   // The drawing must belong to the project in the URL (membership was checked
-  // for that project only).
-  await findDrawing(drawingId, projectId, actor.companyId);
+  // for that project only) and be visible to the actor.
+  await findDrawing(drawingId, projectId, actor.companyId, await drawingSiteWhere(projectId, actor));
 
   const revision = await prisma.drawingRevision.findFirst({
     where: { id: revisionId, drawingId, companyId: actor.companyId },
