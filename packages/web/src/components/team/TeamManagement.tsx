@@ -9,6 +9,7 @@ import {
   teamApi,
   TEAM_LIST_MAX_LIMIT,
   type CreateTeamMemberResponse,
+  type ReissueSetupLinkResponse,
   type SetTeamMemberStatusResponse,
   type TeamMember,
 } from '@/lib/team-api';
@@ -31,9 +32,10 @@ interface CreatedNotice {
   email:          string;
   setupLink?:     string;
   setupEmailSent: boolean;
+  heading?:       string;
 }
 
-export function noticeFromResponse(res: CreateTeamMemberResponse): CreatedNotice {
+export function noticeFromResponse(res: CreateTeamMemberResponse | ReissueSetupLinkResponse): CreatedNotice {
   return {
     email:          res.user.email,
     setupLink:      typeof res.setupLink === 'string' && res.setupLink ? res.setupLink : undefined,
@@ -86,6 +88,8 @@ export function TeamManagement({ role, currentUserId }: TeamManagementProps) {
   const [reloadKey, setReloadKey] = useState(0);
   const [pending, setPending]   = useState<{ member: TeamMember; action: StatusAction } | null>(null);
   const [statusMsg, setStatusMsg] = useState('');
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [resendError, setResendError] = useState('');
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 300);
@@ -119,6 +123,7 @@ export function TeamManagement({ role, currentUserId }: TeamManagementProps) {
 
   const openStatus = useCallback((member: TeamMember, action: StatusAction) => {
     setStatusMsg('');
+    setResendError('');
     setPending({ member, action });
   }, []);
   const closeStatus = useCallback(() => setPending(null), []);
@@ -126,9 +131,32 @@ export function TeamManagement({ role, currentUserId }: TeamManagementProps) {
   function handleStatusDone(res: SetTeamMemberStatusResponse) {
     setPending(null);
     setStatusMsg(statusNotice(res));
+    // Deactivation consumed any setup link: do not leave a dead one on screen.
+    if (!res.user.isActive) setNotice((n) => (n && n.email === res.user.email ? null : n));
     // Reflect it at once, then reload so the status filter and counts agree.
     setMembers((list) => list.map((m) => (m.id === res.user.id ? { ...m, isActive: res.user.isActive } : m)));
     setReloadKey((k) => k + 1);
+  }
+
+  async function handleResendSetup(member: TeamMember) {
+    if (resendingId) return;
+    setResendingId(member.id);
+    setResendError('');
+    setStatusMsg('');
+    setNotice(null); // never show two links at once
+    try {
+      const res = await teamApi.resendSetupLink(member.id);
+      setNotice({ ...noticeFromResponse(res), heading: `New setup link for ${res.user.email}` });
+    } catch (e) {
+      setResendError(e instanceof ApiError && e.status === 409 && e.message
+        ? e.message
+        : e instanceof ApiError && e.status === 404
+          ? 'This person is no longer in your company. Refresh the list.'
+          : 'Could not create a new setup link. Try again.');
+      setReloadKey((k) => k + 1);
+    } finally {
+      setResendingId(null);
+    }
   }
 
   function handleCreated(res: CreateTeamMemberResponse) {
@@ -177,11 +205,19 @@ export function TeamManagement({ role, currentUserId }: TeamManagementProps) {
         </Alert>
       )}
 
+      {resendError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{resendError}</AlertDescription>
+        </Alert>
+      )}
+
       {notice && (
         <SetupLinkPanel
           email={notice.email}
           setupLink={notice.setupLink}
           setupEmailSent={notice.setupEmailSent}
+          heading={notice.heading}
           onDismiss={() => setNotice(null)}
         />
       )}
@@ -247,6 +283,8 @@ export function TeamManagement({ role, currentUserId }: TeamManagementProps) {
               onAddClick={openForm}
               currentUserId={currentUserId}
               onStatusAction={openStatus}
+              onResendSetup={(m) => void handleResendSetup(m)}
+              resendingId={resendingId}
             />
             {total > members.length && (
               <p className="text-xs text-muted-foreground">

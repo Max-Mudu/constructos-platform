@@ -102,6 +102,16 @@ describe('teamApi', () => {
     expect(err).toMatchObject({ status: 409, message: 'The last active company admin cannot be deactivated' });
   });
 
+  it('resendSetupLink POSTs an empty body to the setup-link endpoint', async () => {
+    responses.push(json(200, { user: { id: 'u1', email: 'a@b.co' }, setupEmailSent: false, setupLink: 'L2' }));
+    const res = await teamApi.resendSetupLink('u1');
+    expect(calls[0].url).toBe('/api/v1/companies/me/users/u1/setup-link');
+    expect(calls[0].init.method).toBe('POST');
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({});
+    expect(calls[0].init.cache).toBe('no-store');
+    expect(res.setupLink).toBe('L2');
+  });
+
   it('keeps status, code, message and field details on errors', async () => {
     responses.push(json(422, { error: 'Validation failed', code: 'VALIDATION_ERROR', details: { email: ['Invalid email'] } }));
     const err = await teamApi.create({ email: 'x', firstName: 'A', lastName: 'B', role: 'viewer' }).catch((e) => e);
