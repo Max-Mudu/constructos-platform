@@ -179,8 +179,9 @@ async function assertMayWriteWage(actor: RequestUser, workerId: string | null): 
 //     explicitly (siteId) assigned to;
 //   - any other role (project_manager): workers actively assigned to a project
 //     the caller is an active member of.
-// Used by listWorkers, getWorker, updateWorker and deactivateWorker. List
-// filters (?projectId= / ?siteId=) are ANDed with it, so they can only narrow.
+// Used by listWorkers, getWorker, updateWorker and deactivateWorker (list and
+// get also add creator visibility, below). List filters (?projectId= /
+// ?siteId=) are ANDed with it, so they can only narrow.
 
 /**
  * Returns all site IDs a supervisor is explicitly assigned to across ALL projects.
@@ -204,12 +205,50 @@ async function workerScopeWhere(actor: RequestUser): Promise<Prisma.WorkerWhereI
   return { assignments: { some: { projectId: { in: projectIds }, removedAt: null } } };
 }
 
+// ─── Creator visibility (read only) ───────────────────────────────────────────
+//
+// A project_manager or site_supervisor may also SEE (list / get — never update,
+// deactivate, assign or see wages of) a worker they registered while it awaits
+// assignment. Visible only when ALL hold:
+//   1. same company (actor.companyId from the JWT) and createdById = actor.id;
+//   2. the worker has NO active assignment anywhere — once assigned, the normal
+//      assignment-based scope above decides, so a worker placed on a project or
+//      site the creator is not on drops out of the creator's view;
+//   3. the actor still holds an authorised context in the company: an active
+//      project membership (PM) or an active site membership (supervisor) on a
+//      project of actor.companyId. Losing all of it hides these workers too.
+// Rows created before createdById was recorded are NULL and never match.
+
+const CREATOR_VISIBLE_ROLES = new Set<string>(['project_manager', 'site_supervisor']);
+
+async function creatorVisibleWhere(actor: RequestUser): Promise<Prisma.WorkerWhereInput | null> {
+  if (!CREATOR_VISIBLE_ROLES.has(actor.role)) return null;
+  const context = await prisma.projectMember.findFirst({
+    where: {
+      userId:    actor.id,
+      removedAt: null,
+      project:   { companyId: actor.companyId },
+      ...(actor.role === 'site_supervisor' && { siteId: { not: null } }),
+    },
+    select: { id: true },
+  });
+  if (!context) return null;
+  return { createdById: actor.id, assignments: { none: { removedAt: null } } };
+}
+
+/** Read scope (list / get): role scope, widened only by creator visibility. */
+async function workerReadScopeWhere(actor: RequestUser): Promise<Prisma.WorkerWhereInput> {
+  const scope = await workerScopeWhere(actor);
+  const created = await creatorVisibleWhere(actor);
+  return created ? { OR: [scope, created] } : scope;
+}
+
 // ─── Service functions ────────────────────────────────────────────────────────
 
 export async function listWorkers(actor: RequestUser, filters: ListWorkersFilters = {}) {
   // Role scope; the query filters below are ANDed with it (they used to share
   // the `assignments` key and overwrite it, widening a PM/supervisor's scope).
-  const scopeFilter = await workerScopeWhere(actor);
+  const scopeFilter = await workerReadScopeWhere(actor);
 
   // Build search / filter conditions
   const searchFilter = filters.search
@@ -246,7 +285,7 @@ export async function listWorkers(actor: RequestUser, filters: ListWorkersFilter
 
 export async function getWorker(workerId: string, actor: RequestUser) {
   const worker = await prisma.worker.findFirst({
-    where: { id: workerId, companyId: actor.companyId, AND: [await workerScopeWhere(actor)] },
+    where: { id: workerId, companyId: actor.companyId, AND: [await workerReadScopeWhere(actor)] },
     select: {
       ...WORKER_SELECT,
       assignments: {
@@ -272,6 +311,7 @@ export async function createWorker(input: CreateWorkerInput, actor: RequestUser)
   const worker = await prisma.worker.create({
     data: {
       companyId:            actor.companyId,
+      createdById:          actor.id,
       firstName:            input.firstName,
       lastName:             input.lastName,
       email:                input.email,
