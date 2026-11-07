@@ -1,6 +1,7 @@
 # ConstructOS mobile: iOS readiness and build configuration
 
-Last reviewed: 2026-11-07, on branch `feat/ios-eas-build` (Expo SDK 58; base `main` @ `ee0ea6a`): privacy manifest,
+Last reviewed: 2026-11-07, on branch `feat/ios-build-prep-2` (base `main` @ `1a95ebe`): SDK 58 dependency re-check,
+iOS degrade-safely code review and the three build milestones (section 10). Before that: `feat/ios-eas-build` (Expo SDK 58; base `main` @ `ee0ea6a`): privacy manifest,
 EAS simulator procedure and smoke test (sections 8 and 9). Before that: `feat/ios-sdk-upgrade` (SDK 51 → 58; base `9e03d0f`).
 First written on `feat/ios-readiness` (#5, base `149b484`); sections 1 and 5 keep that history.
 
@@ -106,7 +107,7 @@ PhotoLibrary, PhotoLibraryAdd and FaceID. None of them uses a generic default.
 
 | # | Item | Status | Notes |
 |---|---|---|---|
-| 14 | Camera capture for delivery photos | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `deliveries.tsx` `pickPhoto()` asks for camera permission, then calls `launchCameraAsync({ mediaTypes: ['images'] })` (SDK 58 form). The upload uses the asset's `mimeType`, falling back to `image/jpeg`. Photo-library permission is never requested. |
+| 14 | Camera capture for delivery photos | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `deliveries.tsx` `pickPhoto()` asks for camera permission, then calls `launchCameraAsync({ mediaTypes: ['images'] })` (SDK 58 form). If the camera cannot open (the iOS Simulator has none) it shows "Camera Unavailable" instead of leaving an unhandled rejection; if access was denied for good (`canAskAgain` false, which iOS sets after the first denial) the alert offers "Open Settings" (`feat/ios-build-prep-2`). The upload uses the asset's `mimeType`, falling back to `image/jpeg`. Photo-library permission is never requested. |
 | 15 | Push permission + registration | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `src/utils/push.ts`: skips simulators (`Device.isDevice`) and Expo Go on Android, asks for permission only when undecided, passes `projectId` from `extra.eas.projectId`. Called after sign-in (`login.tsx`) and after a restored session (`app/_layout.tsx`). The `aps-environment` entitlement is present in the resolved config (section 7). Delivery needs an APNs key in EAS (BLOCKED-OWNER, section 3 step 6). |
 | 16 | Notification tap routing | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `useLastNotificationResponse()` in `app/_layout.tsx` also covers the tap that cold-starts the app (B2 fixed). |
 | 17 | Session storage and refresh | VERIFIED-STATIC | Tokens are in the Keychain (`expo-secure-store`). A first-launch marker clears Keychain tokens left over from a previous install (B9 fixed in #12). |
@@ -115,7 +116,7 @@ PhotoLibrary, PhotoLibraryAdd and FaceID. None of them uses a generic default.
 | 20 | Report PDF/CSV download (Reports tab) | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `src/utils/openFile.ts`: on iOS it opens the share sheet with `UTI` `com.adobe.pdf` or `public.comma-separated-values-text`; the Android-only content-URI path is behind `Platform.OS === 'android'` (B1 fixed). |
 | 21 | Drawing PDF (Projects tab) | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `Sharing.shareAsync` passes `UTI: 'com.adobe.pdf'` (B12 fixed). |
 | 22 | Android-only APIs called without a platform check | VERIFIED-STATIC | None found. `getContentUriAsync` and `expo-intent-launcher` are used only on Android. |
-| 23 | Keyboard handling | VERIFIED-STATIC (partly) / UNVERIFIED-RUNTIME | `KeyboardAvoidingView` is now used in attendance, deliveries, inventory, invoices, labour, schedule and login. The text inputs in `projects.tsx` and `reports.tsx` still have none (B5, open). |
+| 23 | Keyboard handling | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `KeyboardAvoidingView` with `behavior="padding"` on iOS is used in attendance, deliveries, inventory, invoices, labour, schedule, projects, reports and login (B5 addressed on `main` @ `1a95ebe`). |
 | 24 | Safe areas | VERIFIED-STATIC / UNVERIFIED-RUNTIME | App bars use `useAppBarInset()` (max of 56 pt and the top inset + 12), and the tab bar adds `insets.bottom` (B3 inset part and B4 fixed). Android is now always edge-to-edge (SDK 54+), which the same insets cover. |
 | 25 | iPhone layout | **Open** | Still 7 to 9 bottom tabs for supervisor, PM, admin and finance roles (B3, tab count). |
 | 26 | Accessibility (VoiceOver) | **Open (partly addressed)** | Labels/roles exist only in `login.tsx` and `Button.tsx` (B14). |
@@ -423,3 +424,112 @@ the iOS version and the build ID next to each result. **Sim** = can be done on t
 | 8 | Reports → download a PDF and a CSV; Projects → open a drawing PDF | The share sheet opens with the file; "Save to Files" works; "Save Image" (if offered) shows the photo-add prompt text | Sim (share sheet) / Device |
 | 9 | First sign-in on a fresh install | The notification permission prompt appears once; after Allow, a test push from the API arrives | Device (skipped on the Simulator by design) |
 | 10 | Tap a notification while the app is closed | The app opens on the linked screen | Device |
+
+---
+
+## 10. Remaining steps: three iOS milestones
+
+**iOS build: not run. iOS runtime: not verified.** Status on `main` @ `1a95ebe` plus `feat/ios-build-prep-2`.
+
+### 10.0 Checks run on `feat/ios-build-prep-2` (Windows 11, static only)
+
+| Check (cwd `packages/mobile`) | Result |
+|---|---|
+| `npx expo install --check` | "Dependencies are up to date". `package.json` was not modified. |
+| Each dependency compared with `expo/bundledNativeModules.json` (expo 58.0.23) | Every native module matches its SDK 58 range: expo-constants, -device, -file-system, -font, -image-picker, -intent-launcher, -linking, -notifications 58.1.8, -router, -secure-store, -sharing, -splash-screen, -status-bar, react 19.3.0, react-native 0.88.1, gesture-handler 3.3, reanimated 4.7.1, safe-area-context 5.11, screens 4.30, worklets 0.13.0, @expo/vector-icons 15. `react-native-sse`, `axios` and `zustand` are pure JavaScript (no `ios/` folder, no podspec). |
+| SecureStore options | No `keychainAccessible` is passed, so items use the iOS default `WHEN_UNLOCKED`. The app reads tokens only in the foreground (no background fetch or background tasks), so this is safe. Changing the accessibility class is a security decision and was not made here. |
+| Camera permission and capture (`deliveries.tsx`) | Fixed on this branch: the camera launch is wrapped so a Simulator (no camera) shows "Camera Unavailable"; a permanent denial offers "Open Settings". |
+| Notification permission flow (`src/utils/push.ts`) | Returns before any permission or token call when `Device.isDevice` is false (Simulator), so no prompt, no `getExpoPushTokenAsync` and no loop. Every caller (`login.tsx`, `app/_layout.tsx`, `profile.tsx` log out) catches errors; bootstrap runs once per launch. |
+| File sharing | `src/utils/openFile.ts` and both drawing-PDF paths in `projects.tsx` call `Sharing.isAvailableAsync()` first and show an alert otherwise; the callers catch errors. |
+| Safe area and notch | `SafeAreaProvider` at the root; every tab screen's app bar uses `useAppBarInset()` or the `Screen` wrapper; the tab bar adds the bottom inset. The remaining `paddingTop: 56` style values are the designed default that `useAppBarInset()` overrides. |
+| `KeyboardAvoidingView` (#45, #47, #51) | All uses pass `behavior="padding"` on iOS; the modal ones sit directly inside page-sheet or transparent modals with `flex: 1`. |
+| `npx tsc --noEmit -p .` | Exit 0. |
+| `eas whoami`, `eas env:list --environment preview`, `eas build:list --platform ios --limit 3` (read-only) | `dalmarmudu`; no variables in `preview`; no iOS builds. |
+
+Each milestone below depends on the one before it. Report each one separately: passing
+milestone 1 says nothing about milestone 2.
+
+### Milestone 1: EAS simulator build
+
+Goal: an iOS Simulator `.app` built by EAS from `main`. No Apple account is involved.
+
+| Prerequisite | Who |
+|---|---|
+| A **verified HTTPS API URL** ending in `/api/v1` with a publicly trusted certificate (for example the Tailscale Serve host from the build runbook). "Verified" means a request to `https://<host>/api/v1/...` (for example a sign-in from a browser on a second machine) succeeds. | Owner sets up the host; lead verifies it |
+| **Approved EAS credit** for one iOS medium build (about US$2 of the included Starter credit) | Owner approves; lead checks usage first |
+| Expo CLI signed in as `dalmarmudu` (already true) | — |
+
+Commands (cwd `packages/mobile`; run by the lead only after both approvals):
+
+```bash
+npx eas-cli@latest whoami                      # expect dalmarmudu
+npx eas-cli@latest account:usage dalmarmudu    # confirm the credit headroom before building
+npx eas-cli@latest env:create --environment preview --name EXPO_PUBLIC_API_URL \
+  --value "https://<verified-host>/api/v1" --visibility plaintext
+npx eas-cli@latest env:list --environment preview                     # the variable is listed
+npx eas-cli@latest config --platform ios --profile preview-simulator  # simulator: true, environment: preview
+npx eas-cli@latest build --platform ios --profile preview-simulator --non-interactive --no-wait
+npx eas-cli@latest build:list --platform ios --limit 1                # poll until FINISHED or ERRORED
+```
+
+Pass criteria: the build status is `FINISHED`, and the build log contains
+`Environment variables ... loaded from the "preview" environment on EAS: EXPO_PUBLIC_API_URL`.
+If that line is missing, cancel: the app would show "API URL not configured". Never use the
+`production` profile and never run `eas submit` for this milestone.
+
+### Milestone 2: simulator runtime test
+
+Goal: the milestone 1 build installed and exercised on an iOS Simulator.
+
+| Prerequisite | Who |
+|---|---|
+| A Mac with Xcode and an iOS 16.4 or later simulator runtime, **or** a hosted simulator service (for example Appetize.io, which accepts a zipped Simulator `.app`, or a rented cloud Mac). The Windows machine used so far cannot run the iOS Simulator. | Owner provides the Mac, or approves the service (it needs an account and may cost money) |
+| The milestone 1 API reachable from that Mac or service | Owner / lead |
+| A test account on that API (not production data) | Lead |
+
+Steps on a Mac (cwd `packages/mobile` of a checkout, Expo CLI signed in):
+
+```bash
+npx eas-cli@latest build:run --platform ios --latest   # downloads, boots a simulator, installs and launches
+# or manually:
+tar -xzf <build>.tar.gz                                 # gives ConstructOS.app
+open -a Simulator
+xcrun simctl install booted ConstructOS.app
+xcrun simctl launch booted com.constructos.app
+xcrun simctl spawn booted log stream --predicate 'process == "ConstructOS"' > ios-sim.log   # keep it running during the test
+```
+
+For a hosted service: download the `.tar.gz` from the build page, extract it, zip
+`ConstructOS.app`, and upload the zip as an iOS Simulator app.
+
+Smoke checklist (record the simulator model, iOS version and EAS build ID next to each result):
+
+| # | Check | Expected |
+|---|---|---|
+| S1 | Launch | Login screen; the header clears the notch or Dynamic Island; no red error screen |
+| S2 | Section 9, rows 1 and 2 | Wrong password is rejected; the correct test account reaches "My Day" |
+| S3 | Notifications on the Simulator | No permission prompt, and no repeated prompt or loop after sign-in or relaunch (registration is skipped because `Device.isDevice` is false) |
+| S4 | Section 9, row 3 (Deliveries, Attendance, Schedule) | Data loads; the tab bar clears the home indicator; app bars clear the status bar |
+| S5 | Deliveries → new delivery → camera button | Allow the camera prompt, then a "Camera Unavailable" alert (the Simulator has no camera); no crash |
+| S6 | Focus the lowest text field in login, a new delivery, a labour entry and the Reports filters | The keyboard does not cover the focused field |
+| S7 | Section 9, row 8 (report PDF and CSV, drawing PDF) | The share sheet opens; "Save to Files" works |
+| S8 | Section 9, rows 4 and 5 (relaunch, log out) | The session survives a relaunch; log out returns to the login screen and stays signed out |
+| S9 | `ios-sim.log` | No crash report and no `Unhandled JS Exception` lines |
+
+Camera capture, push delivery and notification taps (section 9, rows 6, 7, 9 and 10) cannot be
+tested on a Simulator; they belong to milestone 3.
+
+### Milestone 3: physical iPhone
+
+Goal: an ad hoc build on registered iPhones, then internal TestFlight.
+
+| Step | Who | Detail |
+|---|---|---|
+| 1. Apple Developer Program enrollment | **Owner (purchase, US$99/year)** | <https://developer.apple.com/programs/enroll/>. Organization enrollment needs a D-U-N-S number. Nothing has been bought. |
+| 2. Team ID | Owner | developer.apple.com → Account → Membership details (10 characters). Give it to the lead for `eas.json > submit.production.ios.appleTeamId`. |
+| 3. Register the test iPhones | Owner and each tester | `npx eas-cli@latest device:create` (open the link on each iPhone), then `npx eas-cli@latest device:list`. Register before building; a device added later needs a new build or `eas build:resign`. |
+| 4. Developer Mode on each iPhone | Testers | Settings → Privacy & Security → Developer Mode, then restart. |
+| 5. Credit for the ad hoc build | Owner approves | About US$2 per iOS build. |
+| 6. Ad hoc build | **Owner** (it signs in to Apple and creates the distribution certificate, the ad hoc profile and the APNs key) | `npx eas-cli@latest build --platform ios --profile preview`. Answer Yes to EAS-managed credentials and to push notification setup. Details in section 8.3. |
+| 7. Device smoke test | Testers; results to the lead | Section 9, all rows, including camera capture, a denied camera (the "Open Settings" alert), push delivery and notification taps. |
+| 8. Later: internal TestFlight | Owner: App Store Connect app record (`ascAppId`) and Apple ID e-mail. Lead: a PR that fixes the `production` API URL and the three `submit.production.ios` placeholders | Section 3, step 9. `production` still points at the offline Railway URL, so do not build it until that is fixed. |
