@@ -55,10 +55,14 @@ export interface TeamMemberListProps {
   currentUserId?: string | null;
   /** Omit to render the list without status actions. */
   onStatusAction?: (member: TeamMember, action: StatusAction) => void;
+  /** Offered only for active members who have never signed in. */
+  onResendSetup?: (member: TeamMember) => void;
+  /** Member whose setup link is being re-issued (button shows progress). */
+  resendingId?: string | null;
 }
 
 export function TeamMemberList({
-  members, filtered, onAddClick, currentUserId, onStatusAction,
+  members, filtered, onAddClick, currentUserId, onStatusAction, onResendSetup, resendingId,
 }: TeamMemberListProps) {
   if (members.length === 0) {
     return filtered ? (
@@ -116,6 +120,19 @@ export function TeamMemberList({
               </TableCell>
               {onStatusAction && (
                 <TableCell className="text-right">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                  {onResendSetup && !isSelf && m.isActive && m.setupPending === true && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label={`Resend setup link to ${name}`}
+                      loading={resendingId === m.id}
+                      disabled={Boolean(resendingId)}
+                      onClick={() => onResendSetup(m)}
+                    >
+                      Resend setup link
+                    </Button>
+                  )}
                   {isSelf ? (
                     <span className="text-xs text-muted-foreground">You</span>
                   ) : m.isActive ? (
@@ -137,6 +154,7 @@ export function TeamMemberList({
                       Reactivate
                     </Button>
                   )}
+                  </div>
                 </TableCell>
               )}
             </TableRow>
