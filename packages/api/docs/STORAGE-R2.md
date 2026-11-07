@@ -1,6 +1,6 @@
 # Private file storage on Cloudflare R2
 
-Last reviewed: 2026-11-07 against `main` @ `ee0ea6a`. This is a plan. No bucket, account or token has been created, and no existing upload has been moved.
+Last reviewed: 2026-11-07 against `main` @ `85ee822`. This is a plan. No bucket, account or token has been created, and no existing upload has been moved.
 
 The API already has an S3-compatible storage driver (`src/services/storage/`). This document explains how it maps onto a private Cloudflare R2 bucket, what it costs, how to move existing local files without breaking anything, and how to recover from mistakes.
 

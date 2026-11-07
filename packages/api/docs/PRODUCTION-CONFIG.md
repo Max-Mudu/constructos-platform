@@ -53,7 +53,7 @@ Run it once per secret. Never reuse a value across variables or environments.
 |---|---|---|---|
 | `TRUST_PROXY` | Recommended | trust none | The number of reverse-proxy hops between the client and the API, or a comma-separated list of proxy IPs/CIDRs (or `loopback`, `linklocal`, `uniquelocal`). `true` (trust everything) is rejected at boot. See §3. |
 | `SSE_ENABLED` | Optional | `false` in production, `true` elsewhere | Server-sent events at `GET /api/v1/events`. Keep it off in production until event delivery is scoped per audience. Clients fall back to polling. |
-| `SITE_SCOPE_STRICT` | Optional | `false` | Only if the opt-in site-scoping change is merged: it applies the membership site rule to more roles and modules. Turn it on only after reviewing project memberships. Only `true` or `false` is accepted. |
+| `SITE_SCOPE_STRICT` | Optional | `false` | Opt-in site scoping: it applies the membership site rule to more roles and modules. Turn it on only after reviewing project memberships. Only `true` or `false` is accepted. |
 
 ### Email (SMTP)
 
@@ -184,7 +184,7 @@ Work through this in order for each Railway environment (QA first, then producti
 | `DAILY_REPORT_AI_PROVIDER` | `disabled`, or `anthropic` after approval | |
 | `ANTHROPIC_API_KEY` | Only with `anthropic`: a spend-limited workspace key | |
 
-Optional, with sensible defaults: `JWT_EXPIRES_IN` (`15m`), `DAILY_REPORT_AI_MODEL`, `DAILY_REPORT_AI_TIMEOUT_MS`, `DAILY_REPORT_AI_DAILY_CAP_PER_COMPANY`.
+Optional, with sensible defaults: `SITE_SCOPE_STRICT` (`false`; turn it on only after reviewing project memberships), `JWT_EXPIRES_IN` (`15m`), `DAILY_REPORT_AI_MODEL`, `DAILY_REPORT_AI_TIMEOUT_MS`, `DAILY_REPORT_AI_DAILY_CAP_PER_COMPANY`.
 
 Storage details, costs and the move from local disk are in [STORAGE-R2.md](STORAGE-R2.md).
 
@@ -213,8 +213,7 @@ Storage details, costs and the move from local disk are in [STORAGE-R2.md](STORA
 - [ ] Upload and open a delivery photo and a Daily Report photo; download a Daily Report PDF.
 - [ ] Sign in on a mobile build whose `EXPO_PUBLIC_API_URL` is `https://<api host>/api/v1`.
 
-### 6.5 Documentation and code mismatches (as of `main` @ `ee0ea6a`)
+### 6.5 Documentation and code mismatches (as of `main` @ `85ee822`)
 
-- `SITE_SCOPE_STRICT` (listed in §2) is **not read** by the code on `main`. It applies only once the site-scoping change is merged.
 - `JWT_REFRESH_EXPIRES_IN` and the four `AWS_*` variables are read by `env.ts` but have no effect.
 - No variable that `env.ts` reads is missing from §2.
