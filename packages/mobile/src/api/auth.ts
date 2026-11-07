@@ -1,4 +1,5 @@
-import { apiClient } from './client';
+import { apiClient, revokeServerSession } from './client';
+import { LogoutOutcome } from './logoutFlow';
 import { AuthUser, AuthTokens } from '../types';
 
 interface LoginResponse {
@@ -30,9 +31,11 @@ export const authApi = {
     return res.data;
   },
 
-  logout: async (refreshToken: string): Promise<void> => {
-    await apiClient.post('/auth/logout', { refreshToken });
-  },
+  /**
+   * Revoke this device's session on the server, refreshing once if the access
+   * token has expired. Never throws; clear local tokens afterwards regardless.
+   */
+  logout: (): Promise<LogoutOutcome> => revokeServerSession(),
 
   me: async (): Promise<AuthUser> => {
     const res = await apiClient.get<{ user: AuthUser }>('/auth/me');

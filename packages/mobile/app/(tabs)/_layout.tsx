@@ -3,7 +3,7 @@ import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '../../src/store/auth.store';
-import { UserRole } from '../../src/types';
+import { TabName, tabsForRole } from '../../src/constants/roleTabs';
 
 const TAB_BAR_HEIGHT         = 60;
 const TAB_BAR_PADDING_BOTTOM = 8;
@@ -33,92 +33,13 @@ const TAB_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> =
 };
 
 // All possible tab screen names
-const ALL_TABS = [
+const ALL_TABS: readonly TabName[] = [
   'index', 'dashboard', 'projects', 'labour', 'deliveries', 'inventory',
   'attendance', 'schedule', 'invoices', 'instructions', 'reports', 'notifications', 'profile',
-] as const;
+];
 
-type TabName = typeof ALL_TABS[number];
-type TabConfig = { name: TabName; title: string };
-
-function getTabsForRole(role: UserRole, canViewFinance: boolean): TabConfig[] {
-  switch (role) {
-    case 'worker':
-      return [
-        { name: 'index',         title: 'My Day'     },
-        { name: 'attendance',    title: 'Attendance' },
-        { name: 'schedule',      title: 'Schedule'   },
-        { name: 'notifications', title: 'Alerts'     },
-        { name: 'profile',       title: 'Profile'    },
-      ];
-
-    case 'site_supervisor':
-      return [
-        { name: 'index',         title: 'Home'       },
-        { name: 'labour',        title: 'Labour'     },
-        { name: 'deliveries',    title: 'Deliveries' },
-        { name: 'inventory',     title: 'Inventory'  },
-        { name: 'attendance',    title: 'Attendance' },
-        { name: 'schedule',      title: 'Schedule'   },
-        { name: 'profile',       title: 'Profile'    },
-      ];
-
-    case 'project_manager':
-      return [
-        { name: 'dashboard',     title: 'Dashboard'  },
-        { name: 'projects',      title: 'Projects'   },
-        { name: 'labour',        title: 'Labour'     },
-        { name: 'deliveries',    title: 'Deliveries' },
-        { name: 'inventory',     title: 'Inventory'  },
-        { name: 'schedule',      title: 'Schedule'   },
-        { name: 'reports',       title: 'Reports'    },
-        { name: 'notifications', title: 'Alerts'     },
-        { name: 'profile',       title: 'Profile'    },
-      ];
-
-    case 'company_admin':
-      return [
-        { name: 'dashboard',     title: 'Dashboard'  },
-        { name: 'projects',      title: 'Projects'   },
-        { name: 'inventory',     title: 'Inventory'  },
-        { name: 'schedule',      title: 'Schedule'   },
-        { name: 'invoices',      title: 'Invoices'   },
-        { name: 'reports',       title: 'Reports'    },
-        { name: 'notifications', title: 'Alerts'     },
-        { name: 'profile',       title: 'Profile'    },
-      ];
-
-    case 'finance_officer':
-      return [
-        { name: 'dashboard',     title: 'Dashboard'  },
-        { name: 'deliveries',    title: 'Deliveries' },
-        { name: 'inventory',     title: 'Inventory'  },
-        { name: 'invoices',      title: 'Invoices'   },
-        { name: 'reports',       title: 'Reports'    },
-        { name: 'notifications', title: 'Alerts'     },
-        { name: 'profile',       title: 'Profile'    },
-      ];
-
-    case 'consultant':
-      return [
-        { name: 'dashboard',      title: 'Dashboard'     },
-        { name: 'projects',       title: 'Projects'      },
-        { name: 'instructions',   title: 'Instructions'  },
-        { name: 'notifications',  title: 'Alerts'        },
-        { name: 'profile',        title: 'Profile'       },
-      ];
-
-    default: // contractor, viewer
-      return [
-        { name: 'dashboard',     title: 'Dashboard'  },
-        { name: 'projects',      title: 'Projects'   },
-        { name: 'schedule',      title: 'Schedule'   },
-        { name: 'attendance',    title: 'Attendance' },
-        { name: 'notifications', title: 'Alerts'     },
-        { name: 'profile',       title: 'Profile'    },
-      ];
-  }
-}
+// Which tabs each role sees (and which the API would refuse) lives in
+// src/constants/roleTabs.ts, next to the API route role lists it mirrors.
 
 export default function TabLayout() {
   const user = useAuthStore((s) => s.user);
@@ -137,7 +58,7 @@ export default function TabLayout() {
     },
   };
 
-  const visibleTabs = getTabsForRole(user.role, user.canViewFinance);
+  const visibleTabs = tabsForRole(user.role);
   const visibleNames = new Set(visibleTabs.map((t) => t.name));
 
   return (

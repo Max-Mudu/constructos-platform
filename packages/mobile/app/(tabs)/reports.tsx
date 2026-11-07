@@ -11,7 +11,8 @@ import { openLocalFile } from '../../src/utils/openFile';
 import { useAuthStore } from '../../src/store/auth.store';
 import { reportsApi, ReportType, ReportFormat, ReportData } from '../../src/api/reports';
 import { projectsApi } from '../../src/api/projects';
-import { Project, JobSite } from '../../src/types';
+import { Project, JobSite, UserRole } from '../../src/types';
+import { TabName, tabsForRole } from '../../src/constants/roleTabs';
 import { Screen } from '../../src/components/Screen';
 import { Card } from '../../src/components/Card';
 
@@ -136,21 +137,9 @@ const DSR_PALETTE: Record<DSRCardColor, { border: string; bg: string; textColor:
   blue:  { border: '#3b82f6', bg: '#172554', textColor: '#93c5fd' },
 };
 
-// Complete verbatim copy of every role's tab list from (tabs)/_layout.tsx.
-// If the layout changes, update this block to match.
-const ROLE_TABS: Record<string, string[]> = {
-  company_admin:   ['dashboard', 'projects', 'inventory', 'schedule', 'invoices', 'reports', 'notifications', 'profile'],
-  project_manager: ['dashboard', 'projects', 'labour', 'deliveries', 'inventory', 'schedule', 'reports', 'notifications', 'profile'],
-  site_supervisor: ['index', 'labour', 'deliveries', 'inventory', 'attendance', 'schedule', 'profile'],
-  finance_officer: ['dashboard', 'deliveries', 'inventory', 'invoices', 'reports', 'notifications', 'profile'],
-  consultant:      ['dashboard', 'projects', 'instructions', 'notifications', 'profile'],
-  worker:          ['index', 'attendance', 'schedule', 'notifications', 'profile'],
-  contractor:      ['dashboard', 'projects', 'schedule', 'attendance', 'notifications', 'profile'],
-  viewer:          ['dashboard', 'projects', 'schedule', 'attendance', 'notifications', 'profile'],
-};
-
-function canNav(role: string, tab: string): boolean {
-  return (ROLE_TABS[role] ?? []).includes(tab);
+// Same tab list the tab bar shows (src/constants/roleTabs.ts).
+function canNav(role: UserRole, tab: TabName): boolean {
+  return tabsForRole(role).some((t) => t.name === tab);
 }
 
 function DSRCard({
@@ -351,7 +340,7 @@ function DailySiteReportViewer({
   const rowNote = (metric: string): string =>
     report.rows.find((r) => r[0] === metric)?.[2] ?? '';
 
-  const nav = (tab: string) => {
+  const nav = (tab: TabName) => {
     const ok = role !== null && canNav(role, tab);
     return ok
       ? () => router.push(`/(tabs)/${tab}` as Parameters<typeof router.push>[0])

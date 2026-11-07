@@ -31,6 +31,7 @@ import { Input } from '../../src/components/Input';
 import { LoadingSpinner } from '../../src/components/LoadingSpinner';
 import { EmptyState } from '../../src/components/EmptyState';
 import { API_ORIGIN } from '../../src/constants/api';
+import { ATTENDANCE_VIEW_ROLES, roleCanLoadTab } from '../../src/constants/roleTabs';
 import {
   Project, JobSite, Drawing, Instruction,
   InstructionType, InstructionPriority,
@@ -260,6 +261,12 @@ export default function ProjectsScreen() {
   }
 
   async function loadSiteDetail(project: Project, site: JobSite) {
+    // The API refuses the attendance list to roles outside its VIEW_ROLES;
+    // show the empty counts instead of making a call that can only fail.
+    if (!ATTENDANCE_VIEW_ROLES.includes(user.role)) {
+      setAttendanceSummary(null);
+      return;
+    }
     try {
       const today = new Date().toISOString().split('T')[0]!;
       const summary = await attendanceApi.list(project.id, site.id, { date: today });
@@ -587,14 +594,16 @@ export default function ProjectsScreen() {
                 <Text style={SD.attendanceLabel}>Total</Text>
               </View>
             </View>
-            <TouchableOpacity
-              style={SD.musterBtn}
-              onPress={() => router.push('/(tabs)/attendance')}
-              activeOpacity={0.8}
-            >
-              <Text style={SD.musterBtnText}>View Muster Roll</Text>
-              <Text style={SD.musterBtnArrow}>›</Text>
-            </TouchableOpacity>
+            {roleCanLoadTab(user.role, 'attendance') ? (
+              <TouchableOpacity
+                style={SD.musterBtn}
+                onPress={() => router.push('/(tabs)/attendance')}
+                activeOpacity={0.8}
+              >
+                <Text style={SD.musterBtnText}>View Muster Roll</Text>
+                <Text style={SD.musterBtnArrow}>›</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
 
           {/* ── 2×2 Resource grid ─────────────────────────────────── */}
