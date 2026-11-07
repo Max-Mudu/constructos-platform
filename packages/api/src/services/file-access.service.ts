@@ -1,7 +1,7 @@
 import { UserRole } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { RequestUser } from '../types';
-import { getAccessibleProjectIds, getAccessibleSiteIds } from '../middleware/requireProjectAccess';
+import { getAccessibleProjectIds, getAccessibleSiteIds, getDocumentSiteIds } from '../middleware/requireProjectAccess';
 
 /**
  * Authorisation for GET /uploads/* (locally stored files).
@@ -23,8 +23,8 @@ const INSTRUCTION_VIEW_ROLES: readonly UserRole[] = [
 
 type Owner =
   | { kind: 'delivery'; projectId: string; siteId: string }
-  | { kind: 'drawing'; projectId: string }
-  | { kind: 'instruction'; projectId: string; contractorId: string | null };
+  | { kind: 'drawing'; projectId: string; siteId: string | null }
+  | { kind: 'instruction'; projectId: string; siteId: string | null; contractorId: string | null; issuedById: string };
 
 /** Resolves every record that references `fileKey` inside the caller's company. */
 async function findOwners(fileKey: string, companyId: string): Promise<Owner[]> {
@@ -39,25 +39,19 @@ async function findOwners(fileKey: string, companyId: string): Promise<Owner[]> 
     }),
     prisma.drawingRevision.findFirst({
       where:  { fileKey, companyId, drawing: { companyId } },
-      select: { drawing: { select: { projectId: true } } },
+      select: { drawing: { select: { projectId: true, siteId: true } } },
     }),
     prisma.instructionAttachment.findFirst({
       where:  { fileKey, companyId, instruction: { companyId } },
-      select: { instruction: { select: { projectId: true, contractorId: true } } },
+      select: { instruction: { select: { projectId: true, siteId: true, contractorId: true, issuedById: true } } },
     }),
   ]);
 
   const owners: Owner[] = [];
   if (photo)    owners.push({ kind: 'delivery', ...photo.deliveryRecord });
   if (document) owners.push({ kind: 'delivery', ...document.deliveryRecord });
-  if (revision) owners.push({ kind: 'drawing', projectId: revision.drawing.projectId });
-  if (attachment) {
-    owners.push({
-      kind:         'instruction',
-      projectId:    attachment.instruction.projectId,
-      contractorId: attachment.instruction.contractorId,
-    });
-  }
+  if (revision) owners.push({ kind: 'drawing', ...revision.drawing });
+  if (attachment) owners.push({ kind: 'instruction', ...attachment.instruction });
   return owners;
 }
 
@@ -89,10 +83,22 @@ async function canAccessOwner(
   }
 
   if (owner.kind === 'delivery') {
-    // Same rule as delivery.service checkSiteAccess: a site-scoped supervisor
-    // sees only their assigned sites.
+    // Same rule as delivery.service checkSiteAccess: a site-scoped role
+    // (getAccessibleSiteIds) sees only their assigned sites.
     const siteIds = await getAccessibleSiteIds(owner.projectId, user.id, user.role);
     if (siteIds !== null && !siteIds.includes(owner.siteId)) return false;
+  }
+
+  if (owner.kind !== 'delivery') {
+    // Same rule as drawing.service / instruction.service site visibility
+    // (SITE_SCOPE_STRICT only): the actor's sites, project-level documents
+    // (siteId null), and instructions the actor issued.
+    const siteIds = await getDocumentSiteIds(owner.projectId, user.id, user.role);
+    const visible = siteIds === null
+      || owner.siteId === null
+      || siteIds.includes(owner.siteId)
+      || (owner.kind === 'instruction' && owner.issuedById === user.id);
+    if (!visible) return false;
   }
 
   if (owner.kind === 'instruction' && user.role === 'contractor') {

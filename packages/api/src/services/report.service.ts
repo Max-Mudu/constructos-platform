@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { AppError, ForbiddenError, NotFoundError, ValidationError } from '../utils/errors';
 import { getAccessibleProjectIds, getAccessibleSiteIds } from '../middleware/requireProjectAccess';
@@ -124,7 +125,8 @@ async function assertFinancialReportAccess(
 /**
  * The set of projects/sites a caller may read in a report or list.
  *  - projectIds === null  → every project in the caller's company
- *  - siteRestrictions     → per-project site allow-lists (site_supervisor only)
+ *  - siteRestrictions     → per-project site allow-lists (getAccessibleSiteIds:
+ *                           site_supervisor; also viewer/consultant under SITE_SCOPE_STRICT)
  *  - projectId / siteId   → validated, in-scope filters supplied by the caller
  */
 export interface ReadScope {
@@ -174,7 +176,7 @@ export async function resolveReadScope(
     projectId = site.projectId;
   }
 
-  // Per-project site allow-lists for site-scoped roles (site_supervisor).
+  // Per-project site allow-lists for site-scoped roles (getAccessibleSiteIds).
   const siteRestrictions = new Map<string, string[]>();
   if (!siteId && memberProjectIds !== null) {
     const candidates = projectId ? [projectId] : memberProjectIds;
@@ -232,6 +234,38 @@ export function scopeWhere(
       ],
     }],
   };
+}
+
+/**
+ * scopeWhere for consultant instructions, whose siteId is optional. Where the
+ * scope restricts a project to some sites (only under SITE_SCOPE_STRICT for
+ * the roles that can run this report), project-level instructions (siteId
+ * null) and instructions the actor issued stay in scope, matching
+ * instruction.service. With no restriction this is exactly scopeWhere(scope).
+ */
+export function instructionScopeWhere(
+  scope: ReadScope,
+  actorId: string,
+): Prisma.ConsultantInstructionWhereInput {
+  if (scope.siteId || scope.siteRestrictions.size === 0) {
+    return scopeWhere(scope) as Prisma.ConsultantInstructionWhereInput;
+  }
+  const projectIds = scope.projectId ? [scope.projectId] : (scope.projectIds ?? []);
+  const unrestricted = projectIds.filter((pid) => !scope.siteRestrictions.has(pid));
+  const restricted   = projectIds.filter((pid) =>  scope.siteRestrictions.has(pid));
+  const clauses: Prisma.ConsultantInstructionWhereInput[] = [];
+  if (unrestricted.length > 0) clauses.push({ projectId: { in: unrestricted } });
+  for (const pid of restricted) {
+    clauses.push({
+      projectId: pid,
+      OR: [
+        { siteId: { in: scope.siteRestrictions.get(pid) ?? [] } },
+        { siteId: null },
+        { issuedById: actorId },
+      ],
+    });
+  }
+  return { AND: [{ OR: clauses }] };
 }
 
 /** Same as scopeWhere, for the Project model itself (keyed by `id`). */
@@ -578,7 +612,7 @@ export async function consultantReport(
   const instructions = await prisma.consultantInstruction.findMany({
     where: {
       companyId,
-      ...scopeWhere(scope),
+      ...instructionScopeWhere(scope, actor.id),
       ...(dateRange          && { issuedDate: dateRange }),
     },
     include: {
