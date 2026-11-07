@@ -464,6 +464,8 @@ function MarkAttendanceModal({
                   }
                   onPress={() => setStatus(s)}
                   activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
                 >
                   <View style={[M.statusDot, { backgroundColor: isActive ? cfg.text : '#1e3a5f' }]} />
                   <Text style={isActive ? [M.statusChipText, { color: cfg.text }] : M.statusChipText}>

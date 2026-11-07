@@ -13,7 +13,7 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert,
-  ScrollView, RefreshControl, Linking, TextInput,
+  ScrollView, RefreshControl, Linking, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -170,7 +170,8 @@ function InstructionCreateForm({
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.formPad} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <ScrollView contentContainerStyle={styles.formPad} keyboardShouldPersistTaps="handled">
       <Text style={styles.formTitle}>New Instruction</Text>
 
       <Text style={styles.fieldLabel}>Type</Text>
@@ -213,6 +214,7 @@ function InstructionCreateForm({
         <Button title="Create" onPress={save} loading={saving} style={{ flex: 1 }} />
       </View>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

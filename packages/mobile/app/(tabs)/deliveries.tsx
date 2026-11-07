@@ -214,6 +214,8 @@ function DeliveryDetailView({
               ]}
               onPress={() => setInspection(o.value)}
               activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityState={{ selected: inspection === o.value }}
             >
               {inspection === o.value && (
                 <View style={[DV.optionDot, { backgroundColor: o.color }]} />
@@ -239,6 +241,8 @@ function DeliveryDetailView({
               ]}
               onPress={() => setAcceptance(o.value)}
               activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityState={{ selected: acceptance === o.value }}
             >
               {acceptance === o.value && (
                 <View style={[DV.optionDot, { backgroundColor: o.color }]} />

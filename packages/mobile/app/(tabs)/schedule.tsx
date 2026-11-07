@@ -285,6 +285,8 @@ function UpdateTaskModal({
                   }
                   onPress={() => handleStatusChange(opt.value)}
                   activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
                 >
                   <View style={[UM.statusDot, { backgroundColor: isActive ? c.color : '#1e3a5f' }]} />
                   <Text style={[UM.statusChipText, isActive ? { color: c.color } : null]}>
@@ -865,6 +867,9 @@ export default function ScheduleScreen() {
               style={isSelected ? [A.dayBtn, A.dayBtnSelected] : isToday ? [A.dayBtn, A.dayBtnToday] : A.dayBtn}
               onPress={() => setSelectedDay(isSelected ? null : wd.date)}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={`${wd.day} ${wd.dayNum}${dayTasks.length > 0 ? `, ${dayTasks.length} task${dayTasks.length === 1 ? '' : 's'}` : ''}`}
+              accessibilityState={{ selected: isSelected }}
             >
               <Text style={isSelected ? [A.dayLabel, A.dayLabelSelected] : isToday ? [A.dayLabel, A.dayLabelToday] : A.dayLabel}>
                 {wd.day}

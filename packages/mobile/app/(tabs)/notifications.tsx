@@ -100,7 +100,12 @@ export default function NotificationsScreen() {
             data={notifications}
             keyExtractor={(n) => n.id}
             renderItem={({ item }) => (
-              <TouchableOpacity onPress={() => void markRead(item.id)} activeOpacity={0.8}>
+              <TouchableOpacity
+                onPress={() => void markRead(item.id)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`${item.isRead ? '' : 'Unread. '}${item.title}. ${item.body}`}
+              >
                 <Card style={[styles.notifCard, !item.isRead && styles.unreadCard]}>
                   {!item.isRead && <View style={styles.unreadDot} />}
                   <Text style={styles.notifTitle}>{item.title}</Text>
