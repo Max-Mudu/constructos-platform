@@ -237,7 +237,7 @@ async function creatorVisibleWhere(actor: RequestUser): Promise<Prisma.WorkerWhe
 }
 
 /** Read scope (list / get): role scope, widened only by creator visibility. */
-async function workerReadScopeWhere(actor: RequestUser): Promise<Prisma.WorkerWhereInput> {
+export async function workerReadScopeWhere(actor: RequestUser): Promise<Prisma.WorkerWhereInput> {
   const scope = await workerScopeWhere(actor);
   const created = await creatorVisibleWhere(actor);
   return created ? { OR: [scope, created] } : scope;
