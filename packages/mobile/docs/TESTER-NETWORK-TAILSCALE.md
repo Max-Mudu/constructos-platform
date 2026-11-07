@@ -1,6 +1,29 @@
 # Private tester network with Tailscale Serve
 
-Last reviewed: 2026-11-07. This is a runbook for the owner. Nothing in it has been installed, signed in to or started. Tailscale is **not installed** on the owner's PC (`where tailscale` finds nothing), so everything from §3 onwards is an owner step.
+Last reviewed: 2026-11-07 (re-checked for the physical-device build plan). Nothing in it has been installed, signed in to or started. Tailscale is **not installed** on the owner's PC (`where tailscale` finds nothing; there is no `C:\Program Files\Tailscale`).
+
+## 0. Minimum owner step (owner-only; everything else follows from it)
+
+Only these three steps need the owner, because they install system software and sign in to an account:
+
+1. Install the Tailscale client for Windows from <https://tailscale.com/download/windows> (administrator install).
+2. Run `tailscale up` and sign in in the browser window it opens.
+3. In the admin console at <https://login.tailscale.com/admin/dns>, confirm MagicDNS is on and click **Enable HTTPS** under HTTPS Certificates.
+
+Then tell Claude it is done. This is enough for testing on the **owner's own** phone: signed in to the same Tailscale account, every device is the owner's, and the default policy covers them. (At test time the phone also needs the Tailscale app, signed in to that account with the VPN on.) The policy, the `tag:qa-api` tag and tester invitations (§4, §8 steps 3, 4 and 8) are needed only before **someone else's** device joins.
+
+**What Claude can do afterwards, without further owner steps:**
+
+- Read the machine's tailnet name (`tailscale status --json` → `Self.DNSName`). Nothing secret is printed or committed.
+- Start the dev API against the **QA** database with `TRUST_PROXY=loopback` and `ALLOW_PUBLIC_REGISTRATION=false` (§5.1).
+- Run `tailscale serve --bg --https=443 http://127.0.0.1:3001`, then `tailscale serve status`. Confirm it is tailnet-only and **Funnel is off**. Claude never runs `tailscale funnel`.
+- Run the §6 checks: `curl.exe -v https://<machine>.<tailnet>.ts.net/health` must show certificate verification passing and return 200; `/api/v1/auth/me` must return 401; never with `-k`. Only then does Claude report the URL as working.
+- Build the arm64 phone APK with `EXPO_PUBLIC_API_URL=https://<machine>.<tailnet>.ts.net/api/v1` and no cleartext exception, verify it with `aapt2` and `apksigner`, and install it with `adb` once the phone is connected over USB ([ANDROID-LOCAL-BUILD.md](ANDROID-LOCAL-BUILD.md), "Physical Android phone build plan").
+- After a sign-in from the phone, check that the audit-log IP is the phone's `100.x.y.z` address, not `127.0.0.1`.
+- With the owner's approval of the credit, set the EAS `preview` variable to the same URL and start the iOS simulator build ([IOS-READINESS.md](IOS-READINESS.md), section 10, milestone 1).
+- Turn it off afterwards with `tailscale serve reset`.
+
+If Windows refuses `tailscale serve` for a non-elevated user, running it in an Administrator PowerShell is one more owner action. That has not been tested, because Tailscale is not installed.
 
 It expands option 2 of [DEV-API-ACCESS.md](DEV-API-ACCESS.md): give tester phones an HTTPS dev/QA API without exposing anything to the public internet.
 
@@ -206,15 +229,17 @@ Then, on a tester phone with the preview build: sign in with the tester's own QA
 
 `CORS_ORIGIN` accepts exactly one origin (`server.ts` passes the string to `@fastify/cors`). That is enough for mobile testers, since native apps send no `Origin`. It only matters if the web app must work on both `http://localhost:3000` and the tailnet origin at the same time. A small, opt-in change would parse a comma-separated `CORS_ORIGIN` into an exact-match list, with a single value behaving exactly as today. It touches the CORS policy, so it is left to the lead to schedule as its own reviewed PR. No other API change is needed for Serve: `TRUST_PROXY` already accepts `loopback`, and the API does not depend on the request's host name.
 
-## 8. Owner steps, in order
+## 8. Full sequence, including other testers
 
-1. Install the Tailscale Windows client and run `tailscale up` to sign in.
-2. Admin console → DNS: confirm MagicDNS and click **Enable HTTPS**.
-3. Replace the policy file with §4 (real tester logins), save, and confirm the tests pass.
-4. Tag the PC `tag:qa-api`.
+**Owner** marks a step only the owner can do. Steps 1 and 2 are the minimum owner step in §0. Steps 3, 4 and 8 are needed only before someone other than the owner joins. Claude can do the others once steps 1 and 2 are done.
+
+1. **Owner:** install the Tailscale Windows client and run `tailscale up` to sign in.
+2. **Owner:** admin console → DNS: confirm MagicDNS and click **Enable HTTPS**.
+3. **Owner** (before other testers): replace the policy file with §4 (real tester logins), save, and confirm the tests pass.
+4. **Owner** (before other testers): tag the PC `tag:qa-api`.
 5. Start the dev API against the **QA** database with `TRUST_PROXY=loopback` and `ALLOW_PUBLIC_REGISTRATION=false`.
-6. Run `tailscale serve --bg --https=443 http://localhost:3001` and check `tailscale serve status` (no Funnel).
+6. Run `tailscale serve --bg --https=443 http://127.0.0.1:3001` and check `tailscale serve status` (no Funnel).
 7. Run the §6 checks (`curl.exe -v https://<machine>.<tailnet>.ts.net/health`, plus the negative checks).
-8. Check the plan terms, then invite testers and add them to `group:qa-testers`. Create their own QA app accounts.
-9. Build the preview with `EXPO_PUBLIC_API_URL=https://<machine>.<tailnet>.ts.net/api/v1` and hand it out.
+8. **Owner** (before other testers): check the plan terms, then invite testers and add them to `group:qa-testers`. An admin creates their own QA app accounts.
+9. Build with `EXPO_PUBLIC_API_URL=https://<machine>.<tailnet>.ts.net/api/v1` (the local arm64 APK in [ANDROID-LOCAL-BUILD.md](ANDROID-LOCAL-BUILD.md), or an EAS `preview` build once the credit is approved) and install it.
 10. When done: `tailscale serve reset`, and remove the testers from the group.

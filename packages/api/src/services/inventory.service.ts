@@ -180,35 +180,56 @@ export async function recordUsage(
   workArea:       string | undefined,
   scheduleTaskId: string | undefined,
   actor:          RequestUser,
+  request:        { ip?: string; userAgent?: string } = {},
 ) {
   await checkSiteAccess(siteId, projectId, actor);
 
   const item = await prisma.siteInventory.findFirst({
-    where: { id: inventoryId, siteId, companyId: actor.companyId },
+    where:  { id: inventoryId, siteId, companyId: actor.companyId },
+    select: { id: true, unitOfMeasure: true },
   });
   if (!item) throw new NotFoundError('Inventory item');
 
-  const current = Number(item.currentQuantity);
-  if (quantity > current) {
-    throw new ValidationError(`Insufficient stock: requested ${quantity}, available ${current}`);
-  }
+  const qty = new Prisma.Decimal(quantity);
 
-  const negativeQty = new Prisma.Decimal(-quantity);
-
+  // The deduction is a conditional update inside the transaction: it only
+  // matches while currentQuantity >= quantity, so concurrent usages (and
+  // adjustments, which use the same guard) cannot take stock below zero.
   const updated = await prisma.$transaction(async (tx) => {
-    const decremented = await tx.siteInventory.update({
-      where:  { id: inventoryId },
-      data:   { currentQuantity: { decrement: quantity } },
-      select: INVENTORY_ITEM_SELECT,
+    const res = await tx.siteInventory.updateMany({
+      where: {
+        id: inventoryId, siteId, companyId: actor.companyId,
+        currentQuantity: { gte: qty },
+      },
+      data: { currentQuantity: { decrement: qty } },
     });
 
-    await tx.inventoryTransaction.create({
+    if (res.count === 0) {
+      const current = await tx.siteInventory.findFirst({
+        where:  { id: inventoryId, siteId, companyId: actor.companyId },
+        select: { currentQuantity: true },
+      });
+      if (!current) throw new NotFoundError('Inventory item');
+      throw new ValidationError(
+        `Insufficient stock: requested ${quantity}, available ${Number(current.currentQuantity)}`,
+      );
+    }
+
+    // Our update holds the row lock until commit, so this read is the
+    // post-usage value and nothing else has changed it in between.
+    const after = await tx.siteInventory.findFirstOrThrow({
+      where:  { id: inventoryId },
+      select: INVENTORY_ITEM_SELECT,
+    });
+    const beforeQty = after.currentQuantity.plus(qty);
+
+    const txRow = await tx.inventoryTransaction.create({
       data: {
         companyId:      actor.companyId,
         siteId,
         inventoryId,
         type:           'usage_out',
-        quantity:       negativeQty,
+        quantity:       qty.negated(),
         unitOfMeasure:  item.unitOfMeasure,
         note:           note           ?? null,
         usageReason:    usageReason    ?? null,
@@ -216,9 +237,36 @@ export async function recordUsage(
         scheduleTaskId: scheduleTaskId ?? null,
         performedById:  actor.id,
       },
+      select: { id: true },
     });
 
-    return decremented;
+    await tx.auditLog.create({
+      data: {
+        companyId:     actor.companyId,
+        userId:        actor.id,
+        userEmail:     actor.email,
+        userRole:      actor.role,
+        action:        'update',
+        entityType:    'site_inventory',
+        entityId:      inventoryId,
+        changesBefore: { currentQuantity: beforeQty.toString() },
+        changesAfter:  {
+          currentQuantity: after.currentQuantity.toString(),
+          usage: {
+            transactionId:  txRow.id,
+            quantity:       qty.toString(),
+            usageReason:    usageReason    ?? null,
+            workArea:       workArea       ?? null,
+            note:           note           ?? null,
+            scheduleTaskId: scheduleTaskId ?? null,
+          },
+        },
+        ipAddress: request.ip ?? null,
+        userAgent: request.userAgent ?? null,
+      },
+    });
+
+    return after;
   });
 
   const isLow = computeIsLowStock(updated.currentQuantity, updated.lowStockThreshold);

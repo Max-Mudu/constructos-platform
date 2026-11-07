@@ -1,7 +1,9 @@
 # ConstructOS mobile: giving test phones a dev/staging API
 
 Last reviewed: 2026-11-07. Nothing in this document has been provisioned or started; it is a
-comparison and a recommended setup for when the owner decides to do it.
+comparison and a recommended setup for when the owner decides to do it. The chosen route is
+Tailscale Serve (option 2), tailnet only with Funnel off; its runbook and the minimum owner step
+are in [TESTER-NETWORK-TAILSCALE.md](TESTER-NETWORK-TAILSCALE.md).
 
 ## The problem
 
@@ -72,16 +74,23 @@ The full runbook (commands, tailnet policy, API environment and TLS checks) is i
 - **Auth:** two layers: the tester's device must be authorised on the tailnet, then the app's
   normal login. Access can be revoked per device from the Tailscale admin console.
 - **Data risk:** low. Only authorised devices can connect; still use the synthetic-data DB only.
-- **Setup (owner, one-off):**
-  1. Install Tailscale on the machine that runs the dev API and sign in.
-  2. In the admin console, enable MagicDNS and HTTPS certificates for the tailnet.
-  3. Run the API with `TRUST_PROXY=loopback` and `ALLOW_PUBLIC_REGISTRATION=false`.
-  4. `tailscale serve --bg 3001` (serves `https://<machine>.<tailnet>.ts.net/` → `http://127.0.0.1:3001`).
+- **Setup:** the owner-only part is three steps (install the client, `tailscale up` and sign
+  in, enable HTTPS certificates in the admin console). They are listed, with everything that can
+  be done afterwards without the owner, in
+  [TESTER-NETWORK-TAILSCALE.md §0](TESTER-NETWORK-TAILSCALE.md#0-minimum-owner-step-owner-only-everything-else-follows-from-it).
+  After those steps:
+  1. Run the API against the QA database with `TRUST_PROXY=loopback` and
+     `ALLOW_PUBLIC_REGISTRATION=false`.
+  2. `tailscale serve --bg --https=443 http://127.0.0.1:3001` (serves
+     `https://<machine>.<tailnet>.ts.net/` → `http://127.0.0.1:3001`, tailnet only).
      Check with `tailscale serve status`; turn off with `tailscale serve reset`.
      **Do not run `tailscale funnel`.**
-  5. Each tester installs the Tailscale app (Android/iOS), signs in, and is invited to the tailnet
-     or given a share of that machine.
-  6. Build the preview with `EXPO_PUBLIC_API_URL=https://<machine>.<tailnet>.ts.net/api/v1`.
+  3. Each tester installs the Tailscale app (Android/iOS) and signs in. The owner's own phone
+     uses the owner's account; anyone else is invited by the owner and limited by the policy in
+     the runbook (§4).
+  4. Build with `EXPO_PUBLIC_API_URL=https://<machine>.<tailnet>.ts.net/api/v1` (local arm64
+     APK: `ANDROID-LOCAL-BUILD.md`, "Physical Android phone build plan"; or an EAS `preview`
+     build).
      Because the certificate is publicly trusted, **no cleartext or ATS exception is needed**, and
      the same build configuration works for Android and iOS.
 - **Downsides:** testers install one extra app and keep the VPN toggle on; the API is reachable
