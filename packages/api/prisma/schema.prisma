@@ -256,6 +256,10 @@ model User {
   lastLoginAt      DateTime?
   failedLoginCount Int             @default(0)
   lockedAt         DateTime?
+  /// Incremented whenever all of the user's sessions are invalidated (for
+  /// example on deactivation). Access tokens carry it as `sv`; tokens and
+  /// refresh tokens issued under an older value are refused.
+  sessionVersion   Int             @default(0)
   defaultProjectId String?
   defaultSiteId    String?
   createdAt        DateTime        @default(now())
@@ -315,6 +319,8 @@ model RefreshToken {
   revokedAt DateTime?
   ipAddress String?
   userAgent String?
+  /// users.sessionVersion at the time this token was issued.
+  sessionVersion Int    @default(0)
   createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

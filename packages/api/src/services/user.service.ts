@@ -454,6 +454,12 @@ export async function setCompanyUserStatus(
     let refreshTokensRevoked = 0;
     let setupTokensInvalidated = 0;
     if (!isActive) {
+      // Every access and refresh token issued so far carries the old version
+      // and is refused from now on, including after a later reactivation.
+      await tx.user.update({
+        where: { id: target.id },
+        data:  { sessionVersion: { increment: 1 } },
+      });
       const revoked = await tx.refreshToken.updateMany({
         where: { userId: target.id, revokedAt: null },
         data:  { revokedAt: now },
