@@ -1,6 +1,7 @@
 # ConstructOS mobile: iOS readiness and build configuration
 
-Last reviewed: 2026-11-07, on branch `feat/ios-build-prep-2` (base `main` @ `1a95ebe`): SDK 58 dependency re-check,
+Last reviewed: 2026-11-07, on branch `docs/mobile-device-build-plan` (base `main` @ `8b2fe53`): read-only re-check of the
+simulator profile, the `preview` environment and the dependencies (section 10.0a). Before that: `feat/ios-build-prep-2` (base `main` @ `1a95ebe`): SDK 58 dependency re-check,
 iOS degrade-safely code review and the three build milestones (section 10). Before that: `feat/ios-eas-build` (Expo SDK 58; base `main` @ `ee0ea6a`): privacy manifest,
 EAS simulator procedure and smoke test (sections 8 and 9). Before that: `feat/ios-sdk-upgrade` (SDK 51 → 58; base `9e03d0f`).
 First written on `feat/ios-readiness` (#5, base `149b484`); sections 1 and 5 keep that history.
@@ -445,6 +446,35 @@ the iOS version and the build ID next to each result. **Sim** = can be done on t
 | `KeyboardAvoidingView` (#45, #47, #51) | All uses pass `behavior="padding"` on iOS; the modal ones sit directly inside page-sheet or transparent modals with `flex: 1`. |
 | `npx tsc --noEmit -p .` | Exit 0. |
 | `eas whoami`, `eas env:list --environment preview`, `eas build:list --platform ios --limit 3` (read-only) | `dalmarmudu`; no variables in `preview`; no iOS builds. |
+
+### 10.0a Re-check on `main` @ `8b2fe53` (2026-11-07, Windows 11, read-only)
+
+Run from `packages/mobile` through the shared lock runner. Nothing was built, and no EAS
+environment variable was created or changed.
+
+| Check | Result |
+|---|---|
+| `npx eas-cli config --platform ios --profile preview-simulator` (EAS CLI 18.7.0) | Resolves. SDK `58.0.0`; build profile `{ "credentialsSource": "remote", "distribution": "internal", "channel": "preview", "environment": "preview", "simulator": true }`. |
+| `npx eas-cli env:list --environment preview` | `No variables found for this environment.` `EXPO_PUBLIC_API_URL` is still unset. |
+| `npx expo install --check` | `Dependencies are up to date`. |
+
+**Status of milestone 1 (EAS simulator build): blocked on only two things.**
+
+1. A verified HTTPS API URL ending in `/api/v1`. The planned source is the Tailscale Serve host
+   (`https://<machine>.<tailnet>.ts.net/api/v1`, tailnet only, Funnel off). It needs the minimum
+   owner step in [TESTER-NETWORK-TAILSCALE.md §0](TESTER-NETWORK-TAILSCALE.md#0-minimum-owner-step-owner-only-everything-else-follows-from-it).
+2. About **US$2** of approved EAS credit for one iOS medium build.
+
+Nothing else is missing: the profile resolves, the dependencies match SDK 58, and the CLI is
+signed in. **Running** the result (milestone 2) also needs a Mac with Xcode and an iOS 16.4+
+simulator runtime, or a hosted simulator service. The Windows machine cannot run the iOS
+Simulator.
+
+The Tailscale URL is reachable only from devices in the tailnet. EAS's build servers do not need
+to reach it (the URL is only compiled into the bundle), but the Mac or hosted simulator that runs
+the app does. A Mac in the owner's tailnet works. A hosted simulator service usually cannot join a
+tailnet, so for that route the API would need another HTTPS host. That is an owner decision; do
+not use Funnel for it.
 
 Each milestone below depends on the one before it. Report each one separately: passing
 milestone 1 says nothing about milestone 2.
