@@ -189,6 +189,9 @@ function WorkerAttendance({
         <Text style={W.appBarDate}>{today}</Text>
       </View>
 
+      {/* Keeps the check-in time field above the keyboard. The ScrollView does
+          not also set automaticallyAdjustKeyboardInsets, so iOS is not adjusted twice. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView
         style={W.scroll}
         contentContainerStyle={W.scrollContent}
@@ -268,6 +271,7 @@ function WorkerAttendance({
           </>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
