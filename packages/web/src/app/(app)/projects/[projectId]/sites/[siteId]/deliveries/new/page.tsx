@@ -58,6 +58,8 @@ export default function NewDeliveryPage() {
 
   const formRef = useRef<HTMLFormElement>(null);
 
+  // Optional quick-fill: supplier details can always be typed in, so a failed
+  // list just leaves the picker hidden.
   useEffect(() => {
     supplierApi.list().then((r) => setSuppliers(r.suppliers)).catch(() => {});
   }, []);

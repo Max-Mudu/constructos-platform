@@ -249,6 +249,7 @@ function WorkerAttendance({
                 style={W.timeInput}
                 value={checkInTime}
                 onChangeText={setCheckInTime}
+                accessibilityLabel="Check-in time"
                 placeholder="08:00"
                 placeholderTextColor="#1e3a5f"
                 keyboardType="numbers-and-punctuation"
@@ -351,6 +352,8 @@ function MarkAttendanceModal({
             <Text style={M.subtitle}>Select worker and status</Text>
           </View>
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Close"
             style={M.closeBtn}
             onPress={onClose}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -399,13 +402,14 @@ function MarkAttendanceModal({
                   style={M.searchInput}
                   value={workerSearch}
                   onChangeText={setWorkerSearch}
+                  accessibilityLabel="Search workers"
                   placeholder="Search by name or trade…"
                   placeholderTextColor="#1e3a5f"
                   autoCorrect={false}
                   autoCapitalize="none"
                 />
                 {workerSearch.length > 0 ? (
-                  <TouchableOpacity onPress={() => setWorkerSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setWorkerSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                     <Text style={M.searchClear}>✕</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -460,6 +464,8 @@ function MarkAttendanceModal({
                   }
                   onPress={() => setStatus(s)}
                   activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isActive }}
                 >
                   <View style={[M.statusDot, { backgroundColor: isActive ? cfg.text : '#1e3a5f' }]} />
                   <Text style={isActive ? [M.statusChipText, { color: cfg.text }] : M.statusChipText}>
@@ -478,6 +484,7 @@ function MarkAttendanceModal({
               style={M.input}
               value={checkInTime}
               onChangeText={setCheckInTime}
+              accessibilityLabel="Check-in time"
               placeholder="08:00  (optional)"
               placeholderTextColor="#1e3a5f"
               keyboardType="numbers-and-punctuation"
@@ -491,6 +498,7 @@ function MarkAttendanceModal({
               style={[M.input, { height: 72, textAlignVertical: 'top' }]}
               value={notes}
               onChangeText={setNotes}
+              accessibilityLabel="Notes"
               placeholder="Optional notes…"
               placeholderTextColor="#1e3a5f"
               multiline

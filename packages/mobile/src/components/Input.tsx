@@ -16,6 +16,8 @@ export function Input({ label, error, containerStyle, ...props }: InputProps) {
       <TextInput
         style={[styles.input, error ? styles.inputError : null, props.style as object]}
         placeholderTextColor="#475569"
+        // The visible label is a sibling Text, so name the field for screen readers too.
+        accessibilityLabel={label}
         {...props}
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}

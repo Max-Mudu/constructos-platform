@@ -9,7 +9,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { Alert, AlertDescription } from '@/components/ui/Alert';
+import { LoadErrorAlert, loadErrorMessage } from '@/components/ui/LoadErrorAlert';
 import { useSSEEvent } from '@/hooks/useSSEEvent';
 import {
   Building2, AlertCircle, ChevronRight, HardHat, Receipt,
@@ -110,14 +110,17 @@ function AttendanceRing({ rate }: { rate: number }) {
 function ActivityFeed() {
   const [entries,  setEntries]  = useState<ActivityEntry[]>([]);
   const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState('');
   const activityDebounceRef     = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(() => {
     activityApi.list({ limit: 8 })
-      .then((r) => setEntries(r.activities))
-      .catch(() => {})
+      .then((r) => { setEntries(r.activities); setError(''); })
+      .catch((e) => setError(loadErrorMessage(e, 'recent activity')))
       .finally(() => setLoading(false));
   }, []);
+
+  const retry = useCallback(() => { setLoading(true); setError(''); load(); }, [load]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -162,6 +165,10 @@ function ActivityFeed() {
         {[1,2,3,4].map((i) => <Skeleton key={i} className="h-10 rounded-lg" />)}
       </div>
     );
+  }
+
+  if (error && entries.length === 0) {
+    return <LoadErrorAlert message={error} onRetry={retry} />;
   }
 
   if (entries.length === 0) {
@@ -247,6 +254,8 @@ export default function DashboardPage() {
   const canSeeContracts = ['company_admin', 'project_manager', 'contractor', 'consultant', 'site_supervisor'].includes(role);
 
   const loadStats = useCallback(() => {
+    setLoading(true);
+    setError('');
     dashboardApi.get()
       .then((r) => setStats(r.stats))
       .catch((e) => setError(e instanceof ApiError ? e.message : 'Failed to load dashboard'))
@@ -268,6 +277,8 @@ export default function DashboardPage() {
     statsDebounceRef.current = setTimeout(() => {
       dashboardApi.get()
         .then((r) => setStats(r.stats))
+        // Background refresh after a live event: the figures already on screen
+        // stay valid, and the next event or a reload tries again.
         .catch(() => {});
     }, 1_000);
   }, []);
@@ -294,10 +305,7 @@ export default function DashboardPage() {
   if (error) {
     return (
       <div className="px-6 py-8">
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+        <LoadErrorAlert message={error} onRetry={loadStats} />
       </div>
     );
   }

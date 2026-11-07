@@ -210,7 +210,7 @@ function CreateLabourModal({
       <KeyboardAvoidingView style={styles.modal} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>New Labour Entry</Text>
-          <TouchableOpacity onPress={onClose}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={onClose}>
             <Text style={styles.modalClose}>✕</Text>
           </TouchableOpacity>
         </View>
@@ -544,6 +544,7 @@ export default function LabourScreen() {
       <View style={styles.searchRow}>
         <TextInput
           style={styles.searchInput}
+          accessibilityLabel="Search workers"
           placeholder="Search worker..."
           placeholderTextColor="#475569"
           value={search}
@@ -551,7 +552,7 @@ export default function LabourScreen() {
           returnKeyType="search"
         />
         {search.length > 0 && (
-          <TouchableOpacity onPress={() => onSearchChange('')} style={styles.searchClear}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => onSearchChange('')} style={styles.searchClear}>
             <Text style={styles.searchClearText}>✕</Text>
           </TouchableOpacity>
         )}

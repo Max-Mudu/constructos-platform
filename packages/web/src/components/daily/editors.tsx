@@ -14,7 +14,7 @@ import {
 import { cn } from '@/lib/utils';
 import {
   emptyDelay, emptyIncident, emptyManpowerEntry, emptyMaterial, emptyPlanItem, emptyVisitor, emptyWorkItem,
-  parseNumberInput,
+  NUMBER_FIELD_DECIMALS, parseNumberInput,
 } from './content';
 import { DELAY_CAUSE_LABELS, INCIDENT_LABELS, WEATHER_LABELS } from './labels';
 import { UnsupportedChip } from './SectionView';
@@ -31,12 +31,18 @@ function NumberField({
 }) {
   const id = useId();
   const [text, setText] = useState(value === null ? '' : String(value));
+  // Counts (the API's integer fields) take whole numbers; every other number
+  // field keeps decimals, up to NUMBER_FIELD_DECIMALS places.
+  const opts = { integer, max, allowNegative, maxDecimals: integer ? undefined : NUMBER_FIELD_DECIMALS };
   // Follow outside changes (e.g. "start from suggestion") without fighting the user's typing.
   useEffect(() => {
-    if (parseNumberInput(text, { integer, max, allowNegative }) !== value) setText(value === null ? '' : String(value));
+    if (parseNumberInput(text, opts) !== value) setText(value === null ? '' : String(value));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
-  const invalid = text.trim() !== '' && parseNumberInput(text, { integer, max, allowNegative }) === null;
+  const invalid = text.trim() !== '' && parseNumberInput(text, opts) === null;
+  const hint = integer
+    ? `Enter a whole number${max !== undefined ? ` up to ${max}` : ''}.`
+    : `Enter a number with up to ${NUMBER_FIELD_DECIMALS} decimal places${max !== undefined ? `, up to ${max}` : ''}.`;
   return (
     <div>
       <FieldLabel htmlFor={id} hint={unit}>{label}</FieldLabel>
@@ -47,11 +53,11 @@ function NumberField({
         aria-invalid={invalid || undefined}
         onChange={(e) => {
           setText(e.target.value);
-          onChange(parseNumberInput(e.target.value, { integer, max, allowNegative }));
+          onChange(parseNumberInput(e.target.value, opts));
         }}
         className={cn(invalid && 'border-destructive', flagged && 'border-warning')}
       />
-      {invalid && <p className="mt-1 text-xs text-destructive">Enter a number{max !== undefined ? ` up to ${max}` : ''}.</p>}
+      {invalid && <p className="mt-1 text-xs text-destructive">{hint}</p>}
       {flagged && <div className="mt-1.5"><UnsupportedChip /></div>}
     </div>
   );
