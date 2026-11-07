@@ -133,6 +133,7 @@ export async function inventoryRoutes(fastify: FastifyInstance): Promise<void> {
         const { quantity, note, usageReason, workArea, scheduleTaskId } = parsed.data;
         const item = await inventoryService.recordUsage(
           projectId, siteId, inventoryId, quantity, note, usageReason, workArea, scheduleTaskId, request.user,
+          { ip: request.ip, userAgent: request.headers['user-agent'] },
         );
         return reply.send({ item });
       } catch (err) {
