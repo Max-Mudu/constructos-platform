@@ -17,10 +17,12 @@ import { Button } from '@/components/ui/Button';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { ArrowLeft, Plus, Users, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Plus, Users, AlertCircle, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
+import {
+  EditLabourEntryDialog, DeleteLabourEntryDialog, canEditLabour, canDeleteLabour,
+} from '@/components/workflows/LabourEntryDialogs';
 
-const WRITE_ROLES = ['company_admin', 'project_manager', 'site_supervisor'] as const;
-function canWrite(role: string) { return (WRITE_ROLES as readonly string[]).includes(role); }
+const canWrite = canEditLabour;
 
 // The entry date is a calendar date: format it without a time-zone shift.
 const formatDate = (iso: string) => formatCalendarDate(iso, 'short');
@@ -37,6 +39,11 @@ export default function LabourPage() {
   const [dateFilter, setDateFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
+  const [editing,  setEditing]  = useState<LabourEntry | null>(null);
+  const [deleting, setDeleting] = useState<LabourEntry | null>(null);
+  const [notice,   setNotice]   = useState('');
+  const mayEdit   = canEditLabour(user?.role);
+  const mayDelete = canDeleteLabour(user?.role);
 
   function load(date?: string) {
     if (!projectId || !siteId) return;
@@ -119,6 +126,13 @@ export default function LabourPage() {
         )}
       </div>
 
+      {notice && (
+        <Alert>
+          <CheckCircle2 className="h-4 w-4" />
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
+      )}
+
       {error && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
@@ -161,6 +175,7 @@ export default function LabourPage() {
                   {showFinance && <TableHead>Wage</TableHead>}
                   <TableHead>Logged By</TableHead>
                   <TableHead>Notes</TableHead>
+                  {(mayEdit || mayDelete) && <TableHead><span className="sr-only">Actions</span></TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -176,6 +191,32 @@ export default function LabourPage() {
                     {showFinance && <TableCell className="font-medium">{totalWage(e)}</TableCell>}
                     <TableCell>{e.registeredBy.firstName} {e.registeredBy.lastName}</TableCell>
                     <TableCell className="max-w-[200px] truncate">{e.notes ?? '—'}</TableCell>
+                    {(mayEdit || mayDelete) && (
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-1">
+                          {mayEdit && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Edit entry for ${e.worker.firstName} ${e.worker.lastName}`}
+                              onClick={() => { setNotice(''); setEditing(e); }}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {mayDelete && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={`Delete entry for ${e.worker.firstName} ${e.worker.lastName}`}
+                              onClick={() => { setNotice(''); setDeleting(e); }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -183,6 +224,34 @@ export default function LabourPage() {
           )}
         </CardContent>
       </Card>
+
+      {editing && (
+        <EditLabourEntryDialog
+          projectId={projectId}
+          siteId={siteId}
+          entry={editing}
+          onClose={() => setEditing(null)}
+          onDone={(updated) => {
+            setEntries((list) => list.map((x) => (x.id === updated.id ? updated : x)));
+            setEditing(null);
+            setNotice('Labour entry updated.');
+          }}
+        />
+      )}
+
+      {deleting && (
+        <DeleteLabourEntryDialog
+          projectId={projectId}
+          siteId={siteId}
+          entry={deleting}
+          onClose={() => setDeleting(null)}
+          onDone={() => {
+            setEntries((list) => list.filter((x) => x.id !== deleting.id));
+            setDeleting(null);
+            setNotice('Labour entry deleted.');
+          }}
+        />
+      )}
     </div>
   );
 }

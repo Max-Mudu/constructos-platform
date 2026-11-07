@@ -16,7 +16,9 @@ import { Button } from '@/components/ui/Button';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { ArrowLeft, Layers, AlertCircle, X, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Layers, AlertCircle, X, ChevronRight, MinusCircle, CheckCircle2 } from 'lucide-react';
+import { useAuthStore } from '@/store/auth.store';
+import { RecordUsageDialog, canRecordUsage } from '@/components/workflows/RecordUsageDialog';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -228,15 +230,23 @@ export default function InventoryPage() {
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState('');
   const [selected, setSelected]   = useState<string | null>(null);
+  const [usingItem, setUsingItem] = useState<SiteInventoryItem | null>(null);
+  const [notice, setNotice]       = useState('');
+  const user = useAuthStore((s) => s.user);
+  const mayRecordUsage = canRecordUsage(user?.role);
 
-  useEffect(() => {
+  function load() {
     if (!projectId || !siteId) return;
+    setLoading(true);
+    setError('');
     inventoryApi
       .list(projectId, siteId)
       .then((res) => setInventory(res.inventory))
       .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load inventory'))
       .finally(() => setLoading(false));
-  }, [projectId, siteId]);
+  }
+
+  useEffect(load, [projectId, siteId]);
 
   const lowStockCount = inventory.filter(isLowStock).length;
 
@@ -264,6 +274,13 @@ export default function InventoryPage() {
           <AlertDescription>
             {lowStockCount} {lowStockCount === 1 ? 'item is' : 'items are'} at or below the low-stock threshold.
           </AlertDescription>
+        </Alert>
+      )}
+
+      {notice && (
+        <Alert>
+          <CheckCircle2 className="h-4 w-4" />
+          <AlertDescription>{notice}</AlertDescription>
         </Alert>
       )}
 
@@ -345,7 +362,21 @@ export default function InventoryPage() {
                         {formatDate(item.updatedAt)}
                       </TableCell>
                       <TableCell>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        <div className="flex items-center justify-end gap-2">
+                          {mayRecordUsage && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              aria-label={`Record usage of ${item.materialName}`}
+                              disabled={!(parseFloat(item.currentQuantity) > 0)}
+                              onClick={(e) => { e.stopPropagation(); setNotice(''); setUsingItem(item); }}
+                            >
+                              <MinusCircle className="h-3.5 w-3.5 mr-1" />Record usage
+                            </Button>
+                          )}
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -354,6 +385,20 @@ export default function InventoryPage() {
             </Table>
           </div>
         </Card>
+      )}
+
+      {usingItem && (
+        <RecordUsageDialog
+          projectId={projectId}
+          siteId={siteId}
+          item={usingItem}
+          onClose={() => setUsingItem(null)}
+          onDone={() => {
+            setNotice(`Usage of ${usingItem.materialName} recorded.`);
+            setUsingItem(null);
+            load();
+          }}
+        />
       )}
 
       {/* Detail panel */}
