@@ -128,7 +128,7 @@ describe('password reset ends existing sessions', () => {
       method:  'POST',
       url:     '/api/v1/companies/me/users',
       headers: { authorization: `Bearer ${admin.accessToken}` },
-      payload: { email: 'new-cc-setup@test.com', firstName: 'New', lastName: 'User', role: 'site_supervisor' },
+      payload: { email: 'new-cc-setup@test.com', firstName: 'New', lastName: 'User', role: 'finance_officer' },
     });
     expect(created.statusCode).toBe(201);
     const userId = created.json().user.id as string;
