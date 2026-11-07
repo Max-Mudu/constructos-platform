@@ -40,7 +40,8 @@ describe('content sanitising', () => {
     expect(parseNumberInput('12,5')).toBe(12.5);
     expect(parseNumberInput('-3')).toBeNull();
     expect(parseNumberInput('-3', { allowNegative: true })).toBe(-3);
-    expect(parseNumberInput('4.6', { integer: true })).toBe(5);
+    expect(parseNumberInput('4.6', { integer: true })).toBeNull(); // never rounded
+    expect(parseNumberInput('5', { integer: true })).toBe(5);
     expect(parseNumberInput('101', { max: 100 })).toBeNull();
     expect(parseNumberInput('abc')).toBeNull();
   });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { invoiceApi, projectApi, ApiError } from '@/lib/api';
 import { Project, InvoiceVendorType } from '@/lib/types';
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
+import { LoadErrorAlert, loadErrorMessage } from '@/components/ui/LoadErrorAlert';
 import { AlertCircle, ArrowLeft, Plus, Trash2 } from 'lucide-react';
 import { formatMoney } from '@/lib/utils';
 import { localToday } from '@/lib/workflows-dates';
@@ -129,6 +130,7 @@ export default function NewInvoicePage() {
 
   const [projects,        setProjects]        = useState<Project[]>([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
+  const [loadError,       setLoadError]       = useState('');
   const [error,           setError]           = useState('');
   const [loading,         setLoading]         = useState(false);
 
@@ -148,12 +150,16 @@ export default function NewInvoicePage() {
 
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
 
-  useEffect(() => {
+  const loadProjects = useCallback(() => {
+    setLoadingProjects(true);
+    setLoadError('');
     projectApi.list()
       .then((r) => setProjects(r.projects))
-      .catch(() => {})
+      .catch((err) => setLoadError(loadErrorMessage(err, 'projects')))
       .finally(() => setLoadingProjects(false));
   }, []);
+
+  useEffect(() => { loadProjects(); }, [loadProjects]);
 
   // Seed the currency from the company once the auth store has hydrated. The
   // field starts empty rather than 'USD' so a KES company is never shown a
@@ -276,6 +282,8 @@ export default function NewInvoicePage() {
       >
         <ArrowLeft className="h-4 w-4" /> Back
       </button>
+
+      {loadError && <LoadErrorAlert message={loadError} onRetry={loadProjects} />}
 
       {error && (
         <Alert variant="destructive">

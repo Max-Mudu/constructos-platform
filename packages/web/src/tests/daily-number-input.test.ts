@@ -31,7 +31,8 @@ describe('parseNumberInput — thousands separators', () => {
     expect(parseNumberInput('1,500', { max: 1000 })).toBeNull();
     expect(parseNumberInput('-1,500', { allowNegative: true })).toBe(-1500);
     expect(parseNumberInput('-1,500')).toBeNull();
-    expect(parseNumberInput('1,500.6', { integer: true })).toBe(1501);
+    expect(parseNumberInput('1,500.6', { integer: true })).toBeNull();
+    expect(parseNumberInput('1,500', { integer: true })).toBe(1500);
   });
 
   it('plain numbers are unchanged', () => {
