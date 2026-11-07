@@ -1,6 +1,9 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { RequestUser } from '../types';
 import { getFinanceReadScope, financeProjectFilter } from './budget.service';
+import { resolveReadScope, scopeWhere, instructionScopeWhere, ReadScope } from './report.service';
+import { workerReadScopeWhere } from './worker.service';
 
 // ─── Return type ──────────────────────────────────────────────────────────────
 
@@ -134,6 +137,104 @@ function startOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
 }
 
+// ─── Read scope ───────────────────────────────────────────────────────────────
+//
+// Every non-financial figure is limited to what the caller may read elsewhere:
+//  - company-wide roles (super_admin, company_admin, finance_officer): the
+//    whole company, as before;
+//  - other roles: their active project memberships, narrowed to assigned
+//    sites for site-scoped roles (resolveReadScope / scopeWhere, the same
+//    rules as reports and the per-project lists); worker counts follow
+//    GET /workers (workerReadScopeWhere);
+//  - worker: their own projects, attendance and labour only; other
+//    operational figures are zero.
+// Financial blocks keep their own gate (getFinanceReadScope), unchanged.
+
+/** Matches no rows (Prisma treats `in: []` as false). */
+const NONE = { id: { in: [] as string[] } };
+
+interface DashboardScope {
+  projects:     Prisma.ProjectWhereInput;
+  workers:      Prisma.WorkerWhereInput;
+  attendance:   Prisma.AttendanceRecordWhereInput;
+  labour:       Prisma.LabourEntryWhereInput;
+  deliveries:   Prisma.DeliveryRecordWhereInput;
+  contractors:  Prisma.ContractorWhereInput;
+  schedules:    Prisma.ContractorScheduleWhereInput;
+  instructions: Prisma.ConsultantInstructionWhereInput;
+  inventory:    Prisma.SiteInventoryWhereInput;
+  tasks:        Prisma.ScheduleTaskWhereInput;
+}
+
+/** Job-site filter equivalent to scopeWhere(scope) on (projectId, siteId) rows. */
+function jobSiteWhere(scope: ReadScope): Prisma.JobSiteWhereInput {
+  if (scope.projectIds === null) return {};
+  const unrestricted = scope.projectIds.filter((pid) => !scope.siteRestrictions.has(pid));
+  return {
+    OR: [
+      { projectId: { in: unrestricted } },
+      ...Array.from(scope.siteRestrictions, ([pid, sites]) => ({ projectId: pid, id: { in: sites } })),
+    ],
+  };
+}
+
+async function resolveDashboardScope(actor: RequestUser): Promise<DashboardScope> {
+  const scope = await resolveReadScope(actor, {});
+
+  if (scope.projectIds === null) {
+    return {
+      projects: {}, workers: {}, attendance: {}, labour: {}, deliveries: {},
+      contractors: {}, schedules: {}, instructions: {}, inventory: {}, tasks: {},
+    };
+  }
+
+  const projects: Prisma.ProjectWhereInput = { id: { in: scope.projectIds } };
+  const siteRows    = scopeWhere(scope);
+  const projectRows = scopeWhere(scope, { siteColumn: false });
+
+  if (actor.role === 'worker') {
+    const own = await prisma.worker.findFirst({
+      where:  { companyId: actor.companyId, userId: actor.id },
+      select: { id: true },
+    });
+    const ownRows = own ? { workerId: own.id, ...siteRows } : NONE;
+    return {
+      projects,
+      workers:      own ? { id: own.id } : NONE,
+      attendance:   ownRows,
+      labour:       ownRows,
+      deliveries:   NONE,
+      contractors:  NONE,
+      schedules:    NONE,
+      instructions: NONE,
+      inventory:    NONE,
+      tasks:        NONE,
+    };
+  }
+
+  const sites = await prisma.jobSite.findMany({
+    where:  { companyId: actor.companyId, ...jobSiteWhere(scope) },
+    select: { id: true },
+  });
+
+  return {
+    projects,
+    workers:      await workerReadScopeWhere(actor),
+    attendance:   siteRows,
+    labour:       siteRows,
+    deliveries:   siteRows,
+    // A contractor counts their own linked record (as GET /contractors);
+    // other roles count contractors engaged on the projects in scope.
+    contractors:  actor.role === 'contractor'
+      ? { userId: actor.id }
+      : { OR: [{ schedules: { some: projectRows } }, { scheduleTasks: { some: siteRows } }] },
+    schedules:    projectRows,
+    instructions: instructionScopeWhere(scope, actor.id),
+    inventory:    { siteId: { in: sites.map((s) => s.id) } },
+    tasks:        siteRows,
+  };
+}
+
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 export async function getDashboardStats(actor: RequestUser): Promise<DashboardStats> {
@@ -147,15 +248,17 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
   const thirtyDaysAgo = new Date(now);
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
+  const sc = await resolveDashboardScope(actor);
+
   // ── Projects ──────────────────────────────────────────────────────────────
   const [projectRows, recentProjects] = await Promise.all([
     prisma.project.groupBy({
       by:    ['status'],
-      where: { companyId },
+      where: { companyId, ...sc.projects },
       _count: { _all: true },
     }),
     prisma.project.findMany({
-      where:   { companyId },
+      where:   { companyId, ...sc.projects },
       select:  { id: true, name: true, code: true, status: true, location: true, updatedAt: true },
       orderBy: { updatedAt: 'desc' },
       take:    5,
@@ -171,14 +274,14 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
 
   // ── Workers ───────────────────────────────────────────────────────────────
   const [workerTotal, workerActive] = await Promise.all([
-    prisma.worker.count({ where: { companyId } }),
-    prisma.worker.count({ where: { companyId, isActive: true, employmentStatus: 'active' } }),
+    prisma.worker.count({ where: { companyId, AND: [sc.workers] } }),
+    prisma.worker.count({ where: { companyId, isActive: true, employmentStatus: 'active', AND: [sc.workers] } }),
   ]);
 
   // ── Attendance (today) ────────────────────────────────────────────────────
   const todayAttendance = await prisma.attendanceRecord.groupBy({
     by:    ['status'],
-    where: { companyId, date: { gte: todayStart } },
+    where: { companyId, ...sc.attendance, date: { gte: todayStart } },
     _count: { _all: true },
   });
   const todayTotal   = todayAttendance.reduce((s, r) => s + r._count._all, 0);
@@ -189,7 +292,7 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
 
   // ── Labour hours (operational, unchanged) ─────────────────────────────────
   const weekLabour = await prisma.labourEntry.aggregate({
-    where:  { companyId, date: { gte: weekStart } },
+    where:  { companyId, ...sc.labour, date: { gte: weekStart } },
     _sum:   { hoursWorked: true },
   });
   const thisWeekHours = Number(weekLabour._sum.hoursWorked ?? 0);
@@ -270,25 +373,26 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
 
   // ── Deliveries ────────────────────────────────────────────────────────────
   const [monthDeliveries, pendingInspections, totalDeliveries] = await Promise.all([
-    prisma.deliveryRecord.count({ where: { companyId, deliveryDate: { gte: monthStart } } }),
-    prisma.deliveryRecord.count({ where: { companyId, inspectionStatus: 'pending' } }),
-    prisma.deliveryRecord.count({ where: { companyId } }),
+    prisma.deliveryRecord.count({ where: { companyId, ...sc.deliveries, deliveryDate: { gte: monthStart } } }),
+    prisma.deliveryRecord.count({ where: { companyId, ...sc.deliveries, inspectionStatus: 'pending' } }),
+    prisma.deliveryRecord.count({ where: { companyId, ...sc.deliveries } }),
   ]);
 
   // ── Procurement alerts ────────────────────────────────────────────────────
   const [rejectedLast30d, damagedLast30d, pendingDeliveryList] = await Promise.all([
     prisma.deliveryRecord.count({
-      where: { companyId, acceptanceStatus: 'rejected', deliveryDate: { gte: thirtyDaysAgo } },
+      where: { companyId, ...sc.deliveries, acceptanceStatus: 'rejected', deliveryDate: { gte: thirtyDaysAgo } },
     }),
     prisma.deliveryRecord.count({
       where: {
         companyId,
+        ...sc.deliveries,
         conditionOnArrival: { in: ['damaged', 'partial', 'incorrect'] },
         deliveryDate: { gte: thirtyDaysAgo },
       },
     }),
     prisma.deliveryRecord.findMany({
-      where:  { companyId, inspectionStatus: 'pending' },
+      where:  { companyId, ...sc.deliveries, inspectionStatus: 'pending' },
       select: { siteId: true, itemDescription: true },
       take:   1000,
     }),
@@ -296,23 +400,23 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
 
   // ── Contractors ───────────────────────────────────────────────────────────
   const [contractorTotal, activeScheduleCount] = await Promise.all([
-    prisma.contractor.count({ where: { companyId, isActive: true } }),
-    prisma.contractorSchedule.count({ where: { companyId, status: 'active' } }),
+    prisma.contractor.count({ where: { companyId, isActive: true, AND: [sc.contractors] } }),
+    prisma.contractorSchedule.count({ where: { companyId, ...sc.schedules, status: 'active' } }),
   ]);
 
   // ── Instructions, notifications, and low-stock ────────────────────────────
   const [openInstructions, criticalInstructions, unreadNotifications, inventoryWithThreshold] = await Promise.all([
     prisma.consultantInstruction.count({
-      where: { companyId, status: { in: ['open', 'acknowledged', 'in_progress'] } },
+      where: { companyId, status: { in: ['open', 'acknowledged', 'in_progress'] }, AND: [sc.instructions] },
     }),
     prisma.consultantInstruction.count({
-      where: { companyId, priority: 'critical', status: { notIn: ['resolved', 'rejected'] } },
+      where: { companyId, priority: 'critical', status: { notIn: ['resolved', 'rejected'] }, AND: [sc.instructions] },
     }),
     prisma.notification.count({
       where: { userId: actor.id, companyId, isRead: false },
     }),
     prisma.siteInventory.findMany({
-      where:  { companyId, lowStockThreshold: { not: null } },
+      where:  { companyId, lowStockThreshold: { not: null }, AND: [sc.inventory] },
       take:   500,
       select: {
         id:                true,
@@ -364,24 +468,24 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
   // ── Schedule risk ─────────────────────────────────────────────────────────
   const [overdueTasks, dueTodayTasks, blockedTasks, delayedTasks, taskProgressRows, overtimeEntriesToday] = await Promise.all([
     prisma.scheduleTask.count({
-      where: { companyId, status: { not: 'completed' }, plannedEndDate: { lt: todayStart } },
+      where: { companyId, ...sc.tasks, status: { not: 'completed' }, plannedEndDate: { lt: todayStart } },
     }),
     prisma.scheduleTask.count({
-      where: { companyId, status: { not: 'completed' }, plannedEndDate: { gte: todayStart, lt: tomorrowStart } },
+      where: { companyId, ...sc.tasks, status: { not: 'completed' }, plannedEndDate: { gte: todayStart, lt: tomorrowStart } },
     }),
     prisma.scheduleTask.count({
-      where: { companyId, status: 'blocked' },
+      where: { companyId, ...sc.tasks, status: 'blocked' },
     }),
     prisma.scheduleTask.count({
-      where: { companyId, status: 'delayed' },
+      where: { companyId, ...sc.tasks, status: 'delayed' },
     }),
     prisma.scheduleTask.findMany({
-      where:  { companyId, actualProgress: { not: null }, plannedProgress: { not: null } },
+      where:  { companyId, ...sc.tasks, actualProgress: { not: null }, plannedProgress: { not: null } },
       select: { actualProgress: true, plannedProgress: true },
       take:   2000,
     }),
     prisma.labourEntry.count({
-      where: { companyId, date: { gte: todayStart, lt: tomorrowStart }, hoursWorked: { gt: 8 } },
+      where: { companyId, ...sc.labour, date: { gte: todayStart, lt: tomorrowStart }, hoursWorked: { gt: 8 } },
     }),
   ]);
   const behindPlanTasks = taskProgressRows.filter(

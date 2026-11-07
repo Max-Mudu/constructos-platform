@@ -4,7 +4,7 @@ import { getDashboardStats } from '../services/dashboard.service';
 import { handleError } from '../utils/errors';
 
 export async function dashboardRoutes(fastify: FastifyInstance): Promise<void> {
-  // GET /dashboard — returns aggregated company-wide stats for the authenticated user
+  // GET /dashboard — aggregated stats limited to the caller's read scope (see dashboard.service)
   fastify.get(
     '/',
     { preHandler: [authenticate] },
