@@ -125,6 +125,8 @@ export async function register(
         lastName: input.lastName,
         role: 'company_admin',
         canViewFinance: true, // Company admin always has finance access
+        // Registration signs the founder in, so their account setup is complete.
+        lastLoginAt: new Date(),
       },
     });
 
