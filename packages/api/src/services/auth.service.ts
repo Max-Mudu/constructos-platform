@@ -556,9 +556,18 @@ export async function resetPassword(
       throw new UnauthorizedError('This reset link has already been used');
     }
 
+    // Bumping the session version ends every session issued under the old
+    // password: access tokens fail in middleware/authenticate.ts and refresh
+    // tokens fail in refresh(). A fresh login issues tokens under the new
+    // version.
     await tx.user.update({
       where: { id: resetToken.userId },
-      data: { passwordHash, failedLoginCount: 0, lockedAt: null },
+      data: {
+        passwordHash,
+        failedLoginCount: 0,
+        lockedAt: null,
+        sessionVersion: { increment: 1 },
+      },
     });
 
     await tx.refreshToken.updateMany({
