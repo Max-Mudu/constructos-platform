@@ -113,6 +113,33 @@ Windows fail with very long paths.
 - Gradle needs about 3 GB of RAM on top of whatever else is running. Do not run it alongside an
   emulator, Metro and other heavy jobs on a 16 GB machine.
 
+## SDK 58 on Windows: the 260-character path limit (2026-11-07)
+
+SDK 58 compiles more native code locally (`react-native-worklets` and the app's generated
+codegen libraries, such as `react-native-gesture-handler`'s). On Windows with long paths
+**disabled** (`HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled` = 0), the
+SDK 58 release build fails in `:app:buildCMakeRelWithDebInfo` with
+`ninja: error: Stat(...RNGestureHandlerDetectorShadowNode.cpp.o): Filename longer than 260 characters`.
+Memory was not the problem: the build stayed within about 3 GB.
+
+What did **not** fix it:
+- moving the project to a short root such as `C:\b5`;
+- pointing every module's CMake staging directory at `C:\cx\<module>`;
+- passing `-DCMAKE_OBJECT_PATH_MAX=128`.
+
+The object path still embeds the full source path under `node_modules`.
+
+Routes that avoid the limit, in order of preference:
+
+1. **EAS Build (cloud, Linux):** no Windows path limit. Expo's free plan includes a monthly
+   allowance of low-priority Android builds. It needs an Expo account login (an owner step) and
+   an `eas.json` profile with `android.buildType: "apk"`.
+2. **Enable Windows long paths** (an administrator change). Set `LongPathsEnabled` to 1, then
+   sign out and back in. It may also need a newer CMake/ninja from `sdkmanager` (for example
+   CMake 3.31+), because older ninja builds ignore the setting.
+3. **Build inside WSL2 (Ubuntu)** with the Linux Android SDK. This needs no path workaround,
+   but setup takes longer.
+
 ## Smoke test checklist
 
 1. Wrong password → "Invalid email or password".
