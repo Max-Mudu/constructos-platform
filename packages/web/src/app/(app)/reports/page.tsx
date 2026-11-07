@@ -9,6 +9,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
+import { LoadErrorAlert, loadErrorMessage } from '@/components/ui/LoadErrorAlert';
 import {
   FileText, Download, RefreshCw, AlertCircle,
   FileSpreadsheet, File,
@@ -573,6 +574,8 @@ export default function ReportsPage() {
   const [reportData,   setReportData]   = useState<ReportData | null>(null);
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState('');
+  const [downloadError, setDownloadError] = useState('');
+  const [filtersError, setFiltersError] = useState('');
   const [downloading,  setDownloading]  = useState<ReportFormat | null>(null);
   const [projects,     setProjects]     = useState<Array<{ id: string; name: string }>>([]);
   const [sites,        setSites]        = useState<Array<{ id: string; name: string }>>([]);
@@ -583,24 +586,36 @@ export default function ReportsPage() {
   const dsrProjectId = hasDefaults ? defaultProjectId : projectId;
   const dsrSiteId    = hasDefaults ? defaultSiteId    : siteId;
 
-  // Load project list once
-  useEffect(() => {
+  // Load project list once. A failure is reported: without it the Project
+  // filter is empty and the Daily Site Report cannot be generated.
+  const loadProjects = useCallback(() => {
+    setFiltersError('');
     projectApi.list()
       .then((res) => setProjects(res.projects))
-      .catch(() => {});
+      .catch((err) => setFiltersError(loadErrorMessage(err, 'projects for the filters')));
   }, []);
 
+  useEffect(() => { loadProjects(); }, [loadProjects]);
+
   // Load site list when DSR is active and a project is chosen
-  useEffect(() => {
+  const loadSites = useCallback(() => {
     if (!isDSR || !projectId) {
       setSites([]);
       if (isDSR) setSiteId('');
       return;
     }
+    setFiltersError('');
     siteApi.list(projectId)
       .then((res) => setSites(res.sites))
-      .catch(() => {});
+      .catch((err) => setFiltersError(loadErrorMessage(err, 'sites for this project')));
   }, [projectId, isDSR]);
+
+  useEffect(() => { loadSites(); }, [loadSites]);
+
+  const retryFilters = useCallback(() => {
+    if (projects.length === 0) loadProjects();
+    loadSites();
+  }, [projects.length, loadProjects, loadSites]);
 
   // Standard report load (not used for DSR)
   const load = useCallback(async () => {
@@ -626,6 +641,7 @@ export default function ReportsPage() {
   useEffect(() => {
     setReportData(null);
     setError('');
+    setDownloadError('');
     if (!hasDefaults) setSiteId('');
     if (activeType === 'daily-site-report') {
       setStartDate(today());
@@ -651,6 +667,7 @@ export default function ReportsPage() {
 
   const handleDownload = async (format: ReportFormat) => {
     setDownloading(format);
+    setDownloadError('');
     try {
       const filters = {
         ...(projectId  && { projectId }),
@@ -660,7 +677,7 @@ export default function ReportsPage() {
       };
       await reportApi.download(activeType, format, filters);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Download failed');
+      setDownloadError(err instanceof ApiError ? err.message : 'Download failed');
     } finally {
       setDownloading(null);
     }
@@ -854,11 +871,13 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* ── Error ────────────────────────────────────────────────────────── */}
-      {error && (
+      {/* ── Errors ───────────────────────────────────────────────────────── */}
+      {filtersError && <LoadErrorAlert message={filtersError} onRetry={retryFilters} />}
+      {error && <LoadErrorAlert message={error} onRetry={isDSR ? generateDSR : load} />}
+      {downloadError && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{downloadError}</AlertDescription>
         </Alert>
       )}
 

@@ -200,13 +200,36 @@ function normaliseNumberText(text: string): string {
   return t;
 }
 
-/** Parses a numeric text field: '' → null, otherwise a finite non-negative number or null. */
-export function parseNumberInput(text: string, opts: { allowNegative?: boolean; integer?: boolean; max?: number } = {}): number | null {
+/** Decimal places in a normalised number text ("2.50" → 1, "3" → 0, "1e-3" → 3). */
+function decimalPlaces(t: string, n: number): number {
+  if (/e/i.test(t)) {
+    const m = /\.(\d+)/.exec(String(n));
+    return m ? m[1].length : 0;
+  }
+  const m = /\.(\d*)$/.exec(t);
+  return m ? m[1].replace(/0+$/, '').length : 0;
+}
+
+/**
+ * Parses a numeric text field: '' → null, otherwise a finite non-negative
+ * number, or null when the text is not acceptable. Nothing is ever rounded:
+ * an `integer` field rejects "2.5" and a field with `maxDecimals` rejects
+ * more decimal places than allowed, so the user sees what will be saved.
+ */
+export function parseNumberInput(
+  text: string,
+  opts: { allowNegative?: boolean; integer?: boolean; max?: number; maxDecimals?: number } = {},
+): number | null {
   const t = normaliseNumberText(text);
   if (t === '') return null;
   const n = Number(t);
   if (!Number.isFinite(n)) return null;
   if (!opts.allowNegative && n < 0) return null;
   if (opts.max !== undefined && n > opts.max) return null;
-  return opts.integer ? Math.round(n) : n;
+  if (opts.integer && !Number.isInteger(n)) return null;
+  if (opts.maxDecimals !== undefined && decimalPlaces(t, n) > opts.maxDecimals) return null;
+  return n;
 }
+
+/** Decimal places allowed in the report's non-integer number fields (quantity, hours, %, °C). */
+export const NUMBER_FIELD_DECIMALS = 2;

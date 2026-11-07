@@ -76,6 +76,8 @@ export default function SiteDetailPage() {
     if (!projectId || !siteId) return;
     const today = localToday();
     // Only ask for summaries this role may read (the API 403s and audits the rest).
+    // The summaries are optional cards: one that fails is left out, while a
+    // failure of the site itself still reaches the error state below.
     const role = user?.role;
     Promise.all([
       siteApi.get(projectId, siteId),

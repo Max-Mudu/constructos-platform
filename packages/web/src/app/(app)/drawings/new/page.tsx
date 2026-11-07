@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { drawingApi, projectApi, siteApi, ApiError } from '@/lib/api';
 import { Project, JobSite } from '@/lib/types';
@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
+import { LoadErrorAlert, loadErrorMessage } from '@/components/ui/LoadErrorAlert';
 import { AlertCircle, ArrowLeft } from 'lucide-react';
 
 export default function NewDrawingPage() {
@@ -26,15 +27,29 @@ export default function NewDrawingPage() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState('');
+  const [loadError, setLoadError]   = useState('');
+  const [sitesError, setSitesError] = useState('');
 
-  useEffect(() => {
-    projectApi.list().then((d) => setProjects(d.projects)).catch(() => {});
+  const loadProjects = useCallback(() => {
+    setLoadError('');
+    projectApi.list()
+      .then((d) => setProjects(d.projects))
+      .catch((err) => setLoadError(loadErrorMessage(err, 'projects')));
   }, []);
 
-  useEffect(() => {
+  useEffect(() => { loadProjects(); }, [loadProjects]);
+
+  // The site is optional, but a failed site list would otherwise just hide the
+  // Site field, so it is reported (with Retry) rather than swallowed.
+  const loadSites = useCallback(() => {
+    setSitesError('');
     if (!projectId) { setSites([]); return; }
-    siteApi.list(projectId).then((d) => setSites(d.sites)).catch(() => {});
+    siteApi.list(projectId)
+      .then((d) => setSites(d.sites))
+      .catch((err) => { setSites([]); setSitesError(loadErrorMessage(err, 'sites for this project')); });
   }, [projectId]);
+
+  useEffect(() => { loadSites(); }, [loadSites]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -68,6 +83,9 @@ export default function NewDrawingPage() {
       >
         <ArrowLeft className="h-4 w-4" /> Back
       </button>
+
+      {loadError && <LoadErrorAlert message={loadError} onRetry={loadProjects} />}
+      {sitesError && <LoadErrorAlert message={sitesError} onRetry={loadSites} />}
 
       {error && (
         <Alert variant="destructive">

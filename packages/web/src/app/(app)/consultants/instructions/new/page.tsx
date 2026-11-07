@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { instructionApi, projectApi, drawingApi, siteApi, ApiError } from '@/lib/api';
 import { localToday } from '@/lib/workflows-dates';
@@ -10,6 +10,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
+import { LoadErrorAlert, loadErrorMessage } from '@/components/ui/LoadErrorAlert';
 import { AlertCircle, ArrowLeft } from 'lucide-react';
 
 export default function NewInstructionPage() {
@@ -37,18 +38,33 @@ export default function NewInstructionPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState('');
+  const [loadError, setLoadError]   = useState('');
+  const [linksError, setLinksError] = useState('');
 
-  useEffect(() => {
-    projectApi.list().then((d) => setProjects(d.projects)).catch(() => {});
+  const loadProjects = useCallback(() => {
+    setLoadError('');
+    projectApi.list()
+      .then((d) => setProjects(d.projects))
+      .catch((err) => setLoadError(loadErrorMessage(err, 'projects')));
   }, []);
 
-  useEffect(() => {
+  useEffect(() => { loadProjects(); }, [loadProjects]);
+
+  // Site and drawing links are optional, but a failed list would otherwise
+  // just hide those fields, so a failure is reported (with Retry).
+  const loadLinks = useCallback(() => {
+    setLinksError('');
     if (!projectId) { setSites([]); setDrawings([]); return; }
+    let failed: unknown = null;
     Promise.all([
-      siteApi.list(projectId).then((d) => setSites(d.sites)).catch(() => {}),
-      drawingApi.list(projectId).then((d) => setDrawings(d.drawings)).catch(() => {}),
-    ]);
+      siteApi.list(projectId).then((d) => setSites(d.sites)).catch((err) => { setSites([]); failed = failed ?? err; }),
+      drawingApi.list(projectId).then((d) => setDrawings(d.drawings)).catch((err) => { setDrawings([]); failed = failed ?? err; }),
+    ]).then(() => {
+      if (failed) setLinksError(loadErrorMessage(failed, 'sites and drawings for this project'));
+    });
   }, [projectId]);
+
+  useEffect(() => { loadLinks(); }, [loadLinks]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -87,6 +103,9 @@ export default function NewInstructionPage() {
       >
         <ArrowLeft className="h-4 w-4" /> Back
       </button>
+
+      {loadError && <LoadErrorAlert message={loadError} onRetry={loadProjects} />}
+      {linksError && <LoadErrorAlert message={linksError} onRetry={loadLinks} />}
 
       {error && (
         <Alert variant="destructive">

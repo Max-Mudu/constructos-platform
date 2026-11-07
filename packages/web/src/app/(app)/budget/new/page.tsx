@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { budgetApi, projectApi, ApiError } from '@/lib/api';
 import { Project } from '@/lib/types';
@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
+import { LoadErrorAlert, loadErrorMessage } from '@/components/ui/LoadErrorAlert';
 import { AlertCircle, ArrowLeft } from 'lucide-react';
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'ZAR', 'AED', 'NGN', 'KES', 'GHS'];
@@ -27,15 +28,20 @@ export default function NewBudgetPage() {
   const [error,    setError]    = useState('');
   const [loading,  setLoading]  = useState(false);
   const [loadingProjects, setLoadingProjects] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   const canCreate = user?.role === 'company_admin' || user?.role === 'finance_officer' || user?.role === 'project_manager';
 
-  useEffect(() => {
+  const loadProjects = useCallback(() => {
+    setLoadingProjects(true);
+    setLoadError('');
     projectApi.list()
       .then((r) => setProjects(r.projects ?? r))
-      .catch(() => {})
+      .catch((err) => setLoadError(loadErrorMessage(err, 'projects')))
       .finally(() => setLoadingProjects(false));
   }, []);
+
+  useEffect(() => { loadProjects(); }, [loadProjects]);
 
   // Seed the currency from the company once the auth store has hydrated. The
   // field starts empty rather than 'USD' so a KES company is never shown a
@@ -86,6 +92,8 @@ export default function NewBudgetPage() {
       >
         <ArrowLeft className="h-4 w-4" /> Back
       </button>
+
+      {loadError && <LoadErrorAlert message={loadError} onRetry={loadProjects} />}
 
       {error && (
         <Alert variant="destructive">
