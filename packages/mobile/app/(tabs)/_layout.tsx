@@ -156,7 +156,9 @@ export default function TabLayout() {
                       <Ionicons
                         name={TAB_ICONS[name] ?? 'ellipse-outline'}
                         size={size}
-                        color={color}
+                        // The tint colours above are plain hex strings; the
+                        // navigator types them as the wider ColorValue.
+                        color={color as string}
                       />
                     ),
                   }

@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0f172a"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -68,11 +63,22 @@
           "icon": "./assets/notification-icon.png",
           "color": "#3b82f6"
         }
+      ],
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#0f172a",
+          "imageWidth": 200
+        }
       ]
     ],
     "scheme": "constructos",
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      "autolinkingModuleResolution": true
     },
     "extra": {
       "eas": {

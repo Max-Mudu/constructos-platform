@@ -1,4 +1,3 @@
-import '../global.css';
 import React, { useEffect, useRef } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -18,7 +17,9 @@ import { SSEProvider } from '../src/providers/SSEProvider';
 // Must be called before any navigator renders; module-level placement guarantees that.
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
+    // SDK 53 split shouldShowAlert into the banner and the notification list.
+    shouldShowBanner: true,
+    shouldShowList:   true,
     shouldPlaySound: true,
     shouldSetBadge:  true,
   }),

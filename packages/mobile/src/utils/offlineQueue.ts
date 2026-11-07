@@ -6,7 +6,7 @@
  * Only network failures are queued — HTTP 4xx/5xx errors are NOT queued
  * because they represent real validation errors the user must fix.
  */
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useAuthStore } from '../store/auth.store';
 
 const QUEUE_FILE = (FileSystem.documentDirectory ?? '') + 'offline_queue.json';

@@ -348,7 +348,7 @@ function CreateDeliveryModal({
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) { Alert.alert('Permission Required', 'Camera access is needed.'); return; }
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.8,
+      mediaTypes: ['images'], quality: 0.8,
     });
     const asset = !result.canceled ? result.assets[0] : undefined;
     if (asset) {
@@ -497,7 +497,7 @@ export default function DeliveriesScreen() {
   const [listProjectId,  setListProjectId]  = useState(defaultProjectId ?? '');
   const [listSiteId,     setListSiteId]     = useState(defaultSiteId    ?? '');
 
-  const searchTimer = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (hasDefaults) {
@@ -787,7 +787,7 @@ export default function DeliveriesScreen() {
                     )
                   }
                 </View>
-              ) : null
+              ) : undefined
             }
           />
         )
