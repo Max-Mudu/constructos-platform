@@ -6,7 +6,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Modal,
   ScrollView, Image, RefreshControl, TextInput, ActivityIndicator,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Linking,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { apiClient } from '../../src/api/client';
@@ -352,11 +352,33 @@ function CreateDeliveryModal({
   }
 
   async function pickPhoto() {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) { Alert.alert('Permission Required', 'Camera access is needed.'); return; }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'], quality: 0.8,
-    });
+    let result: ImagePicker.ImagePickerResult;
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) {
+        // Once denied, iOS never shows the prompt again; only Settings can re-enable it.
+        Alert.alert(
+          'Permission Required',
+          perm.canAskAgain
+            ? 'Camera access is needed to add a photo.'
+            : 'Camera access is off for ConstructOS. Turn it on in Settings to add a photo.',
+          perm.canAskAgain
+            ? undefined
+            : [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Open Settings', onPress: () => { void Linking.openSettings().catch(() => {}); } },
+              ],
+        );
+        return;
+      }
+      result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'], quality: 0.8,
+      });
+    } catch {
+      // For example the iOS Simulator, which has no camera.
+      Alert.alert('Camera Unavailable', 'The camera could not be opened on this device.');
+      return;
+    }
     const asset = !result.canceled ? result.assets[0] : undefined;
     if (asset) {
       setPhotoUri(asset.uri);
