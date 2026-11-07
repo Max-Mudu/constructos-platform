@@ -357,7 +357,7 @@ export default function LabourScreen() {
   const [dateFilter, setDateFilter] = useState<DateFilter>('all');
   const [offset, setOffset] = useState(0);
 
-  const searchTimer = useRef<ReturnType<typeof setTimeout>>();
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   async function loadAttendanceForEntries(labourEntries: LabourEntry[]) {
     if (labourEntries.length === 0) {
@@ -725,7 +725,7 @@ export default function LabourScreen() {
                   </TouchableOpacity>
                 )}
               </View>
-            ) : null
+            ) : undefined
           }
         />
       )}

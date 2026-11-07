@@ -15,7 +15,7 @@ import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, Alert,
   ScrollView, RefreshControl, Linking, TextInput,
 } from 'react-native';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { getAccessToken } from '../../src/auth/secureStorage';
 import { projectsApi } from '../../src/api/projects';

@@ -1,6 +1,7 @@
 # ConstructOS mobile: iOS readiness and build configuration
 
-Last reviewed: 2026-11-06, on branch `feat/ios-readiness` (base `main` @ `149b484`).
+Last reviewed: 2026-11-07, on branch `feat/ios-sdk-upgrade` (Expo SDK 51 → 58; base `main` @ `9e03d0f`).
+First written on `feat/ios-readiness` (#5, base `149b484`); sections 1 and 5 keep that history.
 
 ## Read this first: what has and has not been verified
 
@@ -16,12 +17,34 @@ Every item below has one of three statuses:
 | **UNVERIFIED-RUNTIME** | Can only be confirmed by an EAS build plus an install on a simulator or device. Nobody has done this yet. |
 | **BLOCKED-OWNER** | Needs an account, a purchase, a credential or a decision that only the owner can provide. |
 
-Stack: Expo SDK 51 (`expo ~51.0.39`), React Native 0.74.5, expo-router 3.5,
-iOS deployment target 13.4 (taken from `expo/Expo.podspec`), EAS CLI 18.7.0 installed locally.
+Stack: Expo SDK 58 (`expo ~58.0.23`), React Native 0.88.1, React 19.3.0, expo-router 58.0.30,
+iOS deployment target **16.4** (from `expo/Expo.podspec`), Android `targetSdk` 36 / `compileSdk` 37 /
+`minSdk` 24 (from `react-native/gradle/libs.versions.toml`). EAS CLI 18.7.0 is installed locally;
+the current release is 27.5.0 (`npm view eas-cli version`, 2026-11-07).
 
 ---
 
-## 1. Configuration changes made in this branch
+## 0. Expo SDK 58 upgrade: what it changes for iOS
+
+| Topic | Before (SDK 51) | Now (SDK 58) | Status |
+|---|---|---|---|
+| App Store Connect upload rule: "built with Xcode 26 or later using an SDK for iOS 26" (Apple, in force since 2026-04-28) | EAS image `sdk-51` = macOS Sonoma 14.5 + **Xcode 15.4**. Uploads would be rejected. | EAS image `sdk-58` / `latest` = `macos-tahoe-26.6-xcode-27.1`. Meets the rule. | VERIFIED-STATIC (EAS image table and Apple's upcoming-requirements page, read 2026-11-07). The upload itself is UNVERIFIED-RUNTIME. |
+| Minimum iOS version for users | 13.4 | **16.4** | VERIFIED-STATIC (`Expo.podspec`). **Owner:** iPhones that cannot run iOS 16.4 (iPhone 7 and older) can no longer install the app. Apple's own floor (target iOS 13+, from 2026-09-09) is met. |
+| iOS 27 scene life cycle | Not applicable | `expo prebuild` generates `SceneDelegate.swift` and `UIApplicationSceneManifest`. This app uses Continuous Native Generation (no committed `ios/` folder) and has no custom AppDelegate code, so nothing needs migrating. | VERIFIED-STATIC (no `ios/` folder, no config plugin touching the AppDelegate). UNVERIFIED-RUNTIME on iOS 27. |
+| Liquid Glass stack headers (iOS 26+) | — | Every navigator here sets `headerShown: false` and draws its own app bar, so the transparent header default does not apply. | VERIFIED-STATIC |
+| Foreground notifications | `shouldShowAlert` | `shouldShowBanner` + `shouldShowList` (same behaviour: banner and Notification Centre). | VERIFIED-STATIC (`app/_layout.tsx`) |
+| Remote push in **Expo Go** | Worked on Android and iOS | Expo Go on **Android** has no remote push since SDK 53, so `src/utils/push.ts` skips token registration there. Development, preview and store builds, and Expo Go on iOS, still register. | VERIFIED-STATIC |
+| File access | `expo-file-system` | The classic API moved to `expo-file-system/legacy` (the documented import path). Same functions and paths. | VERIFIED-STATIC. On Android the app start, which reads and writes the first-launch marker through it, ran without errors (section 7) |
+| Camera capture | `MediaTypeOptions.Images` | `mediaTypes: ['images']` | VERIFIED-STATIC / UNVERIFIED-RUNTIME on iOS |
+| Splash screen | top-level `splash` | `expo-splash-screen` plugin (same image and background; the image is drawn 200 pt wide instead of full screen, which is how SDK 52+ splash screens work) | VERIFIED-STATIC |
+
+What was **not** changed: bundle id, purpose strings, entitlements, encryption flag, EAS
+profiles, and the submit placeholders. The resolved Info.plist and entitlements are the same as
+before the upgrade (section 7).
+
+---
+
+## 1. Configuration changes made in the iOS-readiness branch (#5)
 
 ### `app.json` (iOS)
 
@@ -71,32 +94,32 @@ PhotoLibrary, PhotoLibraryAdd and FaceID. None of them uses a generic default.
 | 6 | Encryption export compliance (`ITSAppUsesNonExemptEncryption=false`) | VERIFIED-STATIC | The reasoning is in section 1. The owner keeps the legal responsibility for the answer. |
 | 7 | Push entitlement `aps-environment` | VERIFIED-STATIC | Added by the `expo-notifications` plugin as `development`. For ad hoc and App Store exports Xcode normally re-signs it as `production`. That has not been verified (UNVERIFIED-RUNTIME). |
 | 8 | App Transport Security | VERIFIED-STATIC (not changed) | The resolved plist has the Expo template default `NSAllowsArbitraryLoads: true` plus a `localhost` exception. Every EAS profile is meant to use HTTPS. Recommendation for a later change: tighten ATS for production once the development workflow is settled. App Review can ask why arbitrary loads are allowed. |
-| 9 | `expo-doctor` | VERIFIED-STATIC | `npx expo-doctor@1` (1.21.6): "17/17 checks passed. No issues detected!" |
+| 9 | `expo-doctor` | VERIFIED-STATIC, one expected finding | `npx expo-doctor@latest` (1.21.6) on SDK 58: 19/20 checks pass. The remaining finding is "duplicate react": `react@19.3.0` in `packages/mobile/node_modules` (this app) and `react@18.2.0` at the repository root (it belongs to `packages/web`, which must stay on React 18). React has no native code, and Expo's monorepo module resolution (`experiments.autolinkingModuleResolution`, on by default in a workspace and set explicitly in `app.json`) resolves `react`, `react-dom` and `react-native` from this app for every import in the bundle. Section 7 shows the exported bundles contain only React 19.3.0. |
 | 10 | `development` profile is actually buildable | **BLOCKED (dependency)** | It sets `developmentClient: true`, but `expo-dev-client` is not in `package.json`. EAS will refuse or prompt to install it. Adding the dependency is a lead decision. Use `preview` or `preview-simulator` until then. |
 | 11 | `channel` on profiles | VERIFIED-STATIC | Channels only matter with `expo-updates`, which is not installed. They are harmless. OTA updates are not available. |
-| 12 | Apple's minimum Xcode/iOS SDK for App Store Connect uploads | UNVERIFIED-RUNTIME, **high risk for TestFlight** | Apple raises the minimum SDK for uploads every year: Xcode 16 / iOS 18 SDK from April 2025, with a further raise announced for 2026. Expo SDK 51 (React Native 0.74) predates both. Ad hoc builds are not subject to this rule. TestFlight and App Store uploads are, and may need an Expo SDK upgrade first. Check the current Apple requirement and the EAS build image for SDK 51 before planning TestFlight. |
-| 13 | iOS 13.4+ deployment target | VERIFIED-STATIC | From `expo/Expo.podspec`. |
+| 12 | Apple's minimum Xcode/iOS SDK for App Store Connect uploads | VERIFIED-STATIC (config) / UNVERIFIED-RUNTIME (upload) | Apple: "Apps uploaded to App Store Connect must be built with Xcode 26 or later using an SDK for iOS 26" from 2026-04-28. SDK 58 builds on the EAS image `macos-tahoe-26.6-xcode-27.1` (aliases `sdk-58`, `latest`). `eas.json` pins no image, so EAS picks the SDK 58 default. SDK 51 would have built with Xcode 15.4 and been rejected. Re-check Apple's page before each release season; Apple raises the floor every spring. |
+| 13 | iOS 16.4+ deployment target | VERIFIED-STATIC | From `expo/Expo.podspec` (SDK 58). Was 13.4 on SDK 51. |
 
-### Runtime behaviour (code reviewed read-only; nothing was run)
+### Runtime behaviour (code re-read on SDK 58 at `main` @ `9e03d0f`; nothing was run on iOS)
 
 | # | Item | Status | Notes |
 |---|---|---|---|
-| 14 | Camera capture for delivery photos | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `deliveries.tsx:335-341` asks for camera permission and then calls `launchCameraAsync`. Photo-library permission is never requested. |
-| 15 | Push registration | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `login.tsx:16-37` skips simulators (`Device.isDevice`) and passes `projectId` from `extra.eas.projectId`. It needs an APNs key in EAS (BLOCKED-OWNER, section 3 step 6). |
-| 16 | Notification tap routing | UNVERIFIED-RUNTIME, **bug** | A tap that launches the app from closed is dropped (finding B2). |
-| 17 | Session storage and refresh | VERIFIED-STATIC | Tokens are stored in the Keychain (`expo-secure-store`). A 401 triggers a single-flight refresh that queues other requests (`src/api/client.ts`). On iOS the Keychain survives uninstalling the app (finding B9). |
-| 18 | Offline queue | VERIFIED-STATIC | A JSON file in `documentDirectory` is flushed when the app returns to the foreground (`AppState`). It uses no background task, so nothing runs while the app is suspended, which is correct for iOS. `documentDirectory` is included in iCloud backups (finding B13). |
-| 19 | Live updates (SSE) | VERIFIED-STATIC, **bug** | iOS suspends the socket in the background. The provider reconnects after an error, but it never connects at all if the user was signed out when it mounted (finding B8). |
-| 20 | Report PDF/CSV download (Reports tab) | **Fails on iOS (static analysis)** | It uses Android-only `getContentUriAsync` and then `Linking.openURL(file://…)` (finding B1). |
-| 21 | Drawing PDF (Projects tab) | VERIFIED-STATIC / UNVERIFIED-RUNTIME | It uses `expo-sharing`, which works on iOS. The `mimeType` option is Android-only; iOS needs `UTI` (finding B12). |
-| 22 | Android-only APIs called without a platform check | VERIFIED-STATIC | Only `FileSystem.getContentUriAsync` (B1). `expo-intent-launcher` is a dependency but is never imported (B11). There is no `ToastAndroid`, `BackHandler` or `PermissionsAndroid`. |
-| 23 | Keyboard handling | **Red flag** | Five page-sheet modals and several forms have no `KeyboardAvoidingView`. iOS has no `adjustResize`, so the keyboard covers the fields (finding B5). |
-| 24 | Safe areas | **Red flag** | App bars use a fixed `paddingTop: 56`, which is less than the Dynamic Island inset (59 pt or more). The tab bar's fixed height overrides the home-indicator inset (findings B3 and B4). |
-| 25 | iPhone layout | **Red flag** | 7 to 9 bottom tabs for supervisor, PM, admin and finance roles. On a 375 pt wide iPhone each tab is about 41 pt wide, below the 44 pt minimum touch target (B3). |
-| 26 | Accessibility (VoiceOver) | **Red flag** | There is no `accessibilityLabel` or `accessibilityRole` anywhere in `app/` or `src/`, and icons are emoji or icon-only (finding B14). |
-| 27 | App Review: placeholder UI | **Risk** | The Profile screen has "coming soon" stubs (Privacy Policy, Terms, Help, Edit Profile) and three toggles that do nothing (finding B7). Guideline 2.1 (app completeness) and 5.1.1 (privacy). |
-| 28 | Account deletion requirement (Guideline 5.1.1(v)) | VERIFIED-STATIC (not applicable today) | Accounts are created by the company admin, not in the app, so in-app deletion is not required. Revisit if self-signup is added. |
-| 29 | API URL in iOS builds | **BLOCKED-OWNER** | Section 4. If the variable is missing, the app falls back to `http://10.0.2.2:3001/api/v1`, an address that exists only inside the Android emulator, so iOS cannot reach it (finding B10). |
+| 14 | Camera capture for delivery photos | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `deliveries.tsx` `pickPhoto()` asks for camera permission, then calls `launchCameraAsync({ mediaTypes: ['images'] })` (SDK 58 form). The upload uses the asset's `mimeType`, falling back to `image/jpeg`. Photo-library permission is never requested. |
+| 15 | Push permission + registration | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `src/utils/push.ts`: skips simulators (`Device.isDevice`) and Expo Go on Android, asks for permission only when undecided, passes `projectId` from `extra.eas.projectId`. Called after sign-in (`login.tsx`) and after a restored session (`app/_layout.tsx`). The `aps-environment` entitlement is present in the resolved config (section 7). Delivery needs an APNs key in EAS (BLOCKED-OWNER, section 3 step 6). |
+| 16 | Notification tap routing | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `useLastNotificationResponse()` in `app/_layout.tsx` also covers the tap that cold-starts the app (B2 fixed). |
+| 17 | Session storage and refresh | VERIFIED-STATIC | Tokens are in the Keychain (`expo-secure-store`). A first-launch marker clears Keychain tokens left over from a previous install (B9 fixed in #12). |
+| 18 | Offline queue | VERIFIED-STATIC | JSON file in `documentDirectory`, flushed when the app returns to the foreground. `documentDirectory` is still included in iCloud backups (B13, open, low). |
+| 19 | Live updates (SSE) | VERIFIED-STATIC / UNVERIFIED-RUNTIME | The provider restarts when the signed-in user changes (B8 addressed). iOS suspends the socket in the background; behaviour after resume is not verified on iOS. |
+| 20 | Report PDF/CSV download (Reports tab) | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `src/utils/openFile.ts`: on iOS it opens the share sheet with `UTI` `com.adobe.pdf` or `public.comma-separated-values-text`; the Android-only content-URI path is behind `Platform.OS === 'android'` (B1 fixed). |
+| 21 | Drawing PDF (Projects tab) | VERIFIED-STATIC / UNVERIFIED-RUNTIME | `Sharing.shareAsync` passes `UTI: 'com.adobe.pdf'` (B12 fixed). |
+| 22 | Android-only APIs called without a platform check | VERIFIED-STATIC | None found. `getContentUriAsync` and `expo-intent-launcher` are used only on Android. |
+| 23 | Keyboard handling | VERIFIED-STATIC (partly) / UNVERIFIED-RUNTIME | `KeyboardAvoidingView` is now used in attendance, deliveries, inventory, invoices, labour, schedule and login. The text inputs in `projects.tsx` and `reports.tsx` still have none (B5, open). |
+| 24 | Safe areas | VERIFIED-STATIC / UNVERIFIED-RUNTIME | App bars use `useAppBarInset()` (max of 56 pt and the top inset + 12), and the tab bar adds `insets.bottom` (B3 inset part and B4 fixed). Android is now always edge-to-edge (SDK 54+), which the same insets cover. |
+| 25 | iPhone layout | **Open** | Still 7 to 9 bottom tabs for supervisor, PM, admin and finance roles (B3, tab count). |
+| 26 | Accessibility (VoiceOver) | **Open (partly addressed)** | Labels/roles exist only in `login.tsx` and `Button.tsx` (B14). |
+| 27 | App Review: placeholder UI | VERIFIED-STATIC | The placeholder toggles and "coming soon" links were removed from Profile (B7). Privacy Policy and Terms links are still needed for review (owner content). |
+| 28 | Account deletion requirement (Guideline 5.1.1(v)) | VERIFIED-STATIC (not applicable today) | Accounts are created by the company admin, not in the app. Revisit if self-signup is added. |
+| 29 | API URL in iOS builds | **BLOCKED-OWNER** | Section 4. A release build without `EXPO_PUBLIC_API_URL` now shows a configuration error instead of calling a developer address (`src/constants/resolveApiUrl.ts`, B10 addressed). |
 
 ---
 
@@ -106,6 +129,26 @@ These are the steps for an ad hoc build (`preview`) and for internal TestFlight
 (`production`). Nobody has run any of the EAS commands below in this review. Each one
 signs in to Apple, creates credentials or uses EAS build minutes, so the owner runs them.
 
+**What the owner needs before the first iOS build**
+
+| Prerequisite | Who | Where it is used |
+|---|---|---|
+| Apple Developer Program membership (US$99/year, purchase decision) | Owner | Everything except `preview-simulator` |
+| Apple Team ID (10 characters) | Owner | `eas.json > submit.production.ios.appleTeamId`; EAS asks for the team on first build |
+| Bundle ID `com.constructos.app` registered under that team, with Push Notifications | Owner (EAS can register it) | `app.json > ios.bundleIdentifier` |
+| UDIDs of the test iPhones (ad hoc only) | Owner / testers, via `eas device:create` | Embedded in the ad hoc provisioning profile |
+| APNs key (.p8) | Owner, via `eas credentials -p ios` | Expo push service → iOS devices |
+| Distribution certificate + provisioning profile | Generated by EAS on the first `eas build -p ios` (or `eas credentials -p ios`), after Apple sign-in | Code signing |
+| App Store Connect app record (`ascAppId`) and Apple ID e-mail | Owner (TestFlight only) | `eas.json > submit.production.ios` |
+| Current EAS CLI | Owner: `npm install -g eas-cli@latest` (27.5.0 on 2026-11-07; 18.7.0 is installed here) | All `eas` commands |
+
+0. **Update the EAS CLI and confirm the account** (read-only):
+   ```bash
+   npm install -g eas-cli@latest
+   cd packages/mobile
+   eas whoami                 # expect: dalmarmudu (matches app.json > owner)
+   eas build:configure --help # read-only; the project is already configured
+   ```
 1. **Apple Developer Program membership** (BLOCKED-OWNER). It costs US$99 per year and is the owner's purchase decision; nothing has been bought. You enroll at <https://developer.apple.com/programs/enroll/>. Organization enrollment needs a D-U-N-S number and decides the seller name shown on the App Store. Without membership you can only build `preview-simulator`.
 2. **Apple Team ID** (BLOCKED-OWNER). Find it at developer.apple.com → Account → Membership details. It is 10 uppercase letters or digits, and it goes into `eas.json > submit.production.ios.appleTeamId`.
 3. **Register the bundle ID `com.constructos.app`** (BLOCKED-OWNER). Either let EAS do it during the first `eas build -p ios` (sign in with the Apple ID when asked), or create it under Certificates, IDs & Profiles → Identifiers. The App ID needs the **Push Notifications** capability. EAS syncs capabilities from the entitlements automatically, so check that it is enabled after the first build.
@@ -140,7 +183,7 @@ signs in to Apple, creates credentials or uses EAS build minutes, so the owner r
    3. Fix the production API URL. The `production` profile still points at the offline Railway host (section 4).
    4. Run `eas build -p ios --profile production`, then `eas submit -p ios --profile production --latest`.
    5. In App Store Connect → TestFlight, add internal testers. They must be App Store Connect users on the team. Internal testing does not need Beta App Review.
-   6. Check checklist item 12 first: an upload built with an outdated SDK is rejected by App Store Connect.
+   6. Checklist item 12: on SDK 58 the build uses Xcode 27.1, which meets Apple's Xcode 26 upload rule. Do not pin an older `ios.image` in `eas.json`.
 10. **Expo account.** `eas whoami` shows the CLI is signed in as `dalmarmudu`, which matches `app.json > owner`. The EAS `projectId` is already set.
 
 ---
@@ -168,7 +211,9 @@ signs in to Apple, creates credentials or uses EAS build minutes, so the owner r
 
 ## 5. iOS code findings for workstream B (runtime code; not changed here)
 
-Line numbers refer to `main` @ `149b484`.
+Line numbers refer to `main` @ `149b484`, where these were found.
+
+**Status re-checked on `main` @ `9e03d0f` (2026-11-07, static only):** addressed: B1, B2, B4, B6 (all 7 page-sheet modals have `onRequestClose`), B7, B8 (restarts on user change), B9, B10, B11 (`expo-intent-launcher` is now used by `src/utils/openFile.ts`), B12, B15, and the safe-area part of B3. Still open: B3 (7 to 9 tabs for some roles), B5 (`projects.tsx`, `reports.tsx` inputs), B13, B14 (labels only in `login.tsx` and `Button.tsx`).
 
 | ID | Severity | File:line | Issue | Suggested fix |
 |---|---|---|---|---|
@@ -200,24 +245,52 @@ Changes to Android build configuration in this branch (`app.json` / `eas.json`):
 | Removed `READ_EXTERNAL_STORAGE` and added it to `android.blockedPermissions` | Nothing reads shared storage. Downloads go to the app cache, photos come only from the camera, and sharing uses FileProvider content URIs. `expo-image-picker` and `expo-file-system` declare it in their library manifests, so blocking it (`tools:node="remove"`) is the only way to keep it out of the merged manifest. |
 | Added `android.permission.RECORD_AUDIO` to `blockedPermissions`, and set `microphonePermission: false` in the image-picker plugin | The image-picker plugin adds `RECORD_AUDIO` by default (for video). The app captures still images only. |
 | Added `android.permission.SYSTEM_ALERT_WINDOW` to `blockedPermissions` | Expo's prebuild adds this "display over other apps" permission by default. The app never draws overlays, and it is a sensitive permission for Play review. |
-| **Kept** `WRITE_EXTERNAL_STORAGE` | It looks deprecated but is required: `expo-image-picker` 15.1 `ensureCameraPermissionsAreGranted()` (in `ImagePickerModule.kt`) needs both `CAMERA` and `WRITE_EXTERNAL_STORAGE` granted on Android 12L and earlier (API < 33). Blocking it would break delivery-photo capture on those devices. It has no effect on API 30+ in practice. |
+| **Kept** `WRITE_EXTERNAL_STORAGE` | It looks deprecated but is required: `expo-image-picker` 15.1 `ensureCameraPermissionsAreGranted()` (in `ImagePickerModule.kt`) needs both `CAMERA` and `WRITE_EXTERNAL_STORAGE` granted on Android 12L and earlier (API < 33). Blocking it would break delivery-photo capture on those devices. On SDK 58 the `expo-image-picker` 58 manifest declares it with `android:maxSdkVersion="32"`, and the resolved manifest keeps that limit, so Android 13+ never sees it. |
 | Kept `CAMERA`, `VIBRATE`, `RECEIVE_BOOT_COMPLETED`, `ACCESS_NETWORK_STATE`, `INTERNET` | These are normal (install-time) or required permissions. Correction to `docs/store/PERMISSIONS.md`: the offline queue does **not** use NetInfo. `ACCESS_NETWORK_STATE` is kept as a harmless normal permission and is not justified as a feature. |
 | `eas.json`: `development`/`preview` read `EXPO_PUBLIC_API_URL` from the EAS environment (section 4); `preview` still builds an APK (`android.buildType: apk`); `production` unchanged (AAB, `autoIncrement`) | |
 
 The resolved AndroidManifest permissions (from `expo config --type introspect`):
-- Active: `INTERNET, VIBRATE, WRITE_EXTERNAL_STORAGE, CAMERA, RECEIVE_BOOT_COMPLETED, ACCESS_NETWORK_STATE`
+- Active: `INTERNET, VIBRATE, WRITE_EXTERNAL_STORAGE (maxSdkVersion 32), CAMERA, RECEIVE_BOOT_COMPLETED, ACCESS_NETWORK_STATE`
 - Blocked: `READ_EXTERNAL_STORAGE, SYSTEM_ALERT_WINDOW, RECORD_AUDIO`
 
 Library-declared permissions such as `POST_NOTIFICATIONS` are merged in at Gradle build time and are not part of this view.
 
-Android items that are still open:
-- **Google Play target API level** (UNVERIFIED, high risk for Play uploads). Expo SDK 51 / React Native 0.74 targets API 34 (`targetSdkVersion = 34` in the RN template). Google Play has required API 35 for new apps and updates since 31 August 2025. Raising it needs `expo-build-properties` (not installed) or an Expo SDK upgrade, which are dependency changes and a lead decision. APKs for sideloading (`preview`) are not affected.
-- **`google-service-account.json` is not git-ignored** (BLOCKED-OWNER / lead). `eas.json > submit.production.android.serviceAccountKeyPath` points to `./google-service-account.json`, and `DEPLOYMENT.md` used to say it was git-ignored, but neither the root `.gitignore` nor a `packages/mobile/.gitignore` lists it. Add it to a `.gitignore` (outside this workstream's files) before anyone puts the key in that folder.
-- Nothing in this review was built or installed on Android either.
+Android status after the SDK 58 upgrade:
+- **Google Play target API level: resolved by the SDK 58 upgrade (VERIFIED-STATIC).** SDK 58 / React Native 0.88 builds with `targetSdk 36`, `compileSdk 37`, `minSdk 24` (`react-native/gradle/libs.versions.toml`, also the defaults in `expo-modules-autolinking`'s `ExpoRootProjectPlugin.kt`). Google Play requires API 36 for new apps and app updates from 31 August 2026 (existing apps: API 35). SDK 51 targeted API 34. A real Gradle build has not been run here (UNVERIFIED-RUNTIME until the first EAS Android build).
+- **R8 is on by default in SDK 58 release builds** (UNVERIFIED-RUNTIME). Libraries that rely on reflection can need keep rules. None of this app's dependencies is known to, but only a release build (`eas build -p android --profile preview`) and a smoke test prove it.
+- **Edge-to-edge is always on** (SDK 54+). The app bars and tab bar already pad by the safe-area insets (section 2, item 24). In Expo Go on the Android 16 emulator the login screen draws correctly edge-to-edge (section 7). A standalone build has not been checked.
+- `google-service-account.json` is now listed in the root `.gitignore` (#7).
 
 ---
 
-## 7. Validation log (this branch)
+## 7. Validation log
+
+### SDK 58 upgrade (`feat/ios-sdk-upgrade`, 2026-11-07, Windows 11)
+
+| Command | Result |
+|---|---|
+| `npx expo install --check` / `--fix` | All packages at the SDK 58 versions (only `@babel/core` and `typescript` needed a bump after the manual update). |
+| `npx tsc --noEmit -p .` (packages/mobile, TypeScript 6.0) | Exit 0. |
+| `npx expo-doctor@latest` (1.21.6) | 19/20 checks passed; the remaining one is the intended `react@18.2.0` at the repo root for `packages/web` (section 2, item 9). |
+| `npx expo config --type introspect --json` | Purpose strings exactly Camera, PhotoLibrary, PhotoLibraryAdd, FaceID with the app-specific texts; `ITSAppUsesNonExemptEncryption=false`; `aps-environment` present; scheme `constructos`; Android manifest removes `READ_EXTERNAL_STORAGE`, `RECORD_AUDIO`, `SYSTEM_ALERT_WINDOW` (`tools:node="remove"`) and keeps `CAMERA`. |
+| `npx expo export --platform android` and `--platform ios` (output outside the repo) | Both succeed (Hermes bundles, about 4.2 MB each). The source maps list exactly one `react` (`packages/mobile/node_modules/react`, version 19.3.0) and one `react-native`. Control run with `experiments.autolinkingModuleResolution: false`: the bundle also contains the repo-root `node_modules/react` (React 18), which is why the flag is set explicitly. |
+| `packages/web`: `npx tsc --noEmit -p .` and `npx jest --ci` on the same install | tsc exit 0; 27/27 suites, 626/626 tests pass. `packages/web` still resolves `react`/`react-dom` 18.2.0. |
+| `eas whoami` | Signed in as `dalmarmudu`. |
+| `eas build`, `eas credentials`, `eas submit`, `eas device:create`, `eas env:create` | **Not run** (owner-only; section 3). |
+| iOS Simulator / device | **Not run** (no Mac). Everything iOS-specific above is VERIFIED-STATIC at most. |
+
+### Android runtime in Expo Go 58.0.5 (emulators, 2026-11-07)
+
+Metro (`npx expo start --go --port 8083`) served the app from this branch. Expo Go 58.0.5 came from the Expo versions API.
+
+| Emulator | Result |
+|---|---|
+| `QA_API34`: Android 14, API 34 | The bundle loaded (2006 modules) and the Expo Go header showed "SDK version: 58.0.0". The login screen rendered: header, email/password fields, Sign In, Request Access, and "API: http://10.0.2.2:3001/api/v1". Typing into the email field worked. logcat: **0 `FATAL EXCEPTION`**. The only JS warnings were Expo Go's "remote push unavailable on Android" notices. Expo Go on Android 14 keeps the navigation-bar area outside the app window (the app window ends 63 px above the bottom), so the area below the content is Expo Go's, not the app's. |
+| `Medium_Phone_API_36.0`: Android 16, API 36 | Same result: login screen rendered edge-to-edge, typing worked, **0 `FATAL EXCEPTION`**, and no "Unable to attach a rootView / UIManager is not properly initialized" error. That error is the startup crash Expo Go 2.31.2 (SDK 51) had on this emulator. On the first launch the bundle download stalled at 99.9 %; a relaunch loaded it. |
+
+Not done: signing in. Port 3001 was in use by a process this run did not start, so no API was started from this branch, and the dashboard and tabs were not exercised on SDK 58.
+
+### iOS-readiness branch (#5, SDK 51)
 
 | Command | Result |
 |---|---|
@@ -225,5 +298,3 @@ Android items that are still open:
 | `npx expo config --type introspect --json` | Succeeded. Purpose strings, encryption flag, entitlements and Android permissions were checked as described in sections 1 and 6. The same checks fail when run against the `main` config (control run). |
 | `@expo/eas-json` 18.6.0 (from EAS CLI 18.7.0): resolve every build profile on iOS and Android | All four profiles (`development`, `preview`, `preview-simulator`, `production`) are valid. The iOS submit profile fails validation because of the placeholders (expected; section 1). |
 | `npx expo-doctor@1` (1.21.6) | 17/17 checks passed. |
-| `eas whoami` | Signed in as `dalmarmudu`. |
-| `eas build`, `eas credentials`, `eas submit`, `eas device:create`, `eas env:create` | **Not run** (owner-only; section 3). |
