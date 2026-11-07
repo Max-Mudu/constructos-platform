@@ -155,6 +155,12 @@ export const env = {
   ),
   // GET /events (SSE). Default: on outside production, off in production.
   SSE_ENABLED: flagDefaultOffInProduction('SSE_ENABLED', process.env['SSE_ENABLED'], IS_PRODUCTION),
+  // Opt-in consistent site scoping (default off = unchanged behaviour). When
+  // true, the membership siteId rule Daily Reports use (null = whole project,
+  // else the assigned site) also limits viewer and consultant in sites,
+  // deliveries, schedule and reports, and limits site_supervisor, viewer and
+  // consultant to their site's (or project-level) drawings and instructions.
+  SITE_SCOPE_STRICT: parseEnvFlag('SITE_SCOPE_STRICT', process.env['SITE_SCOPE_STRICT'], false),
 
   // ─── Daily report: private object storage ─────────────────────────────────
   // 'local' for development and tests; 's3' for an S3-compatible private

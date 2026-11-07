@@ -50,6 +50,8 @@ export interface TeamMember {
   consultantType:     ConsultantType | null;
   isActive:           boolean;
   createdAt:          string;
+  /** Never signed in, so a new setup link can be issued. */
+  setupPending?:      boolean;
   defaultProject:     TeamRef | null;
   defaultSite:        TeamRef | null;
   projectMemberships: TeamMembership[];
@@ -108,6 +110,13 @@ export interface SetTeamMemberStatusResponse {
   changed:                boolean;
   refreshTokensRevoked:   number;
   setupTokensInvalidated: number;
+}
+
+export interface ReissueSetupLinkResponse {
+  user:           TeamStatusUser;
+  /** Present outside production only. One-time, expires in 60 minutes. */
+  setupLink?:     string;
+  setupEmailSent: boolean;
 }
 
 export function buildListQueryString(q: TeamListQuery = {}): string {
@@ -222,5 +231,16 @@ export const teamApi = {
     call<SetTeamMemberStatusResponse>(
       `${USERS_PATH}/${encodeURIComponent(userId)}/status`,
       { method: 'PATCH', json: { isActive } },
+    ),
+
+  /**
+   * POST /companies/me/users/:id/setup-link — a new one-time setup link for a
+   * member who has never signed in; earlier links stop working. Not retried:
+   * each call mints a fresh link and consumes the previous one.
+   */
+  resendSetupLink: (userId: string) =>
+    call<ReissueSetupLinkResponse>(
+      `${USERS_PATH}/${encodeURIComponent(userId)}/setup-link`,
+      { method: 'POST', json: {} },
     ),
 };
