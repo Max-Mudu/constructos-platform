@@ -31,8 +31,17 @@ export async function authenticate(
     sendUnauthorized(reply);
     return;
   }
+  // `sv` is the user's session version when the token was issued; tokens
+  // signed before it existed carry none and count as version 0. A token from
+  // before the user's sessions were last invalidated never becomes valid
+  // again, even if the account is reactivated while it is unexpired.
+  const tokenVersion = payload.sv === undefined ? 0 : payload.sv;
+  if (!Number.isSafeInteger(tokenVersion)) {
+    sendUnauthorized(reply);
+    return;
+  }
   const active = await prisma.user.findFirst({
-    where:  { id: payload.sub, companyId: payload.companyId, isActive: true },
+    where:  { id: payload.sub, companyId: payload.companyId, isActive: true, sessionVersion: tokenVersion },
     select: { id: true },
   });
   if (!active) {

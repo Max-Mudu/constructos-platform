@@ -78,19 +78,23 @@ async function generateUniqueSlug(name: string): Promise<string> {
   return slug;
 }
 
-function buildJwtPayload(user: {
+interface TokenSubject {
   id: string;
   email: string;
   role: UserRole;
   companyId: string;
   canViewFinance: boolean;
-}): JwtPayload {
+  sessionVersion: number;
+}
+
+function buildJwtPayload(user: TokenSubject): JwtPayload {
   return {
     sub: user.id,
     email: user.email,
     role: user.role,
     companyId: user.companyId,
     canViewFinance: user.canViewFinance,
+    sv: user.sessionVersion,
   };
 }
 
@@ -317,6 +321,12 @@ export async function refreshTokens(
 
   if (!stored.user.isActive) {
     throw new UnauthorizedError('Account is deactivated');
+  }
+
+  // Issued before the user's sessions were last invalidated (for example a
+  // deactivation that has since been reversed): never valid again.
+  if (stored.sessionVersion !== stored.user.sessionVersion) {
+    throw new UnauthorizedError('Invalid or expired refresh token');
   }
 
   // Rotate: revoke the old token, then issue a new pair. The revoke is
@@ -572,7 +582,7 @@ export async function resetPassword(
 
 async function issueTokenPair(
   fastify: FastifyInstance,
-  user: { id: string; email: string; role: UserRole; companyId: string; canViewFinance: boolean },
+  user: TokenSubject,
   ipAddress: string | null,
   userAgent: string | null,
 ): Promise<TokenPair> {
@@ -592,6 +602,7 @@ async function issueTokenPair(
       expiresAt,
       ipAddress,
       userAgent,
+      sessionVersion: user.sessionVersion,
     },
   });
 

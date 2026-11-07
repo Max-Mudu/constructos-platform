@@ -6,6 +6,8 @@ export interface JwtPayload {
   role: UserRole;
   companyId: string;
   canViewFinance: boolean;
+  /** users.sessionVersion when the token was issued (absent on older tokens = 0). */
+  sv?: number;
   iat?: number;
   exp?: number;
 }
