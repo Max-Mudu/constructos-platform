@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import Link from 'next/link';
 import {
-  Bell, CheckCheck, Trash2, AlertCircle, Settings,
+  Bell, CheckCheck, Trash2, AlertCircle, Settings, X,
 } from 'lucide-react';
 import { notificationApi, ApiError } from '@/lib/api';
 import { Notification } from '@/lib/types';
@@ -51,16 +51,26 @@ function relativeTime(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString();
 }
 
+/** Message for a failed action, e.g. "Could not delete the notification: <API message>". */
+function actionErrorMessage(err: unknown, action: string): string {
+  return err instanceof ApiError && err.message
+    ? `Could not ${action}: ${err.message}`
+    : `Could not ${action}. Check your connection and retry.`;
+}
+
 // ─── Notification card ────────────────────────────────────────────────────────
 
 function NotificationCard({
   notification,
   onRead,
   onDelete,
+  busy,
 }: {
   notification: Notification;
   onRead: (id: string) => void;
   onDelete: (id: string) => void;
+  /** A request for this notification is in flight: its actions are disabled. */
+  busy: boolean;
 }) {
   return (
     <div
@@ -100,17 +110,23 @@ function NotificationCard({
       <div className="flex-none flex items-center gap-1">
         {!notification.isRead && (
           <button
+            type="button"
             onClick={() => onRead(notification.id)}
+            disabled={busy}
+            aria-busy={busy || undefined}
             title="Mark as read"
-            className="rounded-md p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+            className="rounded-md p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:pointer-events-none disabled:opacity-40"
           >
             <CheckCheck className="h-4 w-4" />
           </button>
         )}
         <button
+          type="button"
           onClick={() => onDelete(notification.id)}
+          disabled={busy}
+          aria-busy={busy || undefined}
           title="Delete"
-          className="rounded-md p-1.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
+          className="rounded-md p-1.5 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors disabled:pointer-events-none disabled:opacity-40"
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -129,6 +145,14 @@ export default function NotificationsPage() {
   const [readFilter,    setReadFilter]    = useState('');
   const [typeFilter,    setTypeFilter]    = useState('');
   const [search,        setSearch]        = useState('');
+  const [actionError,   setActionError]   = useState('');
+  /** Notification ids with a mark-read or delete request in flight. */
+  const [busyIds,       setBusyIds]       = useState<ReadonlySet<string>>(new Set());
+  const [markingAll,    setMarkingAll]    = useState(false);
+  // Synchronous guards so a fast double click cannot send a second request
+  // before the disabled state has rendered.
+  const busyRef        = useRef(new Set<string>());
+  const markingAllRef  = useRef(false);
 
   useEffect(() => {
     setLoading(true);
@@ -152,28 +176,48 @@ export default function NotificationsPage() {
 
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
+  function setBusy(id: string, busy: boolean) {
+    if (busy) busyRef.current.add(id); else busyRef.current.delete(id);
+    setBusyIds(new Set(busyRef.current));
+  }
+
+  // The list only changes once the server confirms, so a failed request leaves
+  // the page exactly as it was and only adds the error message.
   function handleRead(id: string) {
+    if (busyRef.current.has(id)) return;
+    setBusy(id, true);
+    setActionError('');
     notificationApi.markRead(id).then((r) => {
       setNotifications((prev) => prev.map((n) => (n.id === id ? r.notification : n)));
       notifyNotificationsChanged();
-    }).catch(() => {});
+    }).catch((e) => setActionError(actionErrorMessage(e, 'mark the notification as read')))
+      .finally(() => setBusy(id, false));
   }
 
   function handleDelete(id: string) {
+    if (busyRef.current.has(id)) return;
+    setBusy(id, true);
+    setActionError('');
     notificationApi.delete(id).then(() => {
       setNotifications((prev) => prev.filter((n) => n.id !== id));
       setTotal((t) => Math.max(0, t - 1));
       notifyNotificationsChanged();
-    }).catch(() => {});
+    }).catch((e) => setActionError(actionErrorMessage(e, 'delete the notification')))
+      .finally(() => setBusy(id, false));
   }
 
   function handleMarkAllRead() {
+    if (markingAllRef.current) return;
+    markingAllRef.current = true;
+    setMarkingAll(true);
+    setActionError('');
     notificationApi.markAllRead().then(() => {
       setNotifications((prev) =>
         prev.map((n) => ({ ...n, isRead: true, readAt: new Date().toISOString() })),
       );
       notifyNotificationsChanged();
-    }).catch(() => {});
+    }).catch((e) => setActionError(actionErrorMessage(e, 'mark all notifications as read')))
+      .finally(() => { markingAllRef.current = false; setMarkingAll(false); });
   }
 
   if (loading) {
@@ -193,7 +237,7 @@ export default function NotificationsPage() {
         action={
           <div className="flex items-center gap-2">
             {unreadCount > 0 && (
-              <Button variant="outline" onClick={handleMarkAllRead}>
+              <Button variant="outline" onClick={handleMarkAllRead} disabled={markingAll} aria-busy={markingAll || undefined}>
                 <CheckCheck className="h-4 w-4 mr-1" /> Mark all read
               </Button>
             )}
@@ -210,6 +254,23 @@ export default function NotificationsPage() {
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {actionError && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="flex items-start justify-between gap-3">
+            <span>{actionError}</span>
+            <button
+              type="button"
+              onClick={() => setActionError('')}
+              aria-label="Dismiss error"
+              className="flex-none rounded-md p-0.5 hover:bg-red-500/10"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </AlertDescription>
         </Alert>
       )}
 
@@ -264,6 +325,7 @@ export default function NotificationsPage() {
               notification={n}
               onRead={handleRead}
               onDelete={handleDelete}
+              busy={busyIds.has(n.id)}
             />
           ))}
         </div>
