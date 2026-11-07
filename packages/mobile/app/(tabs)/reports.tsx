@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, Alert, TextInput,
+  ActivityIndicator, Alert, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { openLocalFile } from '../../src/utils/openFile';
@@ -678,7 +678,8 @@ function DailySiteReportView({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.viewerScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <ScrollView contentContainerStyle={styles.viewerScroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
       <TouchableOpacity onPress={onBack} style={styles.backBtn}>
         <Text style={styles.backText}>{'← Reports'}</Text>
       </TouchableOpacity>
@@ -740,6 +741,7 @@ function DailySiteReportView({ onBack }: { onBack: () => void }) {
       {/* ── Date ─────────────────────────────────────────────────────────── */}
       <Text style={dsr.sectionLabel}>Date</Text>
       <TextInput
+        accessibilityLabel="Report date, YYYY-MM-DD"
         style={dsr.dateInput}
         value={date}
         onChangeText={setDate}
@@ -768,6 +770,7 @@ function DailySiteReportView({ onBack }: { onBack: () => void }) {
         </TouchableOpacity>
       )}
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

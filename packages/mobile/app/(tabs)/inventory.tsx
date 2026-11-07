@@ -217,7 +217,7 @@ function RecordUsageModal({
               <Text style={UM.title}>Record Usage</Text>
               <Text style={UM.subtitle} numberOfLines={1}>{item.materialName}</Text>
             </View>
-            <TouchableOpacity style={UM.closeBtn} onPress={handleClose} activeOpacity={0.7}>
+            <TouchableOpacity style={UM.closeBtn} onPress={handleClose} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Close">
               <Text style={UM.closeBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
@@ -239,6 +239,7 @@ function RecordUsageModal({
                 style={UM.input}
                 value={qty}
                 onChangeText={(t) => { setQty(t); setError(null); }}
+                accessibilityLabel="Quantity used"
                 placeholder={`Max ${fmt(Number(item.currentQuantity))}`}
                 placeholderTextColor="#1e3050"
                 keyboardType="decimal-pad"
@@ -254,6 +255,7 @@ function RecordUsageModal({
                 style={UM.input}
                 value={usageReason}
                 onChangeText={setUsageReason}
+                accessibilityLabel="Usage reason"
                 placeholder="e.g. Foundation pour, Block A plastering"
                 placeholderTextColor="#1e3050"
                 returnKeyType="next"
@@ -267,6 +269,7 @@ function RecordUsageModal({
                 style={UM.input}
                 value={workArea}
                 onChangeText={setWorkArea}
+                accessibilityLabel="Work area"
                 placeholder="e.g. Block A, Foundation, Roof"
                 placeholderTextColor="#1e3050"
                 returnKeyType="next"
@@ -280,6 +283,7 @@ function RecordUsageModal({
                 style={[UM.input, { height: 56, textAlignVertical: 'top' }]}
                 value={note}
                 onChangeText={setNote}
+                accessibilityLabel="Notes"
                 placeholder="Any additional notes"
                 placeholderTextColor="#1e3050"
                 multiline
@@ -381,7 +385,7 @@ function SetThresholdModal({
               <Text style={UM.title}>Set Low Stock Limit</Text>
               <Text style={UM.subtitle} numberOfLines={1}>{item.materialName}</Text>
             </View>
-            <TouchableOpacity style={UM.closeBtn} onPress={handleClose} activeOpacity={0.7}>
+            <TouchableOpacity style={UM.closeBtn} onPress={handleClose} activeOpacity={0.7} accessibilityRole="button" accessibilityLabel="Close">
               <Text style={UM.closeBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
@@ -410,6 +414,7 @@ function SetThresholdModal({
                 style={UM.input}
                 value={input}
                 onChangeText={(t) => { setInput(t); setError(null); }}
+                accessibilityLabel="New low stock limit"
                 placeholder="e.g. 10"
                 placeholderTextColor="#1e3050"
                 keyboardType="decimal-pad"

@@ -125,6 +125,7 @@ function DisputeModal({
             style={styles.modalInput}
             multiline
             numberOfLines={4}
+            accessibilityLabel="Dispute reason"
             placeholder="Describe the issue..."
             placeholderTextColor="#475569"
             value={notes}
