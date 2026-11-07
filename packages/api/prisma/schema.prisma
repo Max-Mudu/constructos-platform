@@ -282,6 +282,7 @@ model User {
   financeInflows          FinanceInflow[]          @relation("RecordedBy")
   receivedDeliveries      DeliveryRecord[]         @relation("ReceivedDeliveries")
   workerAssignments       WorkerAssignment[]       @relation("WorkerAssignedBy")
+  workersCreated          Worker[]                 @relation("WorkersCreatedBy")
   workPackagesCreated     WorkPackage[]            @relation("WorkPackageCreatedBy")
   scheduleTasksCreated    ScheduleTask[]           @relation("ScheduleTaskCreatedBy")
   weeklyPlansCreated      WeeklyPlan[]             @relation("WeeklyPlanCreatedBy")
@@ -445,16 +446,19 @@ model Worker {
   notes                 String?
   photoUrl              String?
   userId                String?                @unique // linked platform user (worker role)
+  createdById           String? // user who registered the worker; NULL for rows created before this was recorded
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
 
   company           Company            @relation(fields: [companyId], references: [id])
   user              User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdBy         User?              @relation("WorkersCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   assignments       WorkerAssignment[]
   labourEntries     LabourEntry[]
   attendanceRecords AttendanceRecord[]
   dailyTargets      DailyTarget[]
 
+  @@index([companyId, createdById])
   @@map("workers")
 }
 
