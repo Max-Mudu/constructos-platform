@@ -2,6 +2,7 @@ import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'ax
 import { getAccessToken, getRefreshToken, saveTokens } from '../auth/secureStorage';
 import { useAuthStore } from '../store/auth.store';
 import { API_BASE_URL, API_CONFIG_ERROR } from '../constants/api';
+import { logoutWithRefreshRetry, LogoutOutcome } from './logoutFlow';
 
 const BASE_URL = API_BASE_URL;
 
@@ -65,14 +66,20 @@ async function refreshAccessToken(): Promise<string> {
   }
 }
 
-function sharedRefresh(): Promise<string> {
+/**
+ * endSessionOnReject=false is for logout, which clears the session itself
+ * afterwards (once). A refresh already in flight is joined either way.
+ */
+function sharedRefresh(endSessionOnReject = true): Promise<string> {
   if (!refreshPromise) {
     refreshPromise = refreshAccessToken()
       .catch(async (err: unknown) => {
         // Runs once per failed refresh, not once per waiting request.
         // clearAuth clears secure storage AND resets Zustand state so the
         // UI navigates to login rather than showing a stale logged-in screen.
-        if (err instanceof SessionEndedError) await useAuthStore.getState().clearAuth();
+        if (endSessionOnReject && err instanceof SessionEndedError) {
+          await useAuthStore.getState().clearAuth();
+        }
         throw err;
       })
       .finally(() => { refreshPromise = null; });
@@ -111,6 +118,27 @@ apiClient.interceptors.response.use(
     return apiClient(original);
   },
 );
+
+// ─── Server-side logout ───────────────────────────────────────────────────────
+//
+// /auth/logout is in NO_REFRESH_PATH, so the interceptor never retries it.
+// logoutWithRefreshRetry does a single refresh-and-retry when the access token
+// has expired. It never throws; the caller clears local tokens afterwards.
+
+const LOGOUT_TIMEOUT_MS = 8000;
+
+export function revokeServerSession(): Promise<LogoutOutcome> {
+  return logoutWithRefreshRetry({
+    getRefreshToken,
+    postLogout: async (refreshToken) => {
+      // The request interceptor attaches the access token stored right now,
+      // i.e. the new one after a refresh.
+      await apiClient.post('/auth/logout', { refreshToken }, { timeout: LOGOUT_TIMEOUT_MS });
+    },
+    refreshOnce: async () => { await sharedRefresh(false); },
+    statusOf: (err) => (err as AxiosError | undefined)?.response?.status,
+  });
+}
 
 // ─── Multipart helper (for photo uploads) ─────────────────────────────────────
 

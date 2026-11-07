@@ -13,6 +13,7 @@ import { Screen } from '../../src/components/Screen';
 import { LoadingSpinner } from '../../src/components/LoadingSpinner';
 import { useSSEEvent } from '../../src/hooks/useSSEEvent';
 import { DashboardStats } from '../../src/types';
+import { roleCanLoadTab } from '../../src/constants/roleTabs';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -156,14 +157,14 @@ function LowStockCard({
 function ScheduleRiskCard({
   data, onPress,
 }: {
-  data:    NonNullable<DashboardStats['schedule']>;
-  onPress: () => void;
+  data:     NonNullable<DashboardStats['schedule']>;
+  onPress?: () => void;
 }) {
   const total =
     data.overdueTasks + data.dueTodayTasks +
     data.blockedTasks + data.delayedTasks + data.behindPlanTasks;
   return (
-    <TouchableOpacity style={D.schCard} onPress={onPress} activeOpacity={0.78}>
+    <TouchableOpacity style={D.schCard} onPress={onPress} disabled={!onPress} activeOpacity={0.78}>
       <View style={D.schHead}>
         <View style={D.schTitleRow}>
           <Text style={D.schIcon}>⏱</Text>
@@ -216,11 +217,11 @@ function ScheduleRiskCard({
 function LabourAlertsCard({
   data, onPress,
 }: {
-  data:    NonNullable<DashboardStats['labourAlerts']>;
-  onPress: () => void;
+  data:     NonNullable<DashboardStats['labourAlerts']>;
+  onPress?: () => void;
 }) {
   return (
-    <TouchableOpacity style={D.labCard} onPress={onPress} activeOpacity={0.78}>
+    <TouchableOpacity style={D.labCard} onPress={onPress} disabled={!onPress} activeOpacity={0.78}>
       <View style={D.labHead}>
         <View style={D.labTitleRow}>
           <Text style={D.labIcon}>👷</Text>
@@ -495,6 +496,12 @@ export default function DashboardScreen() {
     procurementSummary.lowStockNoDeliveryCount > 0
   ));
 
+  // Links into tabs whose data the API refuses this role would only show an error.
+  const canOpenAttendance = roleCanLoadTab(user.role, 'attendance');
+  const canOpenSchedule   = roleCanLoadTab(user.role, 'schedule');
+  const openAttendance = canOpenAttendance ? () => router.push('/(tabs)/attendance') : undefined;
+  const openSchedule   = canOpenSchedule   ? () => router.push('/(tabs)/schedule')   : undefined;
+
   const displayProject = user.defaultProjectId
     ? (recentProjects.find((p) => p.id === user.defaultProjectId) ?? recentProjects[0])
     : recentProjects[0];
@@ -537,24 +544,30 @@ export default function DashboardScreen() {
         </TouchableOpacity>
 
         {/* ── QUICK ACTIONS ─────────────────────────────────────────── */}
-        <View style={D.quickRow}>
-          <TouchableOpacity
-            style={D.quickPrimary}
-            onPress={() => router.push('/(tabs)/attendance')}
-            activeOpacity={0.85}
-          >
-            <Text style={D.quickPrimaryIcon}>✓</Text>
-            <Text style={D.quickPrimaryLabel}>Mark Attendance</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={D.quickSecondary}
-            onPress={() => router.push('/(tabs)/schedule')}
-            activeOpacity={0.8}
-          >
-            <Text style={D.quickSecondaryIcon}>▦</Text>
-            <Text style={D.quickSecondaryLabel}>View Schedule</Text>
-          </TouchableOpacity>
-        </View>
+        {canOpenAttendance || canOpenSchedule ? (
+          <View style={D.quickRow}>
+            {canOpenAttendance ? (
+              <TouchableOpacity
+                style={D.quickPrimary}
+                onPress={openAttendance}
+                activeOpacity={0.85}
+              >
+                <Text style={D.quickPrimaryIcon}>✓</Text>
+                <Text style={D.quickPrimaryLabel}>Mark Attendance</Text>
+              </TouchableOpacity>
+            ) : null}
+            {canOpenSchedule ? (
+              <TouchableOpacity
+                style={D.quickSecondary}
+                onPress={openSchedule}
+                activeOpacity={0.8}
+              >
+                <Text style={D.quickSecondaryIcon}>▦</Text>
+                <Text style={D.quickSecondaryLabel}>View Schedule</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
 
         {/* ── 2×2 METRIC GRID ───────────────────────────────────────── */}
         <SectionHeader title="Overview" />
@@ -572,7 +585,7 @@ export default function DashboardScreen() {
               label="Workers Present"
               value={presentToday}
               sub={`of ${totalToday} today`}
-              onPress={() => router.push('/(tabs)/attendance')}
+              onPress={openAttendance}
             />
           </View>
           <View style={D.metricsRow}>
@@ -636,7 +649,7 @@ export default function DashboardScreen() {
         {hasScheduleRisk && scheduleSummary ? (
           <ScheduleRiskCard
             data={scheduleSummary}
-            onPress={() => router.push('/(tabs)/schedule')}
+            onPress={openSchedule}
           />
         ) : null}
 
@@ -644,7 +657,7 @@ export default function DashboardScreen() {
         {hasLabourAlerts && labourSummary ? (
           <LabourAlertsCard
             data={labourSummary}
-            onPress={() => router.push('/(tabs)/attendance')}
+            onPress={openAttendance}
           />
         ) : null}
 
