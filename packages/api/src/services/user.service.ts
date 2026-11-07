@@ -570,6 +570,21 @@ export async function reissueSetupLink(
         'This user has already signed in. They can reset their own password with "Forgot password"',
       );
     }
+    // Setup is finished once the member has chosen a password through a link,
+    // even if they have not signed in yet.
+    const setupCompleted = await tx.auditLog.findFirst({
+      where: {
+        userId:       target.id,
+        entityType:   'auth',
+        changesAfter: { path: ['event'], equals: 'password_reset_completed' },
+      },
+      select: { id: true },
+    });
+    if (setupCompleted) {
+      throw new ConflictError(
+        'This user has already set a password. They can reset it themselves with "Forgot password"',
+      );
+    }
 
     const now = new Date();
     const invalidated = await tx.passwordResetToken.updateMany({

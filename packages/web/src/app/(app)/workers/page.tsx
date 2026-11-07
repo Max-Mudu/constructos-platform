@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { workerApi, ApiError } from '@/lib/api';
 import { Worker } from '@/lib/types';
+import { tradeOptions } from '@/lib/worker-filters';
 import { useAuthStore } from '@/store/auth.store';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SearchFilterBar } from '@/components/ui/SearchFilterBar';
@@ -34,6 +35,7 @@ export default function WorkersPage() {
   const [error,     setError]          = useState('');
   const [search,    setSearch]         = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [tradeFilter,  setTradeFilter]  = useState('');
 
   useEffect(() => {
     workerApi.list()
@@ -44,12 +46,16 @@ export default function WorkersPage() {
 
   const canManage = user?.role === 'company_admin' || user?.role === 'project_manager';
 
+  const trades = useMemo(() => tradeOptions(workers), [workers]);
+
   const filtered = workers.filter((w) => {
     const name = `${w.firstName} ${w.lastName}`.toLowerCase();
     const matchSearch = !search || name.includes(search.toLowerCase()) || (w.trade ?? '').toLowerCase().includes(search.toLowerCase());
     const matchStatus = !statusFilter || w.employmentStatus === statusFilter;
-    return matchSearch && matchStatus;
+    const matchTrade  = !tradeFilter || w.trade?.trim() === tradeFilter;
+    return matchSearch && matchStatus && matchTrade;
   });
+  const isFiltering = !!(search || statusFilter || tradeFilter);
 
   // The API omits dailyWage for workers whose wage the caller may not see;
   // show the column only when at least one listed worker carries it.
@@ -59,7 +65,9 @@ export default function WorkersPage() {
     <div className="px-6 py-8 space-y-6 animate-fade-in">
       <PageHeader
         title="Workers"
-        subtitle={`${workers.length} registered`}
+        subtitle={isFiltering && !loading
+          ? `${filtered.length} of ${workers.length} shown`
+          : `${workers.length} registered`}
         action={
           canManage ? (
             <Link href="/workers/new">
@@ -75,6 +83,9 @@ export default function WorkersPage() {
         searchPlaceholder="Search by name or trade…"
         filters={[
           { label: 'Status', value: statusFilter, options: STATUS_OPTIONS, onChange: setStatusFilter },
+          ...(trades.length > 0
+            ? [{ label: 'Trade', value: tradeFilter, options: trades, onChange: setTradeFilter }]
+            : []),
         ]}
       />
 
@@ -92,8 +103,8 @@ export default function WorkersPage() {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={<HardHat className="h-12 w-12" />}
-          title={search || statusFilter ? 'No workers match your filter' : 'No workers yet'}
-          action={!search && !statusFilter && canManage ? { label: 'Add Worker', href: '/workers/new' } : undefined}
+          title={isFiltering ? 'No workers match your filter' : 'No workers yet'}
+          action={!isFiltering && canManage ? { label: 'Add Worker', href: '/workers/new' } : undefined}
         />
       ) : (
         <Table>

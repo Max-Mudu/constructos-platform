@@ -1,6 +1,7 @@
 # ConstructOS mobile: iOS readiness and build configuration
 
-Last reviewed: 2026-11-07, on branch `feat/ios-sdk-upgrade` (Expo SDK 51 → 58; base `main` @ `9e03d0f`).
+Last reviewed: 2026-11-07, on branch `feat/ios-eas-build` (Expo SDK 58; base `main` @ `ee0ea6a`): privacy manifest,
+EAS simulator procedure and smoke test (sections 8 and 9). Before that: `feat/ios-sdk-upgrade` (SDK 51 → 58; base `9e03d0f`).
 First written on `feat/ios-readiness` (#5, base `149b484`); sections 1 and 5 keep that history.
 
 ## Read this first: what has and has not been verified
@@ -99,6 +100,7 @@ PhotoLibrary, PhotoLibraryAdd and FaceID. None of them uses a generic default.
 | 11 | `channel` on profiles | VERIFIED-STATIC | Channels only matter with `expo-updates`, which is not installed. They are harmless. OTA updates are not available. |
 | 12 | Apple's minimum Xcode/iOS SDK for App Store Connect uploads | VERIFIED-STATIC (config) / UNVERIFIED-RUNTIME (upload) | Apple: "Apps uploaded to App Store Connect must be built with Xcode 26 or later using an SDK for iOS 26" from 2026-04-28. SDK 58 builds on the EAS image `macos-tahoe-26.6-xcode-27.1` (aliases `sdk-58`, `latest`). `eas.json` pins no image, so EAS picks the SDK 58 default. SDK 51 would have built with Xcode 15.4 and been rejected. Re-check Apple's page before each release season; Apple raises the floor every spring. |
 | 13 | iOS 16.4+ deployment target | VERIFIED-STATIC | From `expo/Expo.podspec` (SDK 58). Was 13.4 on SDK 51. |
+| 13a | App privacy manifest (`PrivacyInfo.xcprivacy`) declares the required-reason APIs | VERIFIED-STATIC (config) / UNVERIFIED-RUNTIME (upload) | Added `ios.privacyManifests` in `app.json` (section 8.1). The SDK 58 prebuild template has no app-level manifest, so without this key the app relies only on the per-pod resource bundles, and `expo-sharing` (uses `UserDefaults`) ships none. Only an App Store Connect upload proves Apple accepts it (no ITMS-91053 e-mail). |
 
 ### Runtime behaviour (code re-read on SDK 58 at `main` @ `9e03d0f`; nothing was run on iOS)
 
@@ -176,7 +178,7 @@ signs in to Apple, creates credentials or uses EAS build minutes, so the owner r
    ```bash
    eas build -p ios --profile preview-simulator
    ```
-   No Apple account or credentials are needed. Download the `.tar.gz`, extract the `.app`, and drag it onto a booted Simulator.
+   No Apple account or credentials are needed. The exact procedure, including how to install the `.tar.gz` in Xcode Simulator, is in section 8.2.
 9. **Internal TestFlight (instead of, or after, ad hoc):**
    1. Create the app record in App Store Connect (My Apps → + → New App) with the bundle ID from step 3. Its numeric **Apple ID** is the `ascAppId`.
    2. Replace the three placeholders in `eas.json > submit.production.ios` (`appleId`, `ascAppId`, `appleTeamId`). Until then `eas submit` fails validation (section 1).
@@ -265,6 +267,23 @@ Android status after the SDK 58 upgrade:
 
 ## 7. Validation log
 
+### EAS simulator profile and config checks (`feat/ios-eas-build`, 2026-11-07, Windows 11)
+
+| Command (cwd `packages/mobile`) | Result |
+|---|---|
+| `npx expo config --type public --json` | Exit 0. `bundleIdentifier com.constructos.app`, `buildNumber 1`, `supportsTablet false`, `privacyManifests` present. |
+| `npx expo config --type introspect --json` | Exit 0. Purpose strings exactly Camera, PhotoLibrary, PhotoLibraryAdd, FaceID (no Microphone, no Location); `ITSAppUsesNonExemptEncryption=false`; entitlements `{ aps-environment: development }` only (no `associated-domains`). |
+| `mergePrivacyInfo({}, ios.privacyManifests)` from `@expo/config-plugins` (the function prebuild uses) | Produces a `PrivacyInfo.xcprivacy` with UserDefaults CA92.1, FileTimestamp C617.1/0A2A.1/3B52.1, SystemBootTime 35F9.1, DiskSpace E174.1/85F4.1, `NSPrivacyTracking false`. |
+| `CI=1 npx expo prebuild --platform ios --no-install` (in a throwaway copy) | **Not possible on Windows.** Expo CLI prints "Skipping generating the iOS native project files. Run npx expo prebuild again from macOS or Linux" and exits. The generated `Info.plist` and entitlements were therefore checked with `introspect` only. |
+| `npx expo-doctor@latest` | 19/20 checks pass; the one finding is the known duplicate `react` (section 2, item 9). |
+| `eas config --platform ios --profile <p>` for `preview-simulator`, `preview`, `development`, `production` | All resolve. `preview-simulator`: `distribution internal`, `simulator true`, `environment preview`. `production`: `distribution store`, `autoIncrement`, `env` = `EXPO_PUBLIC_API_URL` only. |
+| `eas env:list --environment preview / development / production` (names only) | **No variables in any environment.** A `preview` or `preview-simulator` build made today would show the "API URL not configured" error. Set the variable first (section 8.2, step 2). |
+| `eas whoami` | Signed in as `dalmarmudu` (matches `app.json > owner`). EAS CLI 18.7.0 installed; 27.5.0 is current. |
+| Repository scan for Apple credentials | None committed. No `*.p8`, `*.p12`, `*.mobileprovision`, `*.cer` or `credentials.json` is tracked, and the root `.gitignore` covers `*.p8`, `*.p12`, `*.mobileprovision` and `credentials.json`. `eas.json > submit.production.ios` holds only the three placeholders. Whether EAS already stores iOS credentials on its servers was not checked (`eas credentials` is interactive and can ask for an Apple sign-in). |
+| `eas build`, `eas build:run`, `eas credentials`, `eas device:create`, `eas env:create` | **Not run.** |
+| iOS Simulator / device | **Not run (no Mac). iOS runtime is NOT verified.** |
+
+
 ### SDK 58 upgrade (`feat/ios-sdk-upgrade`, 2026-11-07, Windows 11)
 
 | Command | Result |
@@ -298,3 +317,109 @@ Not done: signing in. Port 3001 was in use by a process this run did not start, 
 | `npx expo config --type introspect --json` | Succeeded. Purpose strings, encryption flag, entitlements and Android permissions were checked as described in sections 1 and 6. The same checks fail when run against the `main` config (control run). |
 | `@expo/eas-json` 18.6.0 (from EAS CLI 18.7.0): resolve every build profile on iOS and Android | All four profiles (`development`, `preview`, `preview-simulator`, `production`) are valid. The iOS submit profile fails validation because of the placeholders (expected; section 1). |
 | `npx expo-doctor@1` (1.21.6) | 17/17 checks passed. |
+
+---
+
+## 8. iOS build procedures
+
+**iOS runtime: NOT verified.** Nobody has run these commands yet. They are written from the EAS
+documentation and from the resolved config in section 7.
+
+### 8.1 Privacy manifest (`ios.privacyManifests`)
+
+Apple rejects uploads (ITMS-91053) when the app binary uses a "required-reason" API that no
+privacy manifest declares. The Expo SDK 58 prebuild template has no app-level
+`PrivacyInfo.xcprivacy`, so `app.json > ios.privacyManifests` now declares the union of what the
+linked native modules use:
+
+| API category | Reasons | Declared by (installed SDK 58 pods) |
+|---|---|---|
+| UserDefaults | CA92.1 | React-Core, expo-constants, expo-notifications; also used by `expo-sharing`, which has no manifest of its own |
+| FileTimestamp | C617.1, 0A2A.1, 3B52.1 | React-Core, cxxreact, expo-file-system, expo-application |
+| SystemBootTime | 35F9.1 | react/timing, expo-device |
+| DiskSpace | E174.1, 85F4.1 | expo-file-system |
+
+`NSPrivacyTracking` is `false` and there are no tracking domains: the app has no ads or analytics
+SDK. `NSPrivacyCollectedDataTypes` is left empty in the manifest. **Owner:** the App Store
+Connect "App Privacy" answers (account e-mail and name, photos the user uploads, push token, and
+so on) are still a separate owner task. Re-check this table when a native dependency is added.
+
+### 8.2 Simulator build on EAS (no Apple account needed)
+
+What it needs: an Expo account (the CLI is signed in as `dalmarmudu`) and a Mac with Xcode to run
+the result. No Apple Developer membership, no certificates, no device registration. It uses one
+build from the EAS free plan's monthly allowance.
+
+1. Update the CLI: `npm install -g eas-cli@latest`, then `cd packages/mobile && eas whoami`.
+2. **Set the API URL for the `preview` environment** (none is set today, section 7):
+   ```bash
+   eas env:create --environment preview --name EXPO_PUBLIC_API_URL \
+     --value "https://<dev-or-staging-api-host>/api/v1" --visibility plaintext
+   eas env:list --environment preview
+   ```
+   Use an HTTPS host that the Mac can reach (`DEV-API-ACCESS.md`; Tailscale Serve is the
+   recommended option). The same variable is used by device `preview` builds, so do not set it to
+   `http://localhost:3001/api/v1` unless you will change it back before a device build (it only
+   works because the Simulator shares the Mac's network).
+3. Build:
+   ```bash
+   eas build -p ios --profile preview-simulator
+   ```
+   In the log, check for `Environment variables ... loaded from the "preview" environment on EAS: EXPO_PUBLIC_API_URL`.
+   If that line is missing, cancel the build.
+4. Run it, on a Mac with Xcode and at least one iOS 16.4+ simulator runtime:
+   - Easiest: `eas build:run -p ios --latest` (downloads the build, boots a simulator, installs and launches it).
+   - Manual: download the `.tar.gz` from the build page (or `eas build:list -p ios --limit 1` for the URL), then:
+     ```bash
+     tar -xzf <build>.tar.gz          # gives ConstructOS.app
+     open -a Simulator                # boot any iPhone simulator
+     xcrun simctl install booted ConstructOS.app
+     xcrun simctl launch booted com.constructos.app
+     ```
+     Dragging `ConstructOS.app` onto the Simulator window also installs it.
+5. Run the smoke test in section 9. On the Simulator, push registration is skipped by design
+   (`Device.isDevice` is false) and there is no camera, so those items need a device build.
+
+### 8.3 Device build, internal distribution (ad hoc)
+
+Prerequisites, all owner-only: section 3, steps 1 to 6 (Apple Developer Program membership,
+Team ID, bundle ID with Push Notifications, registered test iPhones, API URL, APNs key).
+
+**How EAS-managed credentials work.** On the first `eas build -p ios`, EAS CLI asks for the
+owner's Apple ID and password (plus the two-factor code) and signs in to the Apple Developer portal
+from the owner's machine. It then creates, or reuses, the distribution certificate and an ad hoc
+provisioning profile listing the registered UDIDs, registers the bundle ID if needed, and stores
+the certificate and profile on Expo's servers for later builds. Nothing is written to the
+repository. The alternative is an App Store Connect API key (`.p8`, ignored by git) for
+non-interactive builds. `credentials.json` (local credentials mode) is also ignored by git and is
+not used here.
+
+1. `cd packages/mobile && eas device:create`, open the link on each test iPhone, then `eas device:list`.
+2. **OWNER-ONLY STEP:** `eas build -p ios --profile preview`. This is the step that signs in to
+   Apple and creates the signing credentials. Answer "Yes" to letting EAS manage credentials and
+   to setting up push notifications (APNs key).
+3. Open the build page link or QR code on a registered iPhone and install. Turn on
+   Settings → Privacy & Security → Developer Mode if iOS asks, then restart the phone.
+4. Run the smoke test in section 9, including the device-only items.
+
+`development` builds stay blocked until `expo-dev-client` is added (section 2, item 10).
+TestFlight is section 3, step 9.
+
+## 9. iOS smoke-test checklist
+
+Mirrors the Android checklist in `ANDROID-LOCAL-BUILD.md`. Record the device or simulator model,
+the iOS version and the build ID next to each result. **Sim** = can be done on the Simulator;
+**Device** = needs the ad hoc build.
+
+| # | Step | Expected | Where |
+|---|---|---|---|
+| 1 | Sign in with a wrong password | "Invalid email or password", still on the login screen | Sim |
+| 2 | Sign in with a correct test account | "My Day" dashboard | Sim |
+| 3 | Open Deliveries, Attendance and Schedule | Each tab loads data, no red error box; the tab bar clears the home indicator | Sim |
+| 4 | Swipe the app away in the app switcher and relaunch | Still signed in, back on My Day | Sim |
+| 5 | Profile → Log Out, then relaunch | Login screen, and still signed out after the relaunch | Sim |
+| 6 | Deliveries → add a photo | The camera prompt shows the ConstructOS camera text from `app.json`; Allow opens the camera; the photo uploads. No photo-library prompt appears (the app never asks for it) | Device (the Simulator has no camera) |
+| 7 | Deny the camera prompt, then try again | A clear message, no crash; Settings → ConstructOS → Camera can turn it back on | Device |
+| 8 | Reports → download a PDF and a CSV; Projects → open a drawing PDF | The share sheet opens with the file; "Save to Files" works; "Save Image" (if offered) shows the photo-add prompt text | Sim (share sheet) / Device |
+| 9 | First sign-in on a fresh install | The notification permission prompt appears once; after Allow, a test push from the API arrives | Device (skipped on the Simulator by design) |
+| 10 | Tap a notification while the app is closed | The app opens on the linked screen | Device |
