@@ -7,7 +7,7 @@ import {
 } from '../services/event-emitter.service';
 import { JwtPayload } from '../types';
 import { env } from '../utils/env';
-import { prisma } from '../utils/prisma';
+import { isSessionCurrent } from '../middleware/authenticate';
 
 // Heartbeat interval — keeps the connection alive through proxies and load balancers
 const HEARTBEAT_MS = 25_000;
@@ -59,13 +59,9 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
       const userId    = payload.sub;
       const companyId = payload.companyId;
 
-      // A still-valid JWT can outlive a deactivation; refuse the long-lived
-      // stream to users who are no longer active in this company.
-      const activeUser = await prisma.user.findFirst({
-        where:  { id: userId, companyId, isActive: true },
-        select: { id: true },
-      });
-      if (!activeUser) {
+      // A still-valid JWT can outlive a deactivation or a password reset;
+      // the stream applies the same session check as every other route.
+      if (!(await isSessionCurrent(payload))) {
         return reply.status(401).send({ error: 'Invalid or expired token', code: 'UNAUTHORIZED' });
       }
 
