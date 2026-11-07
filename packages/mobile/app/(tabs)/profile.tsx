@@ -354,7 +354,7 @@ export default function ProfileScreen() {
           <View style={M.sheet}>
             <View style={M.header}>
               <Text style={M.title}>Select Project</Text>
-              <TouchableOpacity onPress={() => setShowProjPicker(false)} style={M.closeBtn} activeOpacity={0.7}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close project picker" onPress={() => setShowProjPicker(false)} style={M.closeBtn} activeOpacity={0.7}>
                 <Text style={M.closeTxt}>✕</Text>
               </TouchableOpacity>
             </View>
@@ -396,7 +396,7 @@ export default function ProfileScreen() {
           <View style={M.sheet}>
             <View style={M.header}>
               <Text style={M.title}>Select Site</Text>
-              <TouchableOpacity onPress={() => setShowSitePicker(false)} style={M.closeBtn} activeOpacity={0.7}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close site picker" onPress={() => setShowSitePicker(false)} style={M.closeBtn} activeOpacity={0.7}>
                 <Text style={M.closeTxt}>✕</Text>
               </TouchableOpacity>
             </View>

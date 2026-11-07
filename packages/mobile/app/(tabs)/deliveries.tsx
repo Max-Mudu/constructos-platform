@@ -261,6 +261,7 @@ function DeliveryDetailView({
               style={DV.conditionalInput}
               value={qtyAccepted}
               onChangeText={setQtyAccepted}
+              accessibilityLabel="Quantity accepted"
               placeholder={`of ${record.quantityDelivered} ${record.unitOfMeasure}`}
               placeholderTextColor="#2d4060"
               keyboardType="decimal-pad"
@@ -276,6 +277,7 @@ function DeliveryDetailView({
               style={[DV.conditionalInput, { minHeight: 72, textAlignVertical: 'top' }]}
               value={rejection}
               onChangeText={setRejection}
+              accessibilityLabel="Rejection reason"
               placeholder="Why was this delivery rejected?"
               placeholderTextColor="#2d4060"
               multiline
@@ -285,6 +287,7 @@ function DeliveryDetailView({
               style={[DV.conditionalInput, { minHeight: 60, textAlignVertical: 'top' }]}
               value={discrepancy}
               onChangeText={setDiscrepancy}
+              accessibilityLabel="Discrepancy notes"
               placeholder="Quantity shortages, damage details…"
               placeholderTextColor="#2d4060"
               multiline
@@ -396,7 +399,7 @@ function CreateDeliveryModal({
       <KeyboardAvoidingView style={styles.modal} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>New Delivery</Text>
-          <TouchableOpacity onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
         </View>
         <ScrollView contentContainerStyle={{ padding: 20 }} keyboardShouldPersistTaps="handled">
           {!hasDefaultContext && (
@@ -674,6 +677,7 @@ export default function DeliveriesScreen() {
       <View style={styles.searchRow}>
         <TextInput
           style={styles.searchInput}
+          accessibilityLabel="Search deliveries by supplier"
           placeholder="Search supplier..."
           placeholderTextColor="#475569"
           value={search}
@@ -681,7 +685,7 @@ export default function DeliveriesScreen() {
           returnKeyType="search"
         />
         {search.length > 0 && (
-          <TouchableOpacity onPress={() => onSearchChange('')} style={styles.searchClear}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => onSearchChange('')} style={styles.searchClear}>
             <Text style={styles.searchClearText}>✕</Text>
           </TouchableOpacity>
         )}

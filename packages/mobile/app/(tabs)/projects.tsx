@@ -401,6 +401,7 @@ export default function ProjectsScreen() {
             style={P.searchInput}
             value={projectSearch}
             onChangeText={setProjectSearch}
+            accessibilityLabel="Search projects"
             placeholder="Search projects…"
             placeholderTextColor="#1e3a5f"
             autoCorrect={false}
@@ -408,7 +409,7 @@ export default function ProjectsScreen() {
             returnKeyType="search"
           />
           {projectSearch.length > 0 ? (
-            <TouchableOpacity onPress={() => setProjectSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setProjectSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Text style={P.searchClear}>✕</Text>
             </TouchableOpacity>
           ) : null}
@@ -668,6 +669,7 @@ export default function ProjectsScreen() {
             style={DR.searchInput}
             value={drawingSearch}
             onChangeText={setDrawingSearch}
+            accessibilityLabel="Search drawings"
             placeholder="Search drawings…"
             placeholderTextColor="#1e3a5f"
             autoCorrect={false}
@@ -675,7 +677,7 @@ export default function ProjectsScreen() {
             returnKeyType="search"
           />
           {drawingSearch.length > 0 ? (
-            <TouchableOpacity onPress={() => setDrawingSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear search" onPress={() => setDrawingSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
               <Text style={DR.searchClear}>✕</Text>
             </TouchableOpacity>
           ) : null}

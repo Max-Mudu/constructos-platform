@@ -740,6 +740,7 @@ function DailySiteReportView({ onBack }: { onBack: () => void }) {
       {/* ── Date ─────────────────────────────────────────────────────────── */}
       <Text style={dsr.sectionLabel}>Date</Text>
       <TextInput
+        accessibilityLabel="Report date, YYYY-MM-DD"
         style={dsr.dateInput}
         value={date}
         onChangeText={setDate}

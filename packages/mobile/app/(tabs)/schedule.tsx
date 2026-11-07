@@ -259,6 +259,8 @@ function UpdateTaskModal({
             ) : null}
           </View>
           <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Close"
             style={UM.closeBtn}
             onPress={onClose}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -320,6 +322,7 @@ function UpdateTaskModal({
                 </TouchableOpacity>
                 <View style={UM.progressInputWrap}>
                   <TextInput
+                    accessibilityLabel="Progress percent"
                     style={UM.progressInput}
                     value={progressText}
                     onChangeText={setProgressText}
@@ -349,6 +352,7 @@ function UpdateTaskModal({
                 style={UM.input}
                 value={actualStartDate}
                 onChangeText={setActualStartDate}
+                accessibilityLabel="Actual start date, YYYY-MM-DD"
                 placeholder="e.g. 2025-06-01"
                 placeholderTextColor="#1e3a5f"
                 keyboardType="numbers-and-punctuation"
@@ -365,6 +369,7 @@ function UpdateTaskModal({
                   style={UM.input}
                   value={actualEndDate}
                   onChangeText={setActualEndDate}
+                  accessibilityLabel="Actual end date, YYYY-MM-DD"
                   placeholder="e.g. 2025-06-15"
                   placeholderTextColor="#1e3a5f"
                   keyboardType="numbers-and-punctuation"
@@ -385,6 +390,7 @@ function UpdateTaskModal({
                   style={[UM.input, { height: 72, textAlignVertical: 'top' }]}
                   value={delayReason}
                   onChangeText={setDelayReason}
+                  accessibilityLabel={status === 'blocked' ? 'Block reason' : 'Delay reason'}
                   placeholder="Describe the cause…"
                   placeholderTextColor="#1e3a5f"
                   multiline
@@ -401,6 +407,7 @@ function UpdateTaskModal({
                 style={[UM.input, { height: 72, textAlignVertical: 'top' }]}
                 value={comments}
                 onChangeText={setComments}
+                accessibilityLabel="Execution notes"
                 placeholder="Site observations, materials used, issues…"
                 placeholderTextColor="#1e3a5f"
                 multiline
@@ -510,7 +517,7 @@ function CreateTaskModal({
       <KeyboardAvoidingView style={UM.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={UM.header}>
           <Text style={UM.title}>New Schedule Task</Text>
-          <TouchableOpacity style={UM.closeBtn} onPress={handleClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" style={UM.closeBtn} onPress={handleClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Text style={UM.closeBtnText}>✕</Text>
           </TouchableOpacity>
         </View>
@@ -576,6 +583,7 @@ function CreateTaskModal({
                   style={UM.input}
                   value={value}
                   onChangeText={onChange}
+                  accessibilityLabel={label}
                   placeholder={placeholder}
                   placeholderTextColor="#1e3a5f"
                   keyboardType={keyboard}
