@@ -193,6 +193,37 @@ describe('re-issuing', () => {
     expect(await prisma.passwordResetToken.count({ where: { userId: { in: [used.id, admin.id] } } })).toBe(0);
   });
 
+  it('409 once the user has chosen a password through a link, even before signing in', async () => {
+    const { admin } = await createTestCompany(app, 'rsl-set');
+    const pending = await createPending(admin.accessToken);
+    expect((await resetWith(tokenOf(pending.firstLink))).statusCode).toBe(200);
+
+    const res = await reissue(admin.accessToken, pending.id);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error).toMatch(/already set a password/i);
+    // Nothing new was minted
+    expect(await prisma.passwordResetToken.count({ where: { userId: pending.id, usedAt: null } })).toBe(0);
+  });
+
+  it('409 for a company founder who registered and never used /auth/login', async () => {
+    const reg = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/register',
+      payload: {
+        companyName: 'Founder Co', country: 'Kenya',
+        firstName: 'Fou', lastName: 'Nder', email: 'founder-rsl@test.com', password: 'FounderPass1!',
+      },
+    });
+    expect(reg.statusCode).toBe(201);
+    const founder = await prisma.user.findUniqueOrThrow({ where: { email: 'founder-rsl@test.com' } });
+    expect(founder.lastLoginAt).not.toBeNull();
+
+    const other = await createTestUser(app, founder.companyId, 'company_admin', 'rsl-founder-2');
+    const res = await reissue(other.accessToken, founder.id);
+    expect(res.statusCode).toBe(409);
+    expect(await prisma.passwordResetToken.count({ where: { userId: founder.id } })).toBe(0);
+  });
+
   it('never returns the link in production, and still emails it', async () => {
     const { admin } = await createTestCompany(app, 'rsl-prod');
     const pending = await createPending(admin.accessToken);
