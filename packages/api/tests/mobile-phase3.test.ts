@@ -176,6 +176,24 @@ describe('GET /api/v1/labour', () => {
 // ─── GET /api/v1/deliveries ───────────────────────────────────────────────────
 
 describe('GET /api/v1/deliveries', () => {
+  it('includes receivedBy (name only) for the mobile delivery detail', async () => {
+    const { company, admin } = await createTestCompany(app, 'mobd-rb');
+    const project = await createTestProject(company.id);
+    const site    = await createTestSite(company.id, project.id);
+    await createTestDelivery(company.id, project.id, site.id, admin.id);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/deliveries?projectId=${project.id}&siteId=${site.id}`,
+      headers: { Authorization: `Bearer ${admin.accessToken}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ records: Array<{ receivedBy: Record<string, unknown> | null }> }>();
+    expect(body.records).toHaveLength(1);
+    expect(body.records[0]!.receivedBy).toEqual({ id: admin.id, firstName: 'Admin', lastName: 'mobd-rb' });
+  });
+
   it('returns all company delivery records — 200', async () => {
     const { company, admin } = await createTestCompany(app, 'mobd1');
     const project = await createTestProject(company.id);

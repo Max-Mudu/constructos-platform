@@ -387,6 +387,7 @@ describe('(a) site_supervisor pilot day', () => {
     }));
     expect(Number(listed.quantityOrdered)).toBe(200);
     expect(Number(listed.quantityDelivered)).toBe(180);
+    expect(listed.receivedBy).toEqual(expect.objectContaining({ id: w.sup.id, firstName: expect.any(String), lastName: expect.any(String) }));
     expect(listed.photos).toHaveLength(1);
     expect(listed.photos[0]).toEqual(expect.objectContaining({ id: expect.any(String), fileUrl: expect.any(String) }));
   });
