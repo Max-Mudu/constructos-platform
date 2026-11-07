@@ -9,7 +9,6 @@ import { getExpoPushToken } from '../../src/utils/push';
 import { clearQueue, getQueue } from '../../src/utils/offlineQueue';
 import { authApi } from '../../src/api/auth';
 import { notificationsApi } from '../../src/api/notifications';
-import { getRefreshToken } from '../../src/auth/secureStorage';
 import { Project, JobSite } from '../../src/types';
 import { projectsApi } from '../../src/api/projects';
 import { useAppBarInset } from '../../src/hooks/useAppBarInset';
@@ -183,8 +182,8 @@ export default function ProfileScreen() {
                 if (pushToken) await notificationsApi.unregisterPushToken(pushToken);
               } catch { /* non-fatal */ }
 
-              const refreshToken = await getRefreshToken();
-              if (refreshToken) await authApi.logout(refreshToken).catch(() => {});
+              // Never throws; refreshes once if the access token has expired.
+              await authApi.logout();
             } finally {
               // Before clearAuth: clearQueue removes the current user's ops.
               await clearQueue().catch(() => {});
