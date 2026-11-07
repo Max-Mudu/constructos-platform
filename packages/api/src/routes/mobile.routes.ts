@@ -149,6 +149,8 @@ export async function mobileRoutes(fastify: FastifyInstance): Promise<void> {
             where,
             include: {
               photos: { select: { id: true, fileUrl: true, fileName: true } },
+              // The mobile delivery detail shows "Received By" from this list row.
+              receivedBy: { select: { id: true, firstName: true, lastName: true } },
             },
             orderBy: { deliveryDate: 'desc' },
             take:   limit,
