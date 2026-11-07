@@ -1480,4 +1480,15 @@ export const inventoryApi = {
     request<{ item: import('./types').SiteInventoryItemDetail }>(
       `/projects/${projectId}/sites/${siteId}/inventory/${inventoryId}`,
     ),
+  /** Records stock issued or used on site (a usage_out transaction). */
+  recordUsage: (projectId: string, siteId: string, inventoryId: string, data: {
+    quantity: number;
+    usageReason?: string;
+    workArea?: string;
+    note?: string;
+  }) =>
+    request<{ item: import('./types').SiteInventoryItem & { isLowStock: boolean } }>(
+      `/projects/${projectId}/sites/${siteId}/inventory/${inventoryId}/use`,
+      { method: 'POST', body: JSON.stringify(data) },
+    ),
 };
