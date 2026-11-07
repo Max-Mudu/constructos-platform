@@ -251,14 +251,21 @@ describe('labour update — non-finance callers cannot change rate/currency', ()
     expect(await labourRow(id)).toMatchObject({ rate: '2100' });
   });
 
-  it('company_admin may change rate and currency', async () => {
+  it('company_admin may change the rate; the entry keeps its original currency', async () => {
     const created = await req(w.admin, 'POST', labourUrl(), {
       workerId: w.w1, date: nextDate(), hoursWorked: 8,
     });
     const id = created.json().entry.id as string;
-    const res = await req(w.admin, 'PATCH', labourUrl(id), { dailyRate: 1700, currency: 'USD' });
+    const original = (await labourRow(id)).currency;
+    const other = original === 'USD' ? 'KES' : 'USD';
+
+    const changed = await req(w.admin, 'PATCH', labourUrl(id), { dailyRate: 1700, currency: other });
+    expect(changed.statusCode).toBe(422);
+    expect(await labourRow(id)).toMatchObject({ currency: original });
+
+    const res = await req(w.admin, 'PATCH', labourUrl(id), { dailyRate: 1700, currency: original });
     expect(res.statusCode).toBe(200);
-    expect(await labourRow(id)).toMatchObject({ rate: '1700', currency: 'USD' });
+    expect(await labourRow(id)).toMatchObject({ rate: '1700', currency: original });
   });
 });
 
