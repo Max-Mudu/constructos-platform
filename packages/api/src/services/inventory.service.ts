@@ -229,6 +229,141 @@ export async function recordUsage(
   return { ...updated, isLowStock: isLow };
 }
 
+// ─── Stock adjustment ─────────────────────────────────────────────────────────
+
+export const ADJUSTMENT_REASONS = [
+  'stock_count_correction',
+  'damaged',
+  'lost_or_stolen',
+  'returned_to_supplier',
+  'found',
+  'data_entry_error',
+  'other',
+] as const;
+
+export type AdjustmentReason = typeof ADJUSTMENT_REASONS[number];
+export type AdjustmentDirection = 'in' | 'out';
+
+/** Largest value a Decimal(12,3) column holds. */
+const MAX_STOCK = new Prisma.Decimal('999999999.999');
+
+/**
+ * Corrects the book stock of one inventory item up or down, recording an
+ * adjustment_in / adjustment_out transaction (reason in usageReason, actor in
+ * performedById) and an audit row with the before and after quantities.
+ *
+ * The stock change is a conditional update inside the transaction: an `out`
+ * only matches while currentQuantity >= quantity, so concurrent adjustments
+ * cannot take stock below zero, and an `in` cannot overflow the column.
+ */
+export async function adjustStock(
+  projectId:   string,
+  siteId:      string,
+  inventoryId: string,
+  input: {
+    direction: AdjustmentDirection;
+    quantity:  number;
+    reason:    AdjustmentReason;
+    note?:     string;
+  },
+  actor:   RequestUser,
+  request: { ip?: string; userAgent?: string } = {},
+) {
+  await checkSiteAccess(siteId, projectId, actor);
+
+  const item = await prisma.siteInventory.findFirst({
+    where:  { id: inventoryId, siteId, companyId: actor.companyId },
+    select: { id: true, unitOfMeasure: true },
+  });
+  if (!item) throw new NotFoundError('Inventory item');
+
+  const qty  = new Prisma.Decimal(input.quantity);
+  const isIn = input.direction === 'in';
+  const note = input.note?.trim() ? input.note.trim() : null;
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const where: Prisma.SiteInventoryWhereInput = {
+      id: inventoryId, siteId, companyId: actor.companyId,
+      currentQuantity: isIn ? { lte: MAX_STOCK.minus(qty) } : { gte: qty },
+    };
+    const res = await tx.siteInventory.updateMany({
+      where,
+      data: { currentQuantity: isIn ? { increment: qty } : { decrement: qty } },
+    });
+
+    if (res.count === 0) {
+      const current = await tx.siteInventory.findFirst({
+        where:  { id: inventoryId, siteId, companyId: actor.companyId },
+        select: { currentQuantity: true },
+      });
+      if (!current) throw new NotFoundError('Inventory item');
+      if (isIn) {
+        throw new ValidationError('Adjustment would exceed the maximum stock quantity');
+      }
+      throw new ValidationError(
+        `Insufficient stock: requested ${qty.toString()}, available ${current.currentQuantity.toString()}`,
+      );
+    }
+
+    // Our update holds the row lock until commit, so this read is the
+    // post-adjustment value and nothing else has changed it in between.
+    const after = await tx.siteInventory.findFirstOrThrow({
+      where:  { id: inventoryId },
+      select: INVENTORY_ITEM_SELECT,
+    });
+    const beforeQty = isIn ? after.currentQuantity.minus(qty) : after.currentQuantity.plus(qty);
+
+    const txRow = await tx.inventoryTransaction.create({
+      data: {
+        companyId:     actor.companyId,
+        siteId,
+        inventoryId,
+        type:          isIn ? 'adjustment_in' : 'adjustment_out',
+        quantity:      isIn ? qty : qty.negated(),
+        unitOfMeasure: item.unitOfMeasure,
+        note,
+        usageReason:   input.reason,
+        performedById: actor.id,
+      },
+      select: { id: true },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        companyId:     actor.companyId,
+        userId:        actor.id,
+        userEmail:     actor.email,
+        userRole:      actor.role,
+        action:        'update',
+        entityType:    'site_inventory',
+        entityId:      inventoryId,
+        changesBefore: { currentQuantity: beforeQty.toString() },
+        changesAfter:  {
+          currentQuantity: after.currentQuantity.toString(),
+          adjustment: {
+            transactionId: txRow.id,
+            direction:     input.direction,
+            quantity:      qty.toString(),
+            reason:        input.reason,
+            note,
+          },
+        },
+        ipAddress: request.ip ?? null,
+        userAgent: request.userAgent ?? null,
+      },
+    });
+
+    return after;
+  });
+
+  const isLow = computeIsLowStock(updated.currentQuantity, updated.lowStockThreshold);
+  if (isLow) {
+    console.warn('[inventory] low stock — material:', updated.materialName, '| qty:', String(updated.currentQuantity), '| threshold:', String(updated.lowStockThreshold), '| siteId:', siteId);
+  }
+
+  return { ...updated, isLowStock: isLow };
+}
+
 // ─── Threshold management ─────────────────────────────────────────────────────
 
 export async function updateThreshold(

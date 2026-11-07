@@ -917,6 +917,17 @@ export type InventoryTxType =
   | 'transfer_in'
   | 'transfer_out';
 
+export type InventoryAdjustmentDirection = 'in' | 'out';
+
+export type InventoryAdjustmentReason =
+  | 'stock_count_correction'
+  | 'damaged'
+  | 'lost_or_stolen'
+  | 'returned_to_supplier'
+  | 'found'
+  | 'data_entry_error'
+  | 'other';
+
 export interface SiteInventoryItem {
   id:                string;
   companyId:         string;
@@ -936,6 +947,8 @@ export interface InventoryTransaction {
   quantity:      string;          // Prisma Decimal → string
   unitOfMeasure: string;
   note:          string | null;
+  /** Usage reason (free text) or, for adjustments, an InventoryAdjustmentReason. */
+  usageReason?:  string | null;
   createdAt:     string;
   delivery:      { id: string; supplierName: string; deliveryDate: string } | null;
   performedBy:   { id: string; firstName: string; lastName: string } | null;

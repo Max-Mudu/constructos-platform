@@ -16,9 +16,10 @@ import { Button } from '@/components/ui/Button';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { ArrowLeft, Layers, AlertCircle, X, ChevronRight, MinusCircle, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Layers, AlertCircle, X, ChevronRight, MinusCircle, CheckCircle2, SlidersHorizontal } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { RecordUsageDialog, canRecordUsage } from '@/components/workflows/RecordUsageDialog';
+import { AdjustStockDialog, adjustmentReasonLabel, canAdjustStock } from '@/components/workflows/AdjustStockDialog';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -48,8 +49,8 @@ function formatDateTime(iso: string) {
 const TX_LABELS: Record<InventoryTxType, string> = {
   delivery_in:    'Delivery In',
   usage_out:      'Usage Out',
-  adjustment_in:  'Adj. In',
-  adjustment_out: 'Adj. Out',
+  adjustment_in:  'Adjustment In',
+  adjustment_out: 'Adjustment Out',
   transfer_in:    'Transfer In',
   transfer_out:   'Transfer Out',
 };
@@ -187,6 +188,11 @@ function DetailPanel({ projectId, siteId, itemId, onClose }: DetailPanelProps) {
                     >
                       <div className="min-w-0 flex-1 space-y-1">
                         {txBadge(tx.type)}
+                        {tx.type.startsWith('adjustment_') && tx.usageReason && (
+                          <p className="text-xs text-muted-foreground">
+                            Reason: {adjustmentReasonLabel(tx.usageReason)}
+                          </p>
+                        )}
                         {tx.delivery && (
                           <p className="text-xs text-muted-foreground truncate">
                             {tx.delivery.supplierName} · {formatCalendarDate(tx.delivery.deliveryDate)}
@@ -231,9 +237,11 @@ export default function InventoryPage() {
   const [error, setError]         = useState('');
   const [selected, setSelected]   = useState<string | null>(null);
   const [usingItem, setUsingItem] = useState<SiteInventoryItem | null>(null);
+  const [adjustingItem, setAdjustingItem] = useState<SiteInventoryItem | null>(null);
   const [notice, setNotice]       = useState('');
   const user = useAuthStore((s) => s.user);
   const mayRecordUsage = canRecordUsage(user?.role);
+  const mayAdjustStock = canAdjustStock(user?.role);
 
   function load() {
     if (!projectId || !siteId) return;
@@ -375,6 +383,17 @@ export default function InventoryPage() {
                               <MinusCircle className="h-3.5 w-3.5 mr-1" />Record usage
                             </Button>
                           )}
+                          {mayAdjustStock && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              aria-label={`Adjust stock of ${item.materialName}`}
+                              onClick={(e) => { e.stopPropagation(); setNotice(''); setAdjustingItem(item); }}
+                            >
+                              <SlidersHorizontal className="h-3.5 w-3.5 mr-1" />Adjust stock
+                            </Button>
+                          )}
                           <ChevronRight className="h-4 w-4 text-muted-foreground" />
                         </div>
                       </TableCell>
@@ -396,6 +415,23 @@ export default function InventoryPage() {
           onDone={() => {
             setNotice(`Usage of ${usingItem.materialName} recorded.`);
             setUsingItem(null);
+            load();
+          }}
+        />
+      )}
+
+      {adjustingItem && (
+        <AdjustStockDialog
+          projectId={projectId}
+          siteId={siteId}
+          item={adjustingItem}
+          onClose={() => setAdjustingItem(null)}
+          onDone={(result) => {
+            setNotice(
+              `Stock of ${adjustingItem.materialName} adjusted to ${formatQty(result.currentQuantity)} ${adjustingItem.unitOfMeasure}.`
+              + (result.isLowStock ? ' It is now at or below the low-stock threshold.' : ''),
+            );
+            setAdjustingItem(null);
             load();
           }}
         />
