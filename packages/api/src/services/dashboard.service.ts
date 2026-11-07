@@ -4,6 +4,7 @@ import { RequestUser } from '../types';
 import { getFinanceReadScope, financeProjectFilter } from './budget.service';
 import { resolveReadScope, scopeWhere, instructionScopeWhere, ReadScope } from './report.service';
 import { workerReadScopeWhere } from './worker.service';
+import { env } from '../utils/env';
 
 // ─── Return type ──────────────────────────────────────────────────────────────
 
@@ -146,6 +147,8 @@ function startOfMonth(d: Date): Date {
 //    sites for site-scoped roles (resolveReadScope / scopeWhere, the same
 //    rules as reports and the per-project lists); worker counts follow
 //    GET /workers (workerReadScopeWhere);
+//  - contractor: additionally only their own contractor record, schedules,
+//    tasks and instructions (as the contractor-facing lists);
 //  - worker: their own projects, attendance and labour only; other
 //    operational figures are zero.
 // Financial blocks keep their own gate (getFinanceReadScope), unchanged.
@@ -217,19 +220,40 @@ async function resolveDashboardScope(actor: RequestUser): Promise<DashboardScope
     select: { id: true },
   });
 
+  // Instructions follow instruction.service: site limits apply only under
+  // SITE_SCOPE_STRICT (getDocumentSiteIds); otherwise project membership.
+  const instructions: Prisma.ConsultantInstructionWhereInput = env.SITE_SCOPE_STRICT
+    ? instructionScopeWhere(scope, actor.id)
+    : projectRows;
+
+  // A contractor sees only records linked to their own contractor record
+  // (as GET /contractors, schedules and instructions do).
+  if (actor.role === 'contractor') {
+    const own = { contractor: { userId: actor.id, companyId: actor.companyId } };
+    return {
+      projects,
+      workers:      await workerReadScopeWhere(actor),
+      attendance:   siteRows,
+      labour:       siteRows,
+      deliveries:   siteRows,
+      contractors:  { userId: actor.id },
+      schedules:    { ...projectRows, ...own },
+      instructions: { AND: [instructions, own] },
+      inventory:    { siteId: { in: sites.map((s) => s.id) } },
+      tasks:        { ...siteRows, ...own },
+    };
+  }
+
   return {
     projects,
     workers:      await workerReadScopeWhere(actor),
     attendance:   siteRows,
     labour:       siteRows,
     deliveries:   siteRows,
-    // A contractor counts their own linked record (as GET /contractors);
-    // other roles count contractors engaged on the projects in scope.
-    contractors:  actor.role === 'contractor'
-      ? { userId: actor.id }
-      : { OR: [{ schedules: { some: projectRows } }, { scheduleTasks: { some: siteRows } }] },
+    // Contractors engaged on the projects / sites in scope.
+    contractors:  { OR: [{ schedules: { some: projectRows } }, { scheduleTasks: { some: siteRows } }] },
     schedules:    projectRows,
-    instructions: instructionScopeWhere(scope, actor.id),
+    instructions,
     inventory:    { siteId: { in: sites.map((s) => s.id) } },
     tasks:        siteRows,
   };
