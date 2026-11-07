@@ -60,6 +60,9 @@ Ground rules for every option:
 
 ### 2. Tailscale Serve (recommended)
 
+The full runbook (commands, tailnet policy, API environment and TLS checks) is in
+[TESTER-NETWORK-TAILSCALE.md](TESTER-NETWORK-TAILSCALE.md).
+
 - **What it is:** Tailscale builds a private WireGuard network ("tailnet"). `tailscale serve`
   publishes a local port as `https://<machine>.<tailnet>.ts.net` with a valid TLS certificate,
   **reachable only from devices in the tailnet** (or devices of people you share the machine

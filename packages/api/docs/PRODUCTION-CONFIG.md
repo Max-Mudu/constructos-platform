@@ -53,7 +53,7 @@ Run it once per secret. Never reuse a value across variables or environments.
 |---|---|---|---|
 | `TRUST_PROXY` | Recommended | trust none | The number of reverse-proxy hops between the client and the API, or a comma-separated list of proxy IPs/CIDRs (or `loopback`, `linklocal`, `uniquelocal`). `true` (trust everything) is rejected at boot. See §3. |
 | `SSE_ENABLED` | Optional | `false` in production, `true` elsewhere | Server-sent events at `GET /api/v1/events`. Keep it off in production until event delivery is scoped per audience. Clients fall back to polling. |
-| `SITE_SCOPE_STRICT` | Optional | `false` | Only if the opt-in site-scoping change is merged: it applies the membership site rule to more roles and modules. Turn it on only after reviewing project memberships. Only `true` or `false` is accepted. |
+| `SITE_SCOPE_STRICT` | Optional | `false` | Opt-in site scoping: it applies the membership site rule to more roles and modules. Turn it on only after reviewing project memberships. Only `true` or `false` is accepted. |
 
 ### Email (SMTP)
 
@@ -67,7 +67,7 @@ Run it once per secret. Never reuse a value across variables or environments.
 
 ### File storage
 
-The storage driver backs the Daily Report photos and PDFs. Other uploads (delivery photos and documents, drawing revisions, instruction attachments) are stored on local disk unless your build routes them through the same driver.
+The storage driver backs the Daily Report photos and PDFs. With `STORAGE_DRIVER=s3`, delivery photos and documents, drawing revisions and instruction attachments go to the same bucket, and files still on local disk are read from there as a fallback. With `local`, those uploads stay on local disk under `<cwd>/uploads`. See [STORAGE-R2.md](STORAGE-R2.md) for the bucket plan and the move from local disk.
 
 | Variable | Required? | Default | Production guidance |
 |---|---|---|---|
@@ -151,3 +151,69 @@ Any provider with SMTP submission works. Verify your sending domain (SPF and DKI
 - [ ] `ALLOW_PUBLIC_REGISTRATION` and `SSE_ENABLED` are unset (off) unless deliberately enabled.
 - [ ] `DAILY_REPORT_AI_PROVIDER` is `disabled`, or `anthropic` with approval and a spend-limited key.
 - [ ] The boot log shows no `[WARN]` lines.
+
+## 6. Railway launch checklist
+
+Work through this in order for each Railway environment (QA first, then production). Every variable below is read by the API code: `src/utils/env.ts`, plus `DATABASE_URL` in `prisma/schema.prisma` and `ANTHROPIC_API_KEY` in the Anthropic SDK.
+
+### 6.1 Service and build
+
+- [ ] The service builds `packages/api`: build command `npm run build` (`prisma generate && tsc`), start command `npm start`.
+- [ ] `npm start` runs `prisma migrate deploy && node dist/server.js`, so **migrations are applied before the server starts**, on every deploy. Do not also run `prisma migrate dev` or `prisma db push` against a hosted database.
+- [ ] `DATABASE_URL` comes from the linked Railway Postgres service, using the private (internal) URL. Enable database backups **before** the first deploy, because the first `migrate deploy` creates the whole schema.
+- [ ] Before each deploy that adds migrations, read the new files in `prisma/migrations/` and take a manual database backup if any of them drops or rewrites data.
+- [ ] Health check path: **`/health`** (at the root, not under `/api/v1`). It runs `SELECT 1` and returns `200 {"status":"ok"}`, or `503` when the database is unreachable. Set it as the Railway health check so a deploy that cannot reach the database is not promoted.
+- [ ] Do not set `PORT`. Railway injects it, and the server binds `0.0.0.0:$PORT`.
+
+### 6.2 Variables to set
+
+| Variable | Value | Check after deploy |
+|---|---|---|
+| `NODE_ENV` | `production` | Boot succeeds; no development behaviour. |
+| `DATABASE_URL` | Railway Postgres reference (private URL) | `/health` returns 200. |
+| `JWT_SECRET`, `JWT_REFRESH_SECRET` | Two different random values, 32+ characters, unique to this environment | Boot succeeds (production refuses shorter values). |
+| `APP_URL` | `https://<web app host>` (https, no trailing slash) | No `APP_URL` warning in the boot log; reset links start with it. |
+| `CORS_ORIGIN` | `https://<web app host>`: exactly one origin | No `CORS_ORIGIN contains "localhost"` warning. The web app can load `/uploads/...` files. Native mobile apps send no `Origin` and are not affected. |
+| `TRUST_PROXY` | `1` (Railway's edge proxy only); add one per extra proxy layer | No `TRUST_PROXY` warning. Verify the audit-log IP as in §3. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` | Provider values (§4); `SMTP_FROM` on a verified domain | No `SMTP_HOST` warning; the §4 test passes. |
+| `STORAGE_DRIVER` | `s3` | Daily Report photo upload and delivery photo upload both work. |
+| `S3_ENDPOINT` | `https://<account-id>.r2.cloudflarestorage.com` | https is enforced in production. |
+| `S3_BUCKET` | The private bucket for this environment | |
+| `S3_REGION` | `auto` | |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | A token scoped to that one bucket (Object Read & Write) | Any missing `S3_*` variable is named in the error when the storage routes are first used. |
+| `DAILY_REPORT_AI_PROVIDER` | `disabled`, or `anthropic` after approval | |
+| `ANTHROPIC_API_KEY` | Only with `anthropic`: a spend-limited workspace key | |
+
+Optional, with sensible defaults: `SITE_SCOPE_STRICT` (`false`; turn it on only after reviewing project memberships), `JWT_EXPIRES_IN` (`15m`), `DAILY_REPORT_AI_MODEL`, `DAILY_REPORT_AI_TIMEOUT_MS`, `DAILY_REPORT_AI_DAILY_CAP_PER_COMPANY`.
+
+Storage details, costs and the move from local disk are in [STORAGE-R2.md](STORAGE-R2.md).
+
+### 6.3 Must NOT be set
+
+| Do not set | Why |
+|---|---|
+| `NODE_ENV` to anything other than `production` | `development` is accepted at boot and enables development-only behaviour. |
+| `TRUST_PROXY=true`, or a hop count above the real number of proxies | `true` is refused at boot. Too many hops let a client choose its own IP for rate limits and audit logs. |
+| `ALLOW_PUBLIC_REGISTRATION=true` | Companies are onboarded by an operator. |
+| `SSE_ENABLED=true` | Keep it off in production until event delivery is scoped per audience. |
+| `DAILY_REPORT_AI_PROVIDER=fake`, `DAILY_REPORT_AI_FAKE_DRAFT_FILE` | `fake` is refused in production; the draft file is for local demos. |
+| `ALLOW_LOCAL_STORAGE_IN_PRODUCTION=true` (with `STORAGE_DRIVER=s3`) | Not needed with a bucket. Set it only for a deliberate persistent-volume setup. |
+| `FILE_URL_SECRET` (with `STORAGE_DRIVER=s3`) | Used only by the local driver. Harmless, but one less secret to manage. |
+| `S3_FORCE_PATH_STYLE=true` for R2 | Not needed for R2. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET` | Parsed but unused. Setting them suggests a configuration that does nothing. |
+| `PORT` | Railway sets it. |
+| `JWT_REFRESH_EXPIRES_IN` | Parsed but unused (the refresh lifetime is fixed at 7 days). Setting it has no effect. |
+
+### 6.4 After the first deploy
+
+- [ ] `curl -sS https://<api host>/health` returns `{"status":"ok",...}`.
+- [ ] The boot log has no `[WARN]` lines.
+- [ ] Sign in on the web app; check the audit-log IP (§3).
+- [ ] Run the SMTP test (§4).
+- [ ] Upload and open a delivery photo and a Daily Report photo; download a Daily Report PDF.
+- [ ] Sign in on a mobile build whose `EXPO_PUBLIC_API_URL` is `https://<api host>/api/v1`.
+
+### 6.5 Documentation and code mismatches (as of `main` @ `85ee822`)
+
+- `JWT_REFRESH_EXPIRES_IN` and the four `AWS_*` variables are read by `env.ts` but have no effect.
+- No variable that `env.ts` reads is missing from §2.
