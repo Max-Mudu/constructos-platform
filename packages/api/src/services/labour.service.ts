@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { AppError, NotFoundError, ForbiddenError } from '../utils/errors';
+import { AppError, NotFoundError, ForbiddenError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
 import { emitToCompany } from './event-emitter.service';
@@ -282,12 +282,18 @@ export async function updateLabourEntry(
   // callers; for anyone else they are ignored and the stored values kept.
   const mayWriteRate = canViewFinancialData(actor);
 
+  // An entry keeps the currency it was recorded in: there is no conversion, so
+  // changing it would silently re-denominate the rate. Resending the same
+  // currency is accepted; non-finance callers' currency is ignored as before.
+  if (mayWriteRate && input.currency !== undefined && input.currency !== before.currency) {
+    throw new ValidationError('The currency of an existing labour entry cannot be changed');
+  }
+
   const updated = await prisma.labourEntry.update({
     where: { id: entryId },
     data: {
       ...(input.hoursWorked !== undefined && { hoursWorked: input.hoursWorked }),
       ...(mayWriteRate && input.dailyRate !== undefined && { dailyRate: input.dailyRate }),
-      ...(mayWriteRate && input.currency  !== undefined && { currency:  input.currency }),
       ...(input.notes       !== undefined && { notes:       input.notes }),
     },
     select: ENTRY_SELECT,
