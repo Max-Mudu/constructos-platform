@@ -72,6 +72,7 @@ export async function creditFromDelivery(
     quantityDelivered: Prisma.Decimal;
   },
   actorId?: string,
+  db?: Prisma.TransactionClient,
 ): Promise<void> {
   const qty = Number(delivery.quantityDelivered);
 
@@ -82,7 +83,7 @@ export async function creditFromDelivery(
   const materialName  = delivery.itemDescription.trim();
   const unitOfMeasure = delivery.unitOfMeasure.trim() || 'unit';
 
-  await prisma.$transaction(async (tx) => {
+  const credit = async (tx: Prisma.TransactionClient): Promise<void> => {
     const inventoryItem = await tx.siteInventory.upsert({
       where: {
         siteId_materialName_unitOfMeasure: {
@@ -117,7 +118,15 @@ export async function creditFromDelivery(
         performedById: actorId ?? null,
       },
     });
-  });
+  };
+
+  // With a caller's transaction the credit commits or rolls back together
+  // with the caller's own writes; otherwise it runs in a transaction of its own.
+  if (db) {
+    await credit(db);
+  } else {
+    await prisma.$transaction(credit);
+  }
 }
 
 // ─── Service functions ────────────────────────────────────────────────────────

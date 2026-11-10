@@ -347,62 +347,88 @@ export async function updateDelivery(
     await validateSupplierInvoiceScope(input.supplierInvoiceId, actor.companyId, projectId);
   }
 
-  const updated = await prisma.deliveryRecord.update({
-    where: { id: deliveryId },
-    data: {
-      ...(input.supplierName        !== undefined && { supplierName: input.supplierName }),
-      ...(input.supplierContact     !== undefined && { supplierContact: input.supplierContact }),
-      ...(input.deliveryDate        !== undefined && { deliveryDate: new Date(input.deliveryDate) }),
-      ...(input.deliveryTime        !== undefined && { deliveryTime: input.deliveryTime }),
-      ...(input.driverName          !== undefined && { driverName: input.driverName }),
-      ...(input.vehicleRegistration !== undefined && { vehicleRegistration: input.vehicleRegistration }),
-      ...(input.purchaseOrderNumber !== undefined && { purchaseOrderNumber: input.purchaseOrderNumber }),
-      ...(input.deliveryNoteNumber  !== undefined && { deliveryNoteNumber: input.deliveryNoteNumber }),
-      ...(input.invoiceNumber       !== undefined && { invoiceNumber: input.invoiceNumber }),
-      ...(input.itemDescription     !== undefined && { itemDescription: input.itemDescription }),
-      ...(input.unitOfMeasure       !== undefined && { unitOfMeasure: input.unitOfMeasure }),
-      ...(input.quantityOrdered     !== undefined && { quantityOrdered: input.quantityOrdered }),
-      ...(input.quantityDelivered   !== undefined && { quantityDelivered: input.quantityDelivered }),
-      ...(input.conditionOnArrival  !== undefined && { conditionOnArrival: input.conditionOnArrival }),
-      ...(input.inspectionStatus    !== undefined && { inspectionStatus: input.inspectionStatus }),
-      ...(input.acceptanceStatus    !== undefined && { acceptanceStatus: input.acceptanceStatus }),
-      ...(input.rejectionReason     !== undefined && { rejectionReason: input.rejectionReason }),
-      ...(input.discrepancyNotes    !== undefined && { discrepancyNotes: input.discrepancyNotes }),
-      ...(input.budgetLineItemId    !== undefined && { budgetLineItemId: input.budgetLineItemId }),
-      ...(input.supplierInvoiceId   !== undefined && { supplierInvoiceId: input.supplierInvoiceId }),
-      ...(input.comments            !== undefined && { comments: input.comments }),
-    },
-    select: DELIVERY_SELECT,
+  const data = {
+    ...(input.supplierName        !== undefined && { supplierName: input.supplierName }),
+    ...(input.supplierContact     !== undefined && { supplierContact: input.supplierContact }),
+    ...(input.deliveryDate        !== undefined && { deliveryDate: new Date(input.deliveryDate) }),
+    ...(input.deliveryTime        !== undefined && { deliveryTime: input.deliveryTime }),
+    ...(input.driverName          !== undefined && { driverName: input.driverName }),
+    ...(input.vehicleRegistration !== undefined && { vehicleRegistration: input.vehicleRegistration }),
+    ...(input.purchaseOrderNumber !== undefined && { purchaseOrderNumber: input.purchaseOrderNumber }),
+    ...(input.deliveryNoteNumber  !== undefined && { deliveryNoteNumber: input.deliveryNoteNumber }),
+    ...(input.invoiceNumber       !== undefined && { invoiceNumber: input.invoiceNumber }),
+    ...(input.itemDescription     !== undefined && { itemDescription: input.itemDescription }),
+    ...(input.unitOfMeasure       !== undefined && { unitOfMeasure: input.unitOfMeasure }),
+    ...(input.quantityOrdered     !== undefined && { quantityOrdered: input.quantityOrdered }),
+    ...(input.quantityDelivered   !== undefined && { quantityDelivered: input.quantityDelivered }),
+    ...(input.conditionOnArrival  !== undefined && { conditionOnArrival: input.conditionOnArrival }),
+    ...(input.inspectionStatus    !== undefined && { inspectionStatus: input.inspectionStatus }),
+    ...(input.acceptanceStatus    !== undefined && { acceptanceStatus: input.acceptanceStatus }),
+    ...(input.rejectionReason     !== undefined && { rejectionReason: input.rejectionReason }),
+    ...(input.discrepancyNotes    !== undefined && { discrepancyNotes: input.discrepancyNotes }),
+    ...(input.budgetLineItemId    !== undefined && { budgetLineItemId: input.budgetLineItemId }),
+    ...(input.supplierInvoiceId   !== undefined && { supplierInvoiceId: input.supplierInvoiceId }),
+    ...(input.comments            !== undefined && { comments: input.comments }),
+  };
+
+  const acceptsDelivery =
+    input.acceptanceStatus === 'accepted' ||
+    input.acceptanceStatus === 'partially_accepted';
+
+  // The update, its audit row and the inventory credit commit together.
+  // Inventory is credited once, when the delivery moves into an accepted
+  // state. A request that accepts the delivery therefore writes conditionally:
+  // the update only matches while the delivery is not yet accepted, so of
+  // several concurrent accepts exactly one makes the transition and credits
+  // inventory. The others wait on the row lock, find the delivery already
+  // accepted and apply their update without crediting again.
+  return prisma.$transaction(async (tx) => {
+    let justAccepted = false;
+    if (acceptsDelivery) {
+      const res = await tx.deliveryRecord.updateMany({
+        where: {
+          id: deliveryId, projectId, siteId, companyId: actor.companyId,
+          OR: [
+            { acceptanceStatus: null },
+            { acceptanceStatus: { notIn: ['accepted', 'partially_accepted'] } },
+          ],
+        },
+        data,
+      });
+      justAccepted = res.count === 1;
+    }
+
+    const updated = justAccepted
+      ? await tx.deliveryRecord.findUniqueOrThrow({
+          where:  { id: deliveryId },
+          select: DELIVERY_SELECT,
+        })
+      : await tx.deliveryRecord.update({
+          where:  { id: deliveryId },
+          data,
+          select: DELIVERY_SELECT,
+        });
+
+    await tx.auditLog.create({
+      data: {
+        companyId: actor.companyId,
+        userId: actor.id,
+        userEmail: actor.email,
+        userRole: actor.role,
+        action: 'update',
+        entityType: 'delivery_record',
+        entityId: deliveryId,
+        changesBefore: before as object,
+        changesAfter: updated as object,
+      },
+    });
+
+    if (justAccepted) {
+      await inventoryService.creditFromDelivery(updated, actor.id, tx);
+    }
+
+    return updated;
   });
-
-  await prisma.auditLog.create({
-    data: {
-      companyId: actor.companyId,
-      userId: actor.id,
-      userEmail: actor.email,
-      userRole: actor.role,
-      action: 'update',
-      entityType: 'delivery_record',
-      entityId: deliveryId,
-      changesBefore: before as object,
-      changesAfter: updated as object,
-    },
-  });
-
-  // Credit inventory once when acceptanceStatus first transitions to accepted/partially_accepted
-  const wasAccepted =
-    before.acceptanceStatus === 'accepted' ||
-    before.acceptanceStatus === 'partially_accepted';
-  const isNowAccepted =
-    updated.acceptanceStatus === 'accepted' ||
-    updated.acceptanceStatus === 'partially_accepted';
-  const justAccepted = !wasAccepted && isNowAccepted;
-
-  if (justAccepted) {
-    await inventoryService.creditFromDelivery(updated, actor.id);
-  }
-
-  return updated;
 }
 
 export async function deleteDelivery(
