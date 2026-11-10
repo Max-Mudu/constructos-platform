@@ -1,0 +1,59 @@
+# Signs in as the company admin created for this run, opens every tab that
+# role sees, then logs out. Tab buttons are matched by the accessibility label
+# React Navigation gives them on iOS ("<title>, tab, <n> of <count>").
+appId: com.constructos.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 90000
+- tapOn: "Work email"
+- inputText: ${SMOKE_EMAIL}
+- tapOn:
+    text: "Password"
+    below: "Forgot password\\?"
+- inputText: ${SMOKE_PASSWORD}
+- pressKey: Enter
+- tapOn: "Sign in"
+- extendedWaitUntil:
+    visible: "Dashboard, tab.*"
+    timeout: 60000
+- waitForAnimationToEnd
+- takeScreenshot: 03-dashboard
+- tapOn: "Projects, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 04-projects
+- tapOn: "Inventory, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 05-inventory
+- tapOn: "Schedule, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 06-schedule
+- tapOn: "Invoices, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 07-invoices
+- tapOn: "Reports, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 08-reports
+- tapOn: "Alerts, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 09-alerts
+- tapOn: "Profile, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 10-profile
+- scrollUntilVisible:
+    element:
+      text: "Log Out"
+    direction: DOWN
+- tapOn: "Log Out"
+- extendedWaitUntil:
+    visible: "Are you sure you want to log out\\?"
+    timeout: 15000
+- takeScreenshot: 11-logout-confirm
+- tapOn:
+    text: "Log Out"
+    rightOf: "Cancel"
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 30000
+- takeScreenshot: 12-logged-out

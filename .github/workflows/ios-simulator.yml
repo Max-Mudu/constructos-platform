@@ -1,0 +1,156 @@
+name: iOS simulator
+
+# Builds the mobile app for the iOS Simulator on a standard GitHub-hosted macOS
+# runner (free for this public repository), launches it and runs a short smoke
+# test against an API started on the same runner. No secrets, no Apple signing
+# identity, no EAS.
+#
+# A run takes 20 to 40 minutes, so it only starts by hand or when a pull
+# request changes this workflow or its helper files.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/ios-simulator.yml
+      - packages/mobile/ios-ci/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-simulator-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Same Node version as ci.yml.
+  NODE_VERSION: '24'
+  # The only API this build may talk to: the one started on this runner.
+  # Inlined into the JS bundle at build time; the job checks the bundle.
+  EXPO_PUBLIC_API_URL: http://localhost:3001/api/v1
+  APP_BUNDLE_ID: com.constructos.app
+  MAESTRO_VERSION: '2.12.1'
+  MAESTRO_SHA256: 54dbb0716425626604973cbb374c585ca30272375d9ce15177a1152765ddd9d7
+  MAESTRO_CLI_NO_ANALYTICS: '1'
+  EXPO_NO_TELEMETRY: '1'
+
+jobs:
+  simulator:
+    name: Build, launch and smoke test (signing ${{ matrix.signing }})
+    # Standard runner only. Never a larger (paid) runner.
+    runs-on: macos-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        # disabled: CODE_SIGNING_ALLOWED=NO.
+        # adhoc:    Xcode's default for the simulator ("Sign to Run Locally",
+        #           identity "-"): no certificate, team or profile.
+        signing: [disabled, adhoc]
+    defaults:
+      run:
+        shell: bash
+    env:
+      SIGNING: ${{ matrix.signing }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Prepare the output folder
+        run: |
+          mkdir -p "$RUNNER_TEMP/ios-ci-out/logs" "$RUNNER_TEMP/ios-ci-out/screenshots"
+          echo "OUT=$RUNNER_TEMP/ios-ci-out" >> "$GITHUB_ENV"
+
+      - name: Toolchain versions
+        run: |
+          sw_vers
+          uname -m
+          echo "Selected Xcode: $(xcode-select -p)"
+          xcodebuild -version
+          echo "--- Installed Xcode versions"
+          ls -d /Applications/Xcode*.app
+          echo "--- Installed simulator runtimes"
+          xcrun simctl list runtimes
+          echo "--- Tools"
+          echo "CocoaPods $(pod --version)"
+          echo "Node $(node --version), npm $(npm --version)"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Pick and boot a simulator
+        run: bash packages/mobile/ios-ci/boot-simulator.sh
+
+      # Deliverable 2 needs a backend. It must not stop the build from being
+      # proven, so a failure here only skips the smoke test.
+      - name: Start PostgreSQL and the API on this runner
+        id: backend
+        continue-on-error: true
+        env:
+          # Test-only dummy values for a throwaway database on this runner
+          # (same as the api job in ci.yml). Not real secrets.
+          NODE_ENV: test
+          DATABASE_URL: postgresql://postgres@localhost:5432/constructos_ios_ci?schema=public
+          JWT_SECRET: ci-dummy-jwt-secret-not-a-real-secret-0000
+          JWT_REFRESH_SECRET: ci-dummy-refresh-secret-not-a-real-secret-00
+          STORAGE_DRIVER: local
+          DAILY_REPORT_AI_PROVIDER: fake
+        run: bash packages/mobile/ios-ci/start-backend.sh
+
+      - name: Generate the native iOS project (expo prebuild)
+        working-directory: packages/mobile
+        run: |
+          npx expo prebuild --platform ios --no-install
+          ls ios
+
+      - name: Install CocoaPods dependencies
+        working-directory: packages/mobile/ios
+        run: pod install 2>&1 | tee "$OUT/logs/pod-install.log"
+
+      - name: Build for the simulator (Release)
+        working-directory: packages/mobile/ios
+        run: bash ../ios-ci/build.sh
+
+      - name: Check the built app (API URL in the bundle, transport security)
+        run: bash packages/mobile/ios-ci/check-app.sh
+
+      - name: Install and launch in the simulator
+        run: bash packages/mobile/ios-ci/launch.sh
+
+      - name: Install Maestro
+        if: steps.backend.outcome == 'success' && env.ATS_LOCALHOST_HTTP == 'true'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip" \
+            "https://github.com/mobile-dev-inc/maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          echo "${MAESTRO_SHA256}  $RUNNER_TEMP/maestro.zip" | shasum -a 256 -c -
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
+          bin="$(find "$RUNNER_TEMP/maestro-cli" -type f -name maestro -path '*/bin/*' | awk 'NR==1')"
+          echo "$(dirname "$bin")" >> "$GITHUB_PATH"
+          echo "JAVA_HOME=${JAVA_HOME_21_arm64:-$JAVA_HOME}" >> "$GITHUB_ENV"
+          JAVA_HOME="${JAVA_HOME_21_arm64:-$JAVA_HOME}" "$bin" --version
+
+      - name: Smoke test (wrong password, login, tabs, logout)
+        if: steps.backend.outcome == 'success' && env.ATS_LOCALHOST_HTTP == 'true'
+        timeout-minutes: 20
+        run: bash packages/mobile/ios-ci/smoke.sh
+
+      - name: Collect logs
+        if: always()
+        run: bash packages/mobile/ios-ci/collect.sh
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-${{ matrix.signing }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.OUT }}
+          retention-days: 3
+          if-no-files-found: warn
+
+      - name: Fail if the smoke test could not run
+        if: steps.backend.outcome != 'success' || env.ATS_LOCALHOST_HTTP != 'true'
+        run: |
+          echo "::error::The smoke test did not run (backend step: ${{ steps.backend.outcome }}; HTTP to localhost allowed: ${ATS_LOCALHOST_HTTP:-not checked})."
+          exit 1

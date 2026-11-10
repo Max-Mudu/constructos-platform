@@ -1,0 +1,11 @@
+# The app starts and shows the login screen, without the "no server address
+# configured" banner a release build shows when it was built without an API URL.
+appId: com.constructos.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 90000
+- assertVisible: "Sign in to your workspace"
+- assertNotVisible: ".*no server address configured.*"
+- takeScreenshot: 01-login-screen
