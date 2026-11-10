@@ -1502,4 +1502,10 @@ export const inventoryApi = {
       `/projects/${projectId}/sites/${siteId}/inventory/${inventoryId}/adjust`,
       { method: 'POST', body: JSON.stringify(data) },
     ),
+  /** Sets, or with null removes, the quantity at or below which the item counts as low stock. */
+  setLowStockLevel: (projectId: string, siteId: string, inventoryId: string, lowStockThreshold: number | null) =>
+    request<{ item: import('./types').SiteInventoryItem & { isLowStock: boolean } }>(
+      `/projects/${projectId}/sites/${siteId}/inventory/${inventoryId}`,
+      { method: 'PATCH', body: JSON.stringify({ lowStockThreshold }) },
+    ),
 };

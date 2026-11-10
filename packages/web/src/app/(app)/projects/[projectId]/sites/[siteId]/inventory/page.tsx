@@ -16,10 +16,11 @@ import { Button } from '@/components/ui/Button';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { ArrowLeft, Layers, AlertCircle, X, ChevronRight, MinusCircle, CheckCircle2, SlidersHorizontal } from 'lucide-react';
+import { ArrowLeft, Layers, AlertCircle, X, ChevronRight, MinusCircle, CheckCircle2, SlidersHorizontal, Bell } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { RecordUsageDialog, canRecordUsage } from '@/components/workflows/RecordUsageDialog';
 import { AdjustStockDialog, adjustmentReasonLabel, canAdjustStock } from '@/components/workflows/AdjustStockDialog';
+import { LowStockLevelDialog, canSetLowStockLevel } from '@/components/workflows/LowStockLevelDialog';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -238,10 +239,12 @@ export default function InventoryPage() {
   const [selected, setSelected]   = useState<string | null>(null);
   const [usingItem, setUsingItem] = useState<SiteInventoryItem | null>(null);
   const [adjustingItem, setAdjustingItem] = useState<SiteInventoryItem | null>(null);
+  const [levelItem, setLevelItem] = useState<SiteInventoryItem | null>(null);
   const [notice, setNotice]       = useState('');
   const user = useAuthStore((s) => s.user);
   const mayRecordUsage = canRecordUsage(user?.role);
   const mayAdjustStock = canAdjustStock(user?.role);
+  const maySetLevel    = canSetLowStockLevel(user?.role);
 
   function load() {
     if (!projectId || !siteId) return;
@@ -394,6 +397,17 @@ export default function InventoryPage() {
                               <SlidersHorizontal className="h-3.5 w-3.5 mr-1" />Adjust stock
                             </Button>
                           )}
+                          {maySetLevel && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              aria-label={`Set low-stock level for ${item.materialName}`}
+                              onClick={(e) => { e.stopPropagation(); setNotice(''); setLevelItem(item); }}
+                            >
+                              <Bell className="h-3.5 w-3.5 mr-1" />Low-stock level
+                            </Button>
+                          )}
                           <ChevronRight className="h-4 w-4 text-muted-foreground" />
                         </div>
                       </TableCell>
@@ -432,6 +446,25 @@ export default function InventoryPage() {
               + (result.isLowStock ? ' It is now at or below the low-stock threshold.' : ''),
             );
             setAdjustingItem(null);
+            load();
+          }}
+        />
+      )}
+
+      {levelItem && (
+        <LowStockLevelDialog
+          projectId={projectId}
+          siteId={siteId}
+          item={levelItem}
+          onClose={() => setLevelItem(null)}
+          onDone={(result) => {
+            setNotice(
+              result.lowStockThreshold === null
+                ? `Low-stock level for ${levelItem.materialName} removed.`
+                : `Low-stock level for ${levelItem.materialName} set to ${formatQty(result.lowStockThreshold)} ${levelItem.unitOfMeasure}.`
+                  + (result.isLowStock ? ' It is now at or below that level.' : ''),
+            );
+            setLevelItem(null);
             load();
           }}
         />
