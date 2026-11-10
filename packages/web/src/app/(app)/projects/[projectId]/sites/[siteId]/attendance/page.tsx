@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { attendanceApi, ApiError } from '@/lib/api';
@@ -68,10 +68,14 @@ export default function AttendancePage() {
 
   // The day's totals change when a status is corrected or a record is deleted.
   // If they cannot be re-read, hide the cards rather than show stale counts.
+  // A reply for a day the user has since left is ignored.
+  const dateRef = useRef(date);
+  dateRef.current = date;
   const refreshSummary = () => {
-    attendanceApi.summary(projectId, siteId, date)
-      .then((s) => setSummary(s.summary))
-      .catch(() => setSummary(null));
+    const d = date;
+    attendanceApi.summary(projectId, siteId, d)
+      .then((s) => { if (dateRef.current === d) setSummary(s.summary); })
+      .catch(() => { if (dateRef.current === d) setSummary(null); });
   };
 
   const filtered = statusF ? records.filter((r) => r.status === statusF) : records;
