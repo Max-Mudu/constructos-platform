@@ -103,8 +103,9 @@ describe('Edit attendance record', () => {
     });
 
     expect(mockUpdate).toHaveBeenCalledWith('p1', 's1', 'r1', {
-      status: 'half_day', checkInTime: '07:30', checkOutTime: '12:45', notes: 'Left at lunch',
+      status: 'half_day', checkOutTime: '12:45', notes: 'Left at lunch',
     });
+    expect(mockUpdate.mock.calls[0][3]).not.toHaveProperty('checkInTime');
     expect(await screen.findByText('Attendance record updated.')).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     const row = workerRow();
@@ -129,9 +130,44 @@ describe('Edit attendance record', () => {
       fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
     });
 
-    expect(mockUpdate).toHaveBeenCalledWith('p1', 's1', 'r1', {
-      status: 'absent', checkInTime: null, checkOutTime: null, notes: null,
+    expect(mockUpdate).toHaveBeenCalledWith('p1', 's1', 'r1', { checkInTime: null, notes: null });
+    expect(mockUpdate.mock.calls[0][3]).not.toHaveProperty('status');
+    expect(mockUpdate.mock.calls[0][3]).not.toHaveProperty('checkOutTime');
+  });
+
+  it('sends only the changed field, so a check-out recorded elsewhere since the page loaded is kept', async () => {
+    asUser('site_supervisor');
+    mockList.mockResolvedValue({ records: [record()] });
+    mockUpdate.mockResolvedValue({ record: record({ status: 'half_day', checkOutTime: '16:10' }) });
+
+    render(<AttendancePage />);
+    fireEvent.click(await screen.findByRole('button', { name: EDIT }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Status'), { target: { value: 'half_day' } });
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
     });
+
+    expect(mockUpdate).toHaveBeenCalledTimes(1);
+    expect(mockUpdate.mock.calls[0][3]).toEqual({ status: 'half_day' });
+    // The row shows what the API returned, including the check-out it kept.
+    const row = workerRow();
+    expect(within(row).getByText('16:10')).toBeInTheDocument();
+  });
+
+  it('closes without sending anything when nothing was changed', async () => {
+    asUser('project_manager');
+    mockList.mockResolvedValue({ records: [record({ notes: 'On time' })] });
+
+    render(<AttendancePage />);
+    fireEvent.click(await screen.findByRole('button', { name: EDIT }));
+    const dialog = screen.getByRole('dialog');
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+    });
+
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('shows the API validation error and keeps the dialog open', async () => {
@@ -142,6 +178,7 @@ describe('Edit attendance record', () => {
     render(<AttendancePage />);
     fireEvent.click(await screen.findByRole('button', { name: EDIT }));
     const dialog = screen.getByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText('Check-out time'), { target: { value: '12:45' } });
     await act(async () => {
       fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
     });

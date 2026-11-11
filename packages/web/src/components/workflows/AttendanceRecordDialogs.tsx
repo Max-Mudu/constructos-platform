@@ -107,13 +107,22 @@ export function EditAttendanceRecordDialog({ projectId, siteId, record, onClose,
     setCheckOutError(outErr);
     if (inErr || outErr) return;
 
+    // Send only what the user changed. The API leaves omitted fields as they
+    // are, so a check-out or note recorded elsewhere (for example on mobile)
+    // after this page loaded is not overwritten with the stale value.
     const trimmed = notes.trim();
-    const data: Parameters<typeof attendanceApi.update>[3] = {
-      status,
-      checkInTime:  inTime  || null,
-      checkOutTime: outTime || null,
-      notes:        trimmed ? trimmed : null,
-    };
+    const nextIn    = inTime  || null;
+    const nextOut   = outTime || null;
+    const nextNotes = trimmed ? trimmed : null;
+    const data: Parameters<typeof attendanceApi.update>[3] = {};
+    if (status !== record.status) data.status = status;
+    if (nextIn !== (toHHMM(record.checkInTime ?? '') || null)) data.checkInTime = nextIn;
+    if (nextOut !== (toHHMM(record.checkOutTime ?? '') || null)) data.checkOutTime = nextOut;
+    if (nextNotes !== ((record.notes ?? '').trim() || null)) data.notes = nextNotes;
+    if (Object.keys(data).length === 0) {
+      onClose();
+      return;
+    }
     setError('');
     busyRef.current = true;
     setBusy(true);
