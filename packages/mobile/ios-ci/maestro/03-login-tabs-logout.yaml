@@ -1,0 +1,75 @@
+# Signs in as the company admin created for this run, opens every tab that
+# role sees, then logs out. Tab buttons are matched by the accessibility label
+# React Navigation gives them on iOS ("<title>, tab, <n> of <count>").
+appId: com.constructos.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 90000
+- tapOn: "you@company.com"
+- inputText: ${SMOKE_EMAIL}
+- tapOn: "••••••••"
+- inputText: ${SMOKE_PASSWORD}
+- pressKey: Enter
+- tapOn: "Sign in"
+- extendedWaitUntil:
+    visible: "Dashboard, tab.*"
+    timeout: 60000
+# iOS offers to save the password a moment after the login form goes away,
+# sometimes a second or two after the dashboard appears, and the prompt hides
+# the tab bar from the test driver. Wait for it briefly, then dismiss it.
+- extendedWaitUntil:
+    visible: "Save Password\\?"
+    timeout: 10000
+    optional: true
+- tapOn:
+    text: "Not Now"
+    optional: true
+- waitForAnimationToEnd
+- takeScreenshot: 03-dashboard
+- tapOn: "Projects, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 04-projects
+- tapOn: "Inventory, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 05-inventory
+- tapOn: "Schedule, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 06-schedule
+- tapOn: "Invoices, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 07-invoices
+- tapOn: "Reports, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 08-reports
+- tapOn: "Alerts, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 09-alerts
+- tapOn: "Profile, tab.*"
+- waitForAnimationToEnd
+- takeScreenshot: 10-profile
+- scrollUntilVisible:
+    element:
+      text: "Log Out"
+    direction: DOWN
+- tapOn: "Log Out"
+- extendedWaitUntil:
+    visible: "Are you sure you want to log out\\?"
+    timeout: 15000
+- takeScreenshot: 11-logout-confirm
+# Maestro compares only the top-left corners for "rightOf" and "below" and
+# takes the first match in screen-tree order, so "rightOf" alone also matches
+# the dialog title and "below" alone also matches the Log Out button behind
+# the dialog. Together they leave only the dialog button.
+- tapOn:
+    text: "Log Out"
+    rightOf: "Cancel"
+    below: "Are you sure you want to log out\\?"
+- extendedWaitUntil:
+    notVisible: "Are you sure you want to log out\\?"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 30000
+- takeScreenshot: 12-logged-out
