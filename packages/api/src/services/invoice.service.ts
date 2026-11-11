@@ -1,7 +1,7 @@
 import { prisma } from '../utils/prisma';
 import { NotFoundError, ForbiddenError, ConflictError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
-import { InvoiceStatus, InvoiceVendorType } from '@prisma/client';
+import { InvoiceStatus, InvoiceVendorType, Prisma } from '@prisma/client';
 import { createNotification } from './notification.service';
 import { emitToCompany } from './event-emitter.service';
 import { requireFinanceReadScope, financeProjectFilter, isProjectInFinanceScope } from './budget.service';
@@ -586,55 +586,83 @@ export async function deleteLineItem(invoiceId: string, lineItemId: string, acto
 
 // ─── Payments ─────────────────────────────────────────────────────────────────
 
+/**
+ * Locks the invoice row until the surrounding transaction ends and returns the
+ * figures the payment functions work from. Recording and removing payments
+ * both start with this, so concurrent payment changes on one invoice are
+ * applied one after another and each sees the result of the one before it.
+ */
+async function lockInvoiceForPayment(tx: Prisma.TransactionClient, invoiceId: string, companyId: string) {
+  const locked = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "invoices"
+    WHERE "id" = ${invoiceId} AND "companyId" = ${companyId}
+    FOR UPDATE`;
+  if (locked.length === 0) throw new NotFoundError('Invoice not found');
+
+  return tx.invoice.findUniqueOrThrow({
+    where:  { id: invoiceId },
+    select: { status: true, totalAmount: true, paidAmount: true, paidAt: true, dueDate: true, currency: true },
+  });
+}
+
 export async function recordPayment(invoiceId: string, input: RecordPaymentInput, actor: RequestUser) {
   if (!canFinanceApprove(actor)) throw new ForbiddenError('Only finance staff can record payments');
-  const invoice = await getInvoiceOrThrow(invoiceId, actor);
+  await getInvoiceOrThrow(invoiceId, actor);
 
-  if (!['approved', 'partially_paid', 'overdue'].includes(invoice.status)) {
-    throw new ValidationError('Payments can only be recorded for approved, partially paid, or overdue invoices');
-  }
+  // The status and balance checks run on the locked row, inside the same
+  // transaction as the writes, so two payments arriving together cannot both
+  // be measured against the same starting balance.
+  const payment = await prisma.$transaction(async (tx) => {
+    const invoice = await lockInvoiceForPayment(tx, invoiceId, actor.companyId);
 
-  if (input.amount <= 0) throw new ValidationError('Payment amount must be greater than zero');
+    if (!['approved', 'partially_paid', 'overdue'].includes(invoice.status)) {
+      throw new ValidationError('Payments can only be recorded for approved, partially paid, or overdue invoices');
+    }
 
-  const currentPaid = Number(invoice.paidAmount);
-  const total       = Number(invoice.totalAmount);
-  const newPaid     = currentPaid + input.amount;
+    if (input.amount <= 0) throw new ValidationError('Payment amount must be greater than zero');
 
-  if (newPaid > total) {
-    throw new ValidationError(`Payment of ${input.amount} would exceed total invoice amount of ${total}`);
-  }
+    const currentPaid = Number(invoice.paidAmount);
+    const total       = Number(invoice.totalAmount);
+    const newPaid     = currentPaid + input.amount;
 
-  // Create payment record
-  const payment = await prisma.invoicePayment.create({
-    data: {
-      invoiceId,
-      companyId:   actor.companyId,
-      amount:      input.amount,
-      currency:    invoice.currency,
-      paymentDate: new Date(input.paymentDate),
-      method:      input.method,
-      reference:   input.reference ?? null,
-      notes:       input.notes     ?? null,
-      recordedById: actor.id,
-    },
-  });
+    if (newPaid > total) {
+      throw new ValidationError(`Payment of ${input.amount} would exceed total invoice amount of ${total}`);
+    }
 
-  // Determine new status
-  const { status: newStatus, paidAt } = computeStatusFromPayments(
-    total,
-    newPaid,
-    invoice.status,
-    invoice.dueDate,
-  );
+    // Create payment record
+    const created = await tx.invoicePayment.create({
+      data: {
+        invoiceId,
+        companyId:   actor.companyId,
+        amount:      input.amount,
+        currency:    invoice.currency,
+        paymentDate: new Date(input.paymentDate),
+        method:      input.method,
+        reference:   input.reference ?? null,
+        notes:       input.notes     ?? null,
+        recordedById: actor.id,
+      },
+    });
 
-  // Update invoice paidAmount and status
-  await prisma.invoice.update({
-    where: { id: invoiceId },
-    data: {
-      paidAmount: newPaid,
-      status:     newStatus,
-      paidAt:     paidAt ?? undefined,
-    },
+    // Determine new status
+    const { status: newStatus, paidAt } = computeStatusFromPayments(
+      total,
+      newPaid,
+      invoice.status,
+      invoice.dueDate,
+    );
+
+    // Update invoice paidAmount and status
+    await tx.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        paidAmount: newPaid,
+        status:     newStatus,
+        paidAt:     paidAt ?? undefined,
+      },
+    });
+
+    return created;
   });
 
   await audit(actor, 'update', 'Invoice', invoiceId);
@@ -643,39 +671,46 @@ export async function recordPayment(invoiceId: string, input: RecordPaymentInput
 
 export async function deletePayment(invoiceId: string, paymentId: string, actor: RequestUser) {
   if (!canFinanceApprove(actor)) throw new ForbiddenError('Only finance staff can remove payments');
-  const invoice = await getInvoiceOrThrow(invoiceId, actor);
+  await getInvoiceOrThrow(invoiceId, actor);
 
   const payment = await prisma.invoicePayment.findFirst({
     where: { id: paymentId, invoiceId },
   });
   if (!payment) throw new NotFoundError('Payment record not found');
 
-  await prisma.invoicePayment.delete({ where: { id: paymentId } });
+  await prisma.$transaction(async (tx) => {
+    const invoice = await lockInvoiceForPayment(tx, invoiceId, actor.companyId);
 
-  // Recompute paidAmount from remaining payments
-  const remaining = await prisma.invoicePayment.aggregate({
-    where:  { invoiceId },
-    _sum:   { amount: true },
-  });
-  const newPaid = Number(remaining._sum.amount ?? 0);
-  const total   = Number(invoice.totalAmount);
+    // A concurrent request may have removed this payment while we waited for
+    // the lock; it is then gone for this request as well.
+    const removed = await tx.invoicePayment.deleteMany({ where: { id: paymentId, invoiceId } });
+    if (removed.count === 0) throw new NotFoundError('Payment record not found');
 
-  let newStatus: InvoiceStatus;
-  if (newPaid >= total && total > 0) {
-    newStatus = 'paid';
-  } else if (newPaid > 0) {
-    newStatus = 'partially_paid';
-  } else {
-    newStatus = 'approved';
-  }
+    // Recompute paidAmount from remaining payments
+    const remaining = await tx.invoicePayment.aggregate({
+      where:  { invoiceId },
+      _sum:   { amount: true },
+    });
+    const newPaid = Number(remaining._sum.amount ?? 0);
+    const total   = Number(invoice.totalAmount);
 
-  await prisma.invoice.update({
-    where: { id: invoiceId },
-    data: {
-      paidAmount: newPaid,
-      status:     newStatus,
-      paidAt:     newPaid >= total ? invoice.paidAt : null,
-    },
+    let newStatus: InvoiceStatus;
+    if (newPaid >= total && total > 0) {
+      newStatus = 'paid';
+    } else if (newPaid > 0) {
+      newStatus = 'partially_paid';
+    } else {
+      newStatus = 'approved';
+    }
+
+    await tx.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        paidAmount: newPaid,
+        status:     newStatus,
+        paidAt:     newPaid >= total ? invoice.paidAt : null,
+      },
+    });
   });
 
   await audit(actor, 'update', 'Invoice', invoiceId);
