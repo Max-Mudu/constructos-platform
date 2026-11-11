@@ -16,7 +16,13 @@ appId: com.constructos.app
 - extendedWaitUntil:
     visible: "Dashboard, tab.*"
     timeout: 60000
-# iOS may offer to save the password once the login form is gone.
+# iOS offers to save the password a moment after the login form goes away,
+# sometimes a second or two after the dashboard appears, and the prompt hides
+# the tab bar from the test driver. Wait for it briefly, then dismiss it.
+- extendedWaitUntil:
+    visible: "Save Password\\?"
+    timeout: 10000
+    optional: true
 - tapOn:
     text: "Not Now"
     optional: true
