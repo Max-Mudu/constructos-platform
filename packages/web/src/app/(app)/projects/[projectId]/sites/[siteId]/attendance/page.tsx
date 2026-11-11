@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { attendanceApi, ApiError } from '@/lib/api';
@@ -15,9 +15,12 @@ import { Button } from '@/components/ui/Button';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Table, TableHead, TableRow, TableHeader, TableBody, TableCell } from '@/components/ui/Table';
-import { ClipboardCheck, Plus, AlertCircle, Clock } from 'lucide-react';
+import { ClipboardCheck, Plus, AlertCircle, Clock, Pencil, Trash2, CheckCircle2 } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { localToday } from '@/lib/workflows-dates';
+import {
+  EditAttendanceRecordDialog, DeleteAttendanceRecordDialog, canEditAttendance, canDeleteAttendance,
+} from '@/components/workflows/AttendanceRecordDialogs';
 
 const WRITE_ROLES = ['company_admin', 'project_manager', 'site_supervisor'] as const;
 function canWrite(role: string) { return (WRITE_ROLES as readonly string[]).includes(role); }
@@ -43,6 +46,11 @@ export default function AttendancePage() {
   const [statusF,  setStatusF]  = useState('');
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState('');
+  const [editing,  setEditing]  = useState<AttendanceRecord | null>(null);
+  const [deleting, setDeleting] = useState<AttendanceRecord | null>(null);
+  const [notice,   setNotice]   = useState('');
+  const mayEdit   = canEditAttendance(user?.role);
+  const mayDelete = canDeleteAttendance(user?.role);
 
   const load = (d: string) => {
     if (!projectId || !siteId) return;
@@ -56,7 +64,19 @@ export default function AttendancePage() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(date); }, [projectId, siteId, date]);
+  useEffect(() => { setNotice(''); load(date); }, [projectId, siteId, date]);
+
+  // The day's totals change when a status is corrected or a record is deleted.
+  // If they cannot be re-read, hide the cards rather than show stale counts.
+  // A reply for a day the user has since left is ignored.
+  const dateRef = useRef(date);
+  dateRef.current = date;
+  const refreshSummary = () => {
+    const d = date;
+    attendanceApi.summary(projectId, siteId, d)
+      .then((s) => { if (dateRef.current === d) setSummary(s.summary); })
+      .catch(() => { if (dateRef.current === d) setSummary(null); });
+  };
 
   const filtered = statusF ? records.filter((r) => r.status === statusF) : records;
 
@@ -104,6 +124,13 @@ export default function AttendancePage() {
         />
       </SearchFilterBar>
 
+      {notice && (
+        <Alert>
+          <CheckCircle2 className="h-4 w-4" />
+          <AlertDescription>{notice}</AlertDescription>
+        </Alert>
+      )}
+
       {error && (
         <Alert variant="destructive">
           <AlertCircle className="h-4 w-4" />
@@ -130,6 +157,7 @@ export default function AttendancePage() {
               <TableHead>Check-out</TableHead>
               <TableHead>Notes</TableHead>
               <TableHead>Recorded By</TableHead>
+              {(mayEdit || mayDelete) && <TableHead><span className="sr-only">Actions</span></TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -148,10 +176,66 @@ export default function AttendancePage() {
                 </TableCell>
                 <TableCell className="text-muted-foreground max-w-[200px] truncate">{r.notes ?? '—'}</TableCell>
                 <TableCell className="text-muted-foreground text-sm">{r.recordedBy.firstName} {r.recordedBy.lastName}</TableCell>
+                {(mayEdit || mayDelete) && (
+                  <TableCell>
+                    <div className="flex items-center justify-end gap-1">
+                      {mayEdit && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Edit attendance for ${r.worker.firstName} ${r.worker.lastName}`}
+                          onClick={() => { setNotice(''); setEditing(r); }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                      )}
+                      {mayDelete && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Delete attendance for ${r.worker.firstName} ${r.worker.lastName}`}
+                          onClick={() => { setNotice(''); setDeleting(r); }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                )}
               </TableRow>
             ))}
           </TableBody>
         </Table>
+      )}
+
+      {editing && (
+        <EditAttendanceRecordDialog
+          projectId={projectId}
+          siteId={siteId}
+          record={editing}
+          onClose={() => setEditing(null)}
+          onDone={(updated) => {
+            setRecords((list) => list.map((x) => (x.id === updated.id ? updated : x)));
+            setEditing(null);
+            setNotice('Attendance record updated.');
+            refreshSummary();
+          }}
+        />
+      )}
+
+      {deleting && (
+        <DeleteAttendanceRecordDialog
+          projectId={projectId}
+          siteId={siteId}
+          record={deleting}
+          onClose={() => setDeleting(null)}
+          onDone={() => {
+            setRecords((list) => list.filter((x) => x.id !== deleting.id));
+            setDeleting(null);
+            setNotice('Attendance record deleted.');
+            refreshSummary();
+          }}
+        />
       )}
     </div>
   );
