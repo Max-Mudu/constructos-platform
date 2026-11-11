@@ -16,7 +16,16 @@ mkdir -p "$OUT/maestro" "$OUT/screenshots"
 cd "$OUT/screenshots" || exit 1
 
 failed=""
-for flow in 01-launch 02-wrong-password 03-login-tabs-logout; do
+flows="01-launch 02-wrong-password 03-login-tabs-logout"
+if [ "${SIGNING:-}" = "disabled" ]; then
+  # A build made with CODE_SIGNING_ALLOWED=NO has no keychain entitlement, so
+  # secure storage fails (errSecMissingEntitlement, -34018) and sign-in cannot
+  # work. Devices and store builds are always signed; this job shows that the
+  # unsigned build installs, launches and reaches the login screen.
+  flows="01-launch"
+  echo "::notice::Signing disabled: launch flow only. Sign-in needs the keychain entitlement an unsigned build does not have; the adhoc job covers it."
+fi
+for flow in $flows; do
   echo "::group::Maestro flow $flow"
   if maestro --device "$SIM_UDID" test \
        --debug-output "$OUT/maestro/$flow" --flatten-debug-output \
