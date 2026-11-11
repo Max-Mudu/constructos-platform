@@ -52,9 +52,17 @@ appId: com.constructos.app
     visible: "Are you sure you want to log out\\?"
     timeout: 15000
 - takeScreenshot: 11-logout-confirm
+# Maestro compares only the top-left corners for "rightOf" and "below" and
+# takes the first match in screen-tree order, so "rightOf" alone also matches
+# the dialog title and "below" alone also matches the Log Out button behind
+# the dialog. Together they leave only the dialog button.
 - tapOn:
     text: "Log Out"
     rightOf: "Cancel"
+    below: "Are you sure you want to log out\\?"
+- extendedWaitUntil:
+    notVisible: "Are you sure you want to log out\\?"
+    timeout: 15000
 - extendedWaitUntil:
     visible: "Welcome back"
     timeout: 30000
