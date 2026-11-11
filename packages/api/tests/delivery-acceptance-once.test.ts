@@ -275,6 +275,40 @@ describe('single requests', () => {
     expect(await creditsFor(delivery.id)).toHaveLength(1);
   });
 
+  it('a delivery accepted, rejected and accepted again is credited once', async () => {
+    const material = newMaterial();
+    const delivery = await makeDelivery(material, 10);
+
+    expect((await patch(pm, delivery.id, { acceptanceStatus: 'accepted' })).statusCode).toBe(200);
+    expect((await patch(pm, delivery.id, { acceptanceStatus: 'rejected', rejectionReason: 'damaged' })).statusCode).toBe(200);
+    expect((await patch(pm, delivery.id, { acceptanceStatus: 'accepted' })).statusCode).toBe(200);
+
+    expect(await stockOf(material)).toBe(10);
+    expect(await creditsFor(delivery.id)).toHaveLength(1);
+  });
+
+  it('a delivery created accepted, then rejected and accepted again is credited once', async () => {
+    const material = newMaterial();
+    const res = await create(pm, {
+      supplierName: 'Test Supplier Ltd',
+      deliveryDate: '2026-04-03',
+      itemDescription: material,
+      unitOfMeasure: UNIT,
+      quantityOrdered: 6,
+      quantityDelivered: 6,
+      acceptanceStatus: 'accepted',
+      receivedById: admin.id,
+    });
+    expect(res.statusCode).toBe(201);
+    const id = res.json().delivery.id as string;
+
+    expect((await patch(pm, id, { acceptanceStatus: 'rejected', rejectionReason: 'damaged' })).statusCode).toBe(200);
+    expect((await patch(pm, id, { acceptanceStatus: 'partially_accepted' })).statusCode).toBe(200);
+
+    expect(await stockOf(material)).toBe(6);
+    expect(await creditsFor(id)).toHaveLength(1);
+  });
+
   it('rejecting a pending delivery credits nothing', async () => {
     const material = newMaterial();
     const delivery = await makeDelivery(material, 10);

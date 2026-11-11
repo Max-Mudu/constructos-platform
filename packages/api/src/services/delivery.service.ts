@@ -423,8 +423,17 @@ export async function updateDelivery(
       },
     });
 
+    // A delivery adds its goods to stock once. One that was accepted, moved
+    // out of an accepted state and is now accepted again keeps its earlier
+    // credit. The row lock taken by the conditional update above makes this
+    // check and the credit safe against concurrent requests.
     if (justAccepted) {
-      await inventoryService.creditFromDelivery(updated, actor.id, tx);
+      const earlierCredits = await tx.inventoryTransaction.count({
+        where: { deliveryId, companyId: actor.companyId, type: 'delivery_in' },
+      });
+      if (earlierCredits === 0) {
+        await inventoryService.creditFromDelivery(updated, actor.id, tx);
+      }
     }
 
     return updated;
