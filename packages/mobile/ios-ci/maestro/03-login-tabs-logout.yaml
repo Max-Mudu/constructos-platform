@@ -7,17 +7,19 @@ appId: com.constructos.app
 - extendedWaitUntil:
     visible: "Welcome back"
     timeout: 90000
-- tapOn: "Work email"
+- tapOn: "you@company.com"
 - inputText: ${SMOKE_EMAIL}
-- tapOn:
-    text: "Password"
-    below: "Forgot password\\?"
+- tapOn: "••••••••"
 - inputText: ${SMOKE_PASSWORD}
 - pressKey: Enter
 - tapOn: "Sign in"
 - extendedWaitUntil:
     visible: "Dashboard, tab.*"
     timeout: 60000
+# iOS may offer to save the password once the login form is gone.
+- tapOn:
+    text: "Not Now"
+    optional: true
 - waitForAnimationToEnd
 - takeScreenshot: 03-dashboard
 - tapOn: "Projects, tab.*"

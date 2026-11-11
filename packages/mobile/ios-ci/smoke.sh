@@ -29,6 +29,10 @@ for flow in 01-launch 02-wrong-password 03-login-tabs-logout; do
     xcrun simctl io "$SIM_UDID" screenshot "$OUT/screenshots/$flow-at-failure.png" || true
     maestro --device "$SIM_UDID" hierarchy > "$OUT/maestro/$flow-hierarchy-at-failure.json" 2>/dev/null || true
   fi
+  if [ "$flow" = 01-launch ]; then
+    # What the login screen exposes to the test driver, for maintaining the selectors.
+    maestro --device "$SIM_UDID" hierarchy > "$OUT/maestro/login-screen-hierarchy.json" 2>/dev/null || true
+  fi
   echo "::endgroup::"
 done
 
