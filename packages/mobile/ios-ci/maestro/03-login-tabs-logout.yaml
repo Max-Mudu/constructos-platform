@@ -7,14 +7,22 @@ appId: com.constructos.app
 - extendedWaitUntil:
     visible: "Welcome back"
     timeout: 90000
-- tapOn: "you@company.com"
-- inputText: ${SMOKE_EMAIL}
-- tapOn: "••••••••"
-- inputText: ${SMOKE_PASSWORD}
-- pressKey: Enter
+- runFlow:
+    file: subflows/enter-credentials.yaml
+    env:
+      EMAIL: ${SMOKE_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
 - tapOn: "Sign in"
+# A sign-in the loaded runner answers too slowly is tried again (see the subflow).
+- runFlow:
+    file: subflows/retry-sign-in-if-unreachable.yaml
+    env:
+      WAIT_FOR: "(Cannot reach the server.*|Dashboard, tab.*|Save Password.)"
+# Either the tab bar or iOS's Save Password prompt (which hides the app from
+# the test driver) proves the sign-in succeeded; the prompt can come first
+# (run 44285338082, flow 05).
 - extendedWaitUntil:
-    visible: "Dashboard, tab.*"
+    visible: "(Dashboard, tab.*|Save Password\\?)"
     timeout: 60000
 # iOS offers to save the password a moment after the login form goes away,
 # sometimes a second or two after the dashboard appears, and the prompt hides
@@ -26,6 +34,9 @@ appId: com.constructos.app
 - tapOn:
     text: "Not Now"
     optional: true
+- extendedWaitUntil:
+    visible: "Dashboard, tab.*"
+    timeout: 30000
 - waitForAnimationToEnd
 - takeScreenshot: 03-dashboard
 - tapOn: "Projects, tab.*"

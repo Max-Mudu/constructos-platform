@@ -21,23 +21,45 @@ echo "Xcode: $(xcodebuild -version | tr '\n' ' ')"
 echo "Destination: ${SIM_NAME:-?} (iOS ${SIM_RUNTIME:-?}) $SIM_UDID"
 echo "EXPO_PUBLIC_API_URL for the bundle: $EXPO_PUBLIC_API_URL"
 
-START="$(date +%s)"
-status=0
 # EXPO_PUBLIC_API_URL is passed both in the environment and as a build setting,
 # so the "Bundle React Native code and images" phase sees it either way.
-xcodebuild \
-  -workspace "$WORKSPACE" \
-  -scheme "$SCHEME" \
-  -configuration Release \
-  -sdk iphonesimulator \
-  -destination "id=$SIM_UDID" \
-  -derivedDataPath "$PWD/build" \
-  ONLY_ACTIVE_ARCH=YES \
-  COMPILER_INDEX_STORE_ENABLE=NO \
-  "EXPO_PUBLIC_API_URL=$EXPO_PUBLIC_API_URL" \
-  "${SIGN_ARGS[@]}" \
-  build 2>&1 | tee "$OUT/logs/xcodebuild.log" | "${FORMAT[@]}" || status=$?
+run_xcodebuild() {
+  local st=0
+  xcodebuild \
+    -workspace "$WORKSPACE" \
+    -scheme "$SCHEME" \
+    -configuration Release \
+    -sdk iphonesimulator \
+    -destination "id=$SIM_UDID" \
+    -derivedDataPath "$PWD/build" \
+    ONLY_ACTIVE_ARCH=YES \
+    COMPILER_INDEX_STORE_ENABLE=NO \
+    "EXPO_PUBLIC_API_URL=$EXPO_PUBLIC_API_URL" \
+    "${SIGN_ARGS[@]}" \
+    build 2>&1 | tee "$OUT/logs/xcodebuild.log" | "${FORMAT[@]}" || st=$?
+  return "$st"
+}
+
+START="$(date +%s)"
+status=0
+run_xcodebuild || status=$?
 echo "xcodebuild finished with status $status after $(( $(date +%s) - START )) s"
+
+# Expo's "[Expo] Configure project" phase gives its scan for native module
+# classes 5 seconds (fixed in expo-modules-autolinking). On a runner that is
+# busy compiling, the scan can miss that limit and the build fails with the
+# message below, which itself says to build again (run 44303344927). Build once
+# more, and only for this cause: everything already compiled is reused and the
+# scan then runs on an idle runner. Any other failure is not retried.
+SCAN_TIMEOUT_ERROR="Scanning for @ExpoModule classes didn't complete"
+if [ "$status" != 0 ] && grep -q "$SCAN_TIMEOUT_ERROR" "$OUT/logs/xcodebuild.log"; then
+  echo "::warning::Expo's module scan timed out during the build; building once more (compiled outputs are reused)."
+  mv "$OUT/logs/xcodebuild.log" "$OUT/logs/xcodebuild-attempt-1.log"
+  RETRY_START="$(date +%s)"
+  status=0
+  run_xcodebuild || status=$?
+  echo "second xcodebuild finished with status $status after $(( $(date +%s) - RETRY_START )) s"
+fi
 
 if [ "$status" != 0 ]; then
   echo "::error::xcodebuild failed (status $status)"

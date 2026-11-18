@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { attendanceApi, workerApi, ApiError } from '@/lib/api';
 import { formErrorState } from '@/lib/workflows-form-errors';
+import { useRevealError } from '@/hooks/useRevealError';
 import { localToday } from '@/lib/workflows-dates';
 import { Worker, AttendanceStatus } from '@/lib/types';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
@@ -36,6 +37,7 @@ export default function NewAttendancePage() {
   const [error,        setError]        = useState('');
   const [workersError, setWorkersError] = useState('');
   const [workersLoaded, setWorkersLoaded] = useState(false);
+  const errorRef = useRevealError(error);
 
   useEffect(() => {
     if (!projectId || !siteId) return;
@@ -80,12 +82,14 @@ export default function NewAttendancePage() {
         <h1 className="text-2xl font-semibold tracking-tight">Add Attendance Record</h1>
       </div>
 
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+      <div ref={errorRef} tabIndex={-1} className={error ? 'outline-none' : 'hidden'}>
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+      </div>
 
       <Card>
         <CardHeader>
