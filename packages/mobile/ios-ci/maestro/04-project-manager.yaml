@@ -20,6 +20,11 @@ appId: com.constructos.app
       EMAIL: ${PM_EMAIL}
       PASSWORD: ${SMOKE_PASSWORD}
 - tapOn: "Sign in"
+# A sign-in the loaded runner answers too slowly is tried again (see the subflow).
+- runFlow:
+    file: subflows/retry-sign-in-if-unreachable.yaml
+    env:
+      WAIT_FOR: "(Cannot reach the server.*|Dashboard, tab.*|Save Password.)"
 # Either the tab bar or iOS's Save Password prompt (which hides the app from
 # the test driver) proves the sign-in succeeded; the prompt can come first
 # (run 44285338082, flow 05).
