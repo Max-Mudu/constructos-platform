@@ -320,63 +320,72 @@ export async function createDelivery(
     await validateSupplierInvoiceScope(input.supplierInvoiceId, actor.companyId, projectId);
   }
 
-  const record = await prisma.deliveryRecord.create({
-    data: {
-      companyId: actor.companyId,
-      projectId,
-      siteId,
-      supplierName: input.supplierName,
-      supplierContact: input.supplierContact,
-      deliveryDate: new Date(input.deliveryDate),
-      deliveryTime: input.deliveryTime,
-      driverName: input.driverName,
-      vehicleRegistration: input.vehicleRegistration,
-      purchaseOrderNumber: input.purchaseOrderNumber,
-      deliveryNoteNumber: input.deliveryNoteNumber,
-      invoiceNumber: input.invoiceNumber,
-      itemDescription: input.itemDescription,
-      unitOfMeasure: input.unitOfMeasure,
-      quantityOrdered: input.quantityOrdered,
-      quantityDelivered: input.quantityDelivered,
-      conditionOnArrival: input.conditionOnArrival ?? 'good',
-      inspectionStatus: input.inspectionStatus ?? 'pending',
-      acceptanceStatus: input.acceptanceStatus ?? null,
-      rejectionReason: input.rejectionReason,
-      discrepancyNotes: input.discrepancyNotes,
-      receivedById: input.receivedById,
-      budgetLineItemId: input.budgetLineItemId,
-      supplierInvoiceId: input.supplierInvoiceId,
-      comments: input.comments,
-    },
-    select: DELIVERY_SELECT,
+  // The delivery, its audit row and (when it is created already accepted) the
+  // inventory credit commit together, so a failure part-way leaves neither an
+  // unaudited delivery nor an accepted delivery whose goods are not in stock.
+  const record = await prisma.$transaction(async (tx) => {
+    const created = await tx.deliveryRecord.create({
+      data: {
+        companyId: actor.companyId,
+        projectId,
+        siteId,
+        supplierName: input.supplierName,
+        supplierContact: input.supplierContact,
+        deliveryDate: new Date(input.deliveryDate),
+        deliveryTime: input.deliveryTime,
+        driverName: input.driverName,
+        vehicleRegistration: input.vehicleRegistration,
+        purchaseOrderNumber: input.purchaseOrderNumber,
+        deliveryNoteNumber: input.deliveryNoteNumber,
+        invoiceNumber: input.invoiceNumber,
+        itemDescription: input.itemDescription,
+        unitOfMeasure: input.unitOfMeasure,
+        quantityOrdered: input.quantityOrdered,
+        quantityDelivered: input.quantityDelivered,
+        conditionOnArrival: input.conditionOnArrival ?? 'good',
+        inspectionStatus: input.inspectionStatus ?? 'pending',
+        acceptanceStatus: input.acceptanceStatus ?? null,
+        rejectionReason: input.rejectionReason,
+        discrepancyNotes: input.discrepancyNotes,
+        receivedById: input.receivedById,
+        budgetLineItemId: input.budgetLineItemId,
+        supplierInvoiceId: input.supplierInvoiceId,
+        comments: input.comments,
+      },
+      select: DELIVERY_SELECT,
+    });
+
+    await tx.auditLog.create({
+      data: {
+        companyId: actor.companyId,
+        userId: actor.id,
+        userEmail: actor.email,
+        userRole: actor.role,
+        action: 'create',
+        entityType: 'delivery_record',
+        entityId: created.id,
+        changesAfter: created as object,
+      },
+    });
+
+    // Credit inventory immediately when delivery is created already-accepted.
+    const createdAccepted =
+      created.acceptanceStatus === 'accepted' ||
+      created.acceptanceStatus === 'partially_accepted';
+
+    if (createdAccepted) {
+      await inventoryService.creditFromDelivery(created, actor.id, tx);
+    }
+
+    return created;
   });
 
-  await prisma.auditLog.create({
-    data: {
-      companyId: actor.companyId,
-      userId: actor.id,
-      userEmail: actor.email,
-      userRole: actor.role,
-      action: 'create',
-      entityType: 'delivery_record',
-      entityId: record.id,
-      changesAfter: record as object,
-    },
-  });
-
+  // Sent only once the delivery is saved, so no client is told about a
+  // delivery that was rolled back.
   emitToCompany(actor.companyId, {
     type: 'delivery_created',
     payload: { deliveryId: record.id, projectId, siteId, supplierName: record.supplierName },
   });
-
-  // Credit inventory immediately when delivery is created already-accepted.
-  const createdAccepted =
-    record.acceptanceStatus === 'accepted' ||
-    record.acceptanceStatus === 'partially_accepted';
-
-  if (createdAccepted) {
-    await inventoryService.creditFromDelivery(record, actor.id);
-  }
 
   return record;
 }
