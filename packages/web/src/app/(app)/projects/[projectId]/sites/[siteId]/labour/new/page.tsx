@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { labourApi, workerApi } from '@/lib/api';
 import { formErrorState } from '@/lib/workflows-form-errors';
+import { useRevealError } from '@/hooks/useRevealError';
 import { localToday } from '@/lib/workflows-dates';
 import { rateForWorker } from '@/lib/workflows-labour';
 import { Worker } from '@/lib/types';
@@ -41,6 +42,7 @@ export default function NewLabourEntryPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+  const errorRef = useRevealError(error);
 
   function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
 
@@ -99,7 +101,8 @@ export default function NewLabourEntryPage() {
     } catch (e) {
       const shown = formErrorState(e, ['workerId', 'date', 'hoursWorked', 'dailyRate'], 'Something went wrong');
       setFieldErrors(shown.fieldErrors);
-      setError(shown.message);
+      // The banner is what is brought into view, so it also names inline-only errors.
+      setError(shown.message || 'Please correct the highlighted fields below.');
     } finally {
       setSubmitting(false);
     }
@@ -121,12 +124,14 @@ export default function NewLabourEntryPage() {
         <h1 className="text-2xl font-bold">Log Labour Entry</h1>
       </div>
 
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+      <div ref={errorRef} tabIndex={-1} className={error ? 'outline-none' : 'hidden'}>
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+      </div>
 
       {siteWorkers.length === 0 && !error && (
         <Alert>
