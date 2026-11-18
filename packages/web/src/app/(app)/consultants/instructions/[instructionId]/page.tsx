@@ -69,7 +69,6 @@ export default function InstructionDetailPage() {
   const isContractor  = user?.role === 'contractor';
   const isSupervisor  = user?.role === 'site_supervisor';
   const isConsultant  = user?.role === 'consultant';
-  const canIssue      = canManage || isConsultant;
   const canUpdateStatus = canManage || isSupervisor;
   const canRespond    = isContractor;
 
@@ -152,6 +151,10 @@ export default function InstructionDetailPage() {
   }
 
   if (!instruction) return null;
+
+  // Same rule as the API: managers on any instruction, consultants only on
+  // instructions they issued.
+  const canAttach = canManage || (isConsultant && instruction.issuedById === user?.id);
 
   return (
     <div className="px-6 py-8 space-y-6 animate-fade-in">
@@ -342,7 +345,7 @@ export default function InstructionDetailPage() {
           <p className="text-sm text-muted-foreground">No attachments</p>
         )}
 
-        {canIssue && (
+        {canAttach && (
           <div className="flex items-center gap-3 pt-2 border-t border-border">
             <input
               type="file"
