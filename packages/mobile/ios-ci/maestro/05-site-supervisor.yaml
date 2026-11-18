@@ -15,17 +15,18 @@ appId: com.constructos.app
 - assertNotVisible: "Dashboard, tab.*"
 - takeScreenshot: sup-00-after-reinstall
 
-- tapOn: "you@company.com"
-- inputText: ${SUP_EMAIL}
-# Under load the simulator has dropped typed characters (run 44273008612,
-# where a login body arrived truncated and got 422): check the field.
-- assertVisible: ${SUP_EMAIL}
-- tapOn: "••••••••"
-- inputText: ${SMOKE_PASSWORD}
-- pressKey: Enter
+- runFlow:
+    file: subflows/enter-credentials.yaml
+    env:
+      EMAIL: ${SUP_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+      PW_LEN: ${PW_LEN}
 - tapOn: "Sign in"
+# Either the tab bar or iOS's Save Password prompt (which hides the app from
+# the test driver) proves the sign-in succeeded; the prompt can come first
+# (run 44285338082, flow 05).
 - extendedWaitUntil:
-    visible: "Home, tab.*"
+    visible: "(Home, tab.*|Save Password\\?)"
     timeout: 60000
 - extendedWaitUntil:
     visible: "Save Password\\?"
@@ -34,6 +35,9 @@ appId: com.constructos.app
 - tapOn:
     text: "Not Now"
     optional: true
+- extendedWaitUntil:
+    visible: "Home, tab.*"
+    timeout: 30000
 - waitForAnimationToEnd
 
 # Tab set for site_supervisor (src/constants/roleTabs.ts): 7 tabs, none of the

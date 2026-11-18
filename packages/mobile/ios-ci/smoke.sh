@@ -31,6 +31,11 @@ keychain_items() {
   if [ -f "$db" ]; then
     sqlite3 -readonly "$db" "select 'access group ' || quote(agrp) || ': ' || count(*) from genp where agrp like '%constructos%' group by agrp;" 2>&1 || true
     echo "KEYCHAIN ITEMS for the app: $(sqlite3 -readonly "$db" "select count(*) from genp where agrp like '%constructos%';" 2>/dev/null || echo '?')"
+    # Access-group names only (no item data), to check the filter above:
+    # run 44285338082 counted 0 items, so it may not match how the simulator
+    # stores the group of an ad-hoc signed app.
+    echo "Keychain generic-password items per access group (all apps):"
+    sqlite3 -readonly "$db" "select '  ' || quote(agrp) || ': ' || count(*) from genp group by agrp order by count(*) desc limit 12;" 2>&1 || true
   else
     echo "KEYCHAIN ITEMS for the app: ? (no keychain database at the expected path)"
   fi
@@ -69,6 +74,7 @@ for flow in $flows; do
        --debug-output "$OUT/maestro/$flow" --flatten-debug-output \
        -e SMOKE_EMAIL="$SMOKE_EMAIL" -e SMOKE_PASSWORD="$SMOKE_PASSWORD" \
        -e PM_EMAIL="${PM_EMAIL:-}" -e SUP_EMAIL="${SUP_EMAIL:-}" \
+       -e PW_LEN="${#SMOKE_PASSWORD}" \
        "$HERE/maestro/$flow.yaml"; then
     echo "FLOW RESULT $flow: passed"
   else
