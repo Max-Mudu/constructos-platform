@@ -78,8 +78,20 @@ interface LoggableRequest {
  *  - formatters.log strips the query from any top-level `url` field, which
  *    covers explicit `{ url: request.url }` log calls such as the JWT-failure
  *    warning in middleware/authenticate.ts.
+ *  - redact censors credential-bearing fields if a future log call passes
+ *    headers or a body (none of the serializers above log them today).
  */
 export const loggerOptions = {
+  redact: {
+    paths: [
+      'req.headers.authorization', 'req.headers.cookie',
+      'headers.authorization', 'headers.cookie',
+      'password', 'token', 'accessToken', 'refreshToken',
+      'body.password', 'body.token', 'body.refreshToken',
+      '*.password', '*.token', '*.accessToken', '*.refreshToken',
+    ],
+    censor: '[redacted]',
+  },
   serializers: {
     req(req: LoggableRequest) {
       return {
