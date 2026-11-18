@@ -10,6 +10,8 @@ set -uo pipefail
 : "${OUT:?}" "${SIM_UDID:?}" "${RUNNER_TEMP:?}" "${APP_PATH:?}" "${APP_BUNDLE_ID:?}"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=runner-health.sh
+. "$HERE/runner-health.sh"
 # shellcheck disable=SC1091
 . "$RUNNER_TEMP/smoke-credentials"
 echo "::add-mask::$SMOKE_PASSWORD"
@@ -57,7 +59,11 @@ if [ "${SIGNING:-}" = "disabled" ]; then
   flows="01-launch"
   echo "::notice::Signing disabled: launch flow only. Sign-in needs the keychain entitlement an unsigned build does not have; the adhoc job covers it."
 fi
+free_runner
 for flow in $flows; do
+  if [ "$flow" != 01-launch ]; then
+    wait_for_fast_api "$flow" || true
+  fi
   echo "::group::Maestro flow $flow"
   if maestro --device "$SIM_UDID" test \
        --debug-output "$OUT/maestro/$flow" --flatten-debug-output \
@@ -68,6 +74,7 @@ for flow in $flows; do
   else
     echo "FLOW RESULT $flow: FAILED"
     failed="$failed $flow"
+    runner_snapshot "after $flow failed"
     xcrun simctl io "$SIM_UDID" screenshot "$OUT/screenshots/$flow-at-failure.png" || true
     maestro --device "$SIM_UDID" hierarchy > "$OUT/maestro/$flow-hierarchy-at-failure.json" 2>/dev/null || true
   fi

@@ -16,6 +16,9 @@ appId: com.constructos.app
     timeout: 90000
 - tapOn: "you@company.com"
 - inputText: ${PM_EMAIL}
+# Under load the simulator has dropped typed characters (run 44273008612,
+# where a login body arrived truncated and got 422): check the field.
+- assertVisible: ${PM_EMAIL}
 - tapOn: "••••••••"
 - inputText: ${SMOKE_PASSWORD}
 - pressKey: Enter
