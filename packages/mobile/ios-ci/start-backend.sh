@@ -12,7 +12,7 @@ DB_NAME="constructos_ios_ci"
 
 show_logs() {
   echo "--- api.log (last 60 lines)"
-  tail -n 60 "$OUT/logs/api.log" 2>/dev/null || true
+  tail -n 60 "$OUT/logs/api.log" 2>/dev/null | sed -E "s/token=[A-Za-z0-9]+/token=[redacted]/g" || true
   echo "--- postgres.log (last 30 lines)"
   tail -n 30 "$OUT/logs/postgres.log" 2>/dev/null || true
 }
