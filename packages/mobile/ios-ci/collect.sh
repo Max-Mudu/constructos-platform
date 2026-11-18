@@ -11,6 +11,15 @@ fi
 
 mkdir -p "$OUT/logs/crash-reports"
 cp ~/Library/Logs/DiagnosticReports/*"${APP_EXECUTABLE:-ConstructOS}"* "$OUT/logs/crash-reports/" 2>/dev/null || true
+# Memory-pressure kills leave a JetsamEvent report instead of a crash report.
+cp ~/Library/Logs/DiagnosticReports/JetsamEvent* "$OUT/logs/crash-reports/" 2>/dev/null || true
+
+# The API prints account setup links (one-time tokens) in development mode.
+# seed-fixture.mjs used them and they die with this runner's database, but
+# keep them out of the uploaded artifact anyway.
+if [ -f "$OUT/logs/api.log" ]; then
+  LC_ALL=C sed -i '' -E 's/token=[A-Za-z0-9]+/token=[redacted]/g' "$OUT/logs/api.log"
+fi
 
 if [ -f "${RUNNER_TEMP:-/nonexistent}/smoke-credentials" ]; then
   # shellcheck disable=SC1091

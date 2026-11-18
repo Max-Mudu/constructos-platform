@@ -1,0 +1,159 @@
+# Runs after smoke.sh reinstalled the app while flow 04's project manager was
+# still signed in. The iOS Keychain can outlive an uninstall, so the app must
+# open on the login screen, not on the previous user's dashboard.
+# Then signs in as the site supervisor, checks the role's tab set, waits on
+# each tab for a record that exists only in the API on this runner, records
+# attendance for the fixture worker and checks them out (two writes, which
+# smoke.sh then confirms through the API), and logs out.
+# Selector notes: see flow 04.
+appId: com.constructos.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 90000
+- assertNotVisible: "Dashboard, tab.*"
+- takeScreenshot: sup-00-after-reinstall
+
+- runFlow:
+    file: subflows/enter-credentials.yaml
+    env:
+      EMAIL: ${SUP_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+- tapOn: "Sign in"
+# A sign-in the loaded runner answers too slowly is tried again (see the subflow).
+- runFlow:
+    file: subflows/retry-sign-in-if-unreachable.yaml
+    env:
+      WAIT_FOR: "(Cannot reach the server.*|Home, tab.*|Save Password.)"
+# Either the tab bar or iOS's Save Password prompt (which hides the app from
+# the test driver) proves the sign-in succeeded; the prompt can come first
+# (run 44285338082, flow 05).
+- extendedWaitUntil:
+    visible: "(Home, tab.*|Save Password\\?)"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Save Password\\?"
+    timeout: 10000
+    optional: true
+- tapOn:
+    text: "Not Now"
+    optional: true
+- extendedWaitUntil:
+    visible: "Home, tab.*"
+    timeout: 30000
+- waitForAnimationToEnd
+
+# Tab set for site_supervisor (src/constants/roleTabs.ts): 7 tabs, none of the
+# manager or finance tabs.
+- assertVisible: "Profile, tab, 7 of 7"
+- assertNotVisible: "Dashboard, tab.*"
+- assertNotVisible: "Projects, tab.*"
+- assertNotVisible: "Invoices, tab.*"
+- assertNotVisible: "Reports, tab.*"
+
+# Home: greeting with the first name from the login response.
+- extendedWaitUntil:
+    visible: ".*Sefu.*"
+    timeout: 20000
+- takeScreenshot: sup-01-home
+
+- tapOn: "Labour, tab.*"
+- extendedWaitUntil:
+    visible: ".*Wanjiru Kamau.*"
+    timeout: 20000
+- takeScreenshot: sup-02-labour
+
+- tapOn: "Deliveries, tab.*"
+- extendedWaitUntil:
+    visible: ".*Bamburi Cement Ltd.*"
+    timeout: 20000
+- takeScreenshot: sup-03-deliveries
+
+- tapOn: "Inventory, tab.*"
+- extendedWaitUntil:
+    visible: ".*Cement 50kg bags.*"
+    timeout: 20000
+- takeScreenshot: sup-04-inventory
+
+- tapOn: "Schedule, tab.*"
+- extendedWaitUntil:
+    visible: ".*Pour ground floor slab.*"
+    timeout: 20000
+- takeScreenshot: sup-05-schedule
+
+# Attendance write journey. The site name comes from the API; the list for
+# today starts empty.
+- tapOn: "Attendance, tab.*"
+- extendedWaitUntil:
+    visible: ".*iOS CI Smoke Co Main Site.*"
+    timeout: 20000
+- extendedWaitUntil:
+    visible: "No records today"
+    timeout: 20000
+- takeScreenshot: sup-06-attendance-empty
+- tapOn: ".*Mark Attendance.*"
+- extendedWaitUntil:
+    visible: "Select worker and status"
+    timeout: 15000
+# The worker list is GET .../sites/:siteId/workers.
+- extendedWaitUntil:
+    visible: ".*Wanjiru Kamau.*"
+    timeout: 20000
+- tapOn: ".*Wanjiru Kamau.*"
+- extendedWaitUntil:
+    visible: "Change"
+    timeout: 10000
+- takeScreenshot: sup-07-attendance-form
+- scrollUntilVisible:
+    element:
+      text: "Save Attendance"
+    direction: DOWN
+- tapOn: "Save Attendance"
+# The sheet closes only after POST .../attendance succeeded; an error keeps it
+# open behind an "Error" alert.
+- extendedWaitUntil:
+    notVisible: "Select worker and status"
+    timeout: 30000
+- assertNotVisible: "Error"
+- extendedWaitUntil:
+    visible: "Crew Roster"
+    timeout: 20000
+- assertVisible: ".*Wanjiru Kamau.*"
+- assertNotVisible: "No records today"
+- takeScreenshot: sup-08-attendance-recorded
+# Second write: PATCH .../attendance/:id with a check-out time, then the list
+# reloads from the API and shows the OUT time instead of the button.
+- tapOn: ".*Check Out.*"
+- extendedWaitUntil:
+    visible: "OUT"
+    timeout: 30000
+- assertNotVisible: ".*Check Out.*"
+- takeScreenshot: sup-09-checked-out
+
+- tapOn: "Profile, tab.*"
+- extendedWaitUntil:
+    visible: ${SUP_EMAIL}
+    timeout: 20000
+- assertVisible: ".*Site Supervisor.*"
+- takeScreenshot: sup-10-profile
+- scrollUntilVisible:
+    element:
+      text: "Log Out"
+    direction: DOWN
+- tapOn: "Log Out"
+- extendedWaitUntil:
+    visible: "Are you sure you want to log out\\?"
+    timeout: 15000
+# See flow 03 for why both relative selectors are needed.
+- tapOn:
+    text: "Log Out"
+    rightOf: "Cancel"
+    below: "Are you sure you want to log out\\?"
+- extendedWaitUntil:
+    notVisible: "Are you sure you want to log out\\?"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 30000
+- takeScreenshot: sup-11-logged-out
