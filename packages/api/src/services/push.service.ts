@@ -41,8 +41,11 @@ export async function sendPushToUser(
   body: string,
   data?: Record<string, unknown>,
 ): Promise<void> {
+  // Deactivated accounts get no pushes. Deactivation also removes the
+  // account's registered devices (setCompanyUserStatus), so this filter is a
+  // second check, e.g. for a send already in progress.
   const tokens = await prisma.pushToken.findMany({
-    where: { userId },
+    where: { userId, user: { isActive: true } },
     select: { token: true },
   });
 
