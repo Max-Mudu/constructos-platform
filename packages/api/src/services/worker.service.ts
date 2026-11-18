@@ -2,7 +2,7 @@ import { prisma } from '../utils/prisma';
 import { AppError, NotFoundError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { Prisma, WorkerEmploymentStatus } from '@prisma/client';
-import { getAccessibleProjectIds } from '../middleware/requireProjectAccess';
+import { getAccessibleProjectIds, getAccessibleSiteIds } from '../middleware/requireProjectAccess';
 import { canViewFinancialData } from './report.service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -431,6 +431,13 @@ export async function listSiteWorkers(
   siteId: string,
   actor: RequestUser,
 ) {
+  // Same site rule as the other site routes: a site-scoped role sees only
+  // the sites its membership names (generic 404 otherwise).
+  const accessibleSiteIds = await getAccessibleSiteIds(projectId, actor.id, actor.role);
+  if (accessibleSiteIds !== null && !accessibleSiteIds.includes(siteId)) {
+    throw new NotFoundError('Site');
+  }
+
   const workers = await prisma.worker.findMany({
     where: {
       companyId: actor.companyId,
