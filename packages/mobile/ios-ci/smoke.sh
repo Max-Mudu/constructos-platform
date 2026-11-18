@@ -15,9 +15,6 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 . "$RUNNER_TEMP/smoke-credentials"
 echo "::add-mask::$SMOKE_PASSWORD"
-# What the secure password field shows once the password is fully typed: one
-# bullet per character (see maestro/subflows/enter-credentials.yaml).
-PW_MASK="$(printf '•%.0s' $(seq 1 "${#SMOKE_PASSWORD}"))"
 
 mkdir -p "$OUT/maestro" "$OUT/screenshots"
 # takeScreenshot writes <name>.png into the working directory.
@@ -77,7 +74,6 @@ for flow in $flows; do
        --debug-output "$OUT/maestro/$flow" --flatten-debug-output \
        -e SMOKE_EMAIL="$SMOKE_EMAIL" -e SMOKE_PASSWORD="$SMOKE_PASSWORD" \
        -e PM_EMAIL="${PM_EMAIL:-}" -e SUP_EMAIL="${SUP_EMAIL:-}" \
-       -e PW_MASK="$PW_MASK" \
        "$HERE/maestro/$flow.yaml"; then
     echo "FLOW RESULT $flow: passed"
   else
