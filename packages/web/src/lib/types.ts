@@ -805,7 +805,10 @@ export interface DashboardStats {
   // (API-enforced); PMs with finance access get member-project figures only.
   labour: {
     thisWeekHours: number;
+    // Company-currency month cost (hours / 8 x daily rate per entry).
     thisMonthCost: number | null;
+    // One total per currency; absent from older API builds.
+    thisMonthCostByCurrency?: Array<{ currency: string; total: number }> | null;
   };
   invoices: {
     total:           number | null;

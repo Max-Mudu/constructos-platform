@@ -5,6 +5,7 @@ import { getFinanceReadScope, financeProjectFilter } from './budget.service';
 import { resolveReadScope, scopeWhere, instructionScopeWhere, ReadScope } from './report.service';
 import { workerReadScopeWhere } from './worker.service';
 import { env } from '../utils/env';
+import { labourCostByCurrency, toCents } from '../utils/labour-cost';
 
 // ─── Return type ──────────────────────────────────────────────────────────────
 
@@ -39,7 +40,11 @@ export interface DashboardStats {
   // canViewFinance they are scoped to the PM's active-member projects.
   labour: {
     thisWeekHours: number;
+    // Month labour cost (hours / 8 x daily rate per entry, see utils/labour-cost).
+    // thisMonthCost: entries in the company's currency only (never a sum across
+    // currencies). thisMonthCostByCurrency: one total per currency, by code.
     thisMonthCost: number | null;
+    thisMonthCostByCurrency: Array<{ currency: string; total: number }> | null;
   };
   invoices: {
     total:           number | null;
@@ -327,7 +332,7 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
   const financeScope = await getFinanceReadScope(actor);
 
   type FinancialBlocks = {
-    labour:   { thisMonthCost: number };
+    labour:   { thisMonthCost: number; thisMonthCostByCurrency: Array<{ currency: string; total: number }> };
     invoices: DashboardStats['invoices'];
     budget:   DashboardStats['budget'];
     invOutstanding: number;
@@ -340,11 +345,12 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
       ? { companyId, projectId: projectFilter }
       : { companyId };
 
-    const [monthLabour, invAgg, invByStatus, budgetLineAgg, budgetsCount, overspendBudgetData] = await Promise.all([
-      prisma.labourEntry.aggregate({
+    const [monthLabour, company, invAgg, invByStatus, budgetLineAgg, budgetsCount, overspendBudgetData] = await Promise.all([
+      prisma.labourEntry.findMany({
         where:  { ...scoped, date: { gte: monthStart } },
-        _sum:   { dailyRate: true },
+        select: { hoursWorked: true, dailyRate: true, currency: true },
       }),
+      prisma.company.findUnique({ where: { id: companyId }, select: { currency: true } }),
       prisma.invoice.aggregate({
         where:  scoped,
         _sum:   { totalAmount: true, paidAmount: true },
@@ -372,8 +378,14 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     const budgetTotal    = Number(budgetLineAgg._sum.budgetedAmount ?? 0);
     const budgetSpent    = Number(budgetLineAgg._sum.actualSpend    ?? 0);
 
+    const labourByCurrency = labourCostByCurrency(monthLabour)
+      .map(({ currency, total }) => ({ currency, total: toCents(total) }));
+
     fin = {
-      labour: { thisMonthCost: Number(monthLabour._sum.dailyRate ?? 0) },
+      labour: {
+        thisMonthCost: labourByCurrency.find((t) => t.currency === company?.currency)?.total ?? 0,
+        thisMonthCostByCurrency: labourByCurrency,
+      },
       invoices: {
         total:           invAgg._count._all,
         totalValue:      invValue,
@@ -578,7 +590,8 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     },
     labour: {
       thisWeekHours,
-      thisMonthCost: fin ? fin.labour.thisMonthCost : null,
+      thisMonthCost:           fin ? fin.labour.thisMonthCost : null,
+      thisMonthCostByCurrency: fin ? fin.labour.thisMonthCostByCurrency : null,
     },
     // Keys are always present (backward-compatible shape); values are null
     // when the actor has no financial read access.

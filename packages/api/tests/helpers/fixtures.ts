@@ -302,7 +302,7 @@ export async function createTestLabourEntry(
   siteId: string,
   workerId: string,
   registeredById: string,
-  overrides: Partial<{ date: Date; hoursWorked: number; dailyRate: number }> = {},
+  overrides: Partial<{ date: Date; hoursWorked: number; dailyRate: number; currency: string }> = {},
 ): Promise<TestLabourEntry> {
   const entry = await prisma.labourEntry.create({
     data: {
@@ -314,7 +314,7 @@ export async function createTestLabourEntry(
       date:        overrides.date        ?? new Date('2026-04-07'),
       hoursWorked: overrides.hoursWorked ?? 8,
       dailyRate:   overrides.dailyRate   ?? 1500,
-      currency:    'USD',
+      currency:    overrides.currency    ?? 'USD',
     },
   });
   return { id: entry.id, companyId, projectId, siteId, workerId };

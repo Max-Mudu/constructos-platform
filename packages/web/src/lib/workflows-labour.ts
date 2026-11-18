@@ -34,6 +34,23 @@ export function formatLabourCost(totals: { currency: string; total: number }[]):
 }
 
 /**
+ * Dashboard "Month Cost": one formatted figure per currency, joined with " + "
+ * (the API computes hours / 8 x daily rate per entry, the register's rule).
+ * Older API builds send only thisMonthCost, which was labelled with the
+ * company currency; that fallback is kept.
+ */
+export function formatMonthLabourCost(
+  labour: { thisMonthCost: number | null; thisMonthCostByCurrency?: { currency: string; total: number }[] | null },
+  companyCurrency: string,
+  format: (value: number, currency: string) => string,
+): string | null {
+  if (labour.thisMonthCost === null) return null;
+  const byCurrency = labour.thisMonthCostByCurrency;
+  if (!byCurrency || byCurrency.length === 0) return format(labour.thisMonthCost, companyCurrency);
+  return byCurrency.map(({ currency, total }) => format(total, currency)).join(' + ');
+}
+
+/**
  * Daily rate to pre-fill when the worker in the labour form changes. It used
  * to keep the previous worker's rate when the new one had no wage on record,
  * so the wrong wage was submitted (and saved, for finance users).
