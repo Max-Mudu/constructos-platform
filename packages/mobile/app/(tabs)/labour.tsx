@@ -29,6 +29,7 @@ import { Input } from '../../src/components/Input';
 import { LoadingSpinner } from '../../src/components/LoadingSpinner';
 import { EmptyState } from '../../src/components/EmptyState';
 import { enqueue, isNetworkError } from '../../src/utils/offlineQueue';
+import { formatLabourCost, labourCostTotals } from '../../src/utils/labourCost';
 import { useOfflineQueue } from '../../src/hooks/useOfflineQueue';
 import {
   LabourEntry,
@@ -507,11 +508,8 @@ export default function LabourScreen() {
   // ── Labour intelligence ────────────────────────────────────────────────────
   const totalHours    = entries.reduce((s, e) => s + Number(e.hoursWorked), 0);
   const overtimeCount = entries.filter((e) => Number(e.hoursWorked) > 8).length;
-  const totalCost     = showCost ? entries.reduce((s, e) => s + Number(e.dailyRate ?? 0), 0) : 0;
-  const currencies    = [...new Set(entries.map((e) => e.currency).filter((c): c is string => !!c))];
-  const costDisplay   = totalCost > 0
-    ? (currencies.length === 1 ? `${currencies[0]!} ${totalCost.toFixed(0)}` : totalCost.toFixed(0))
-    : '—';
+  // hours / 8 x daily rate per entry, one figure per currency (src/utils/labourCost).
+  const costDisplay   = showCost ? formatLabourCost(labourCostTotals(entries)) : '—';
 
   return (
     <Screen>
@@ -597,7 +595,7 @@ export default function LabourScreen() {
           </View>
           {showCost && (
             <View style={styles.labourStatCard}>
-              <Text style={styles.labourStatValue} numberOfLines={1}>{costDisplay}</Text>
+              <Text style={styles.labourStatValue} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.6}>{costDisplay}</Text>
               <Text style={styles.labourStatLabel}>Est. Cost</Text>
             </View>
           )}
