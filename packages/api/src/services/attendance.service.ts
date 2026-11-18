@@ -252,10 +252,15 @@ export async function updateAttendanceRecord(
       select: RECORD_SELECT,
     });
 
-    assertTimeOrder(
-      input.checkInTime  !== undefined ? input.checkInTime  : before.checkInTime,
-      input.checkOutTime !== undefined ? input.checkOutTime : before.checkOutTime,
-    );
+    // Only a request that changes a time is checked, so a status or notes
+    // correction still works on an older record whose stored times are out
+    // of order.
+    if (input.checkInTime !== undefined || input.checkOutTime !== undefined) {
+      assertTimeOrder(
+        input.checkInTime  !== undefined ? input.checkInTime  : before.checkInTime,
+        input.checkOutTime !== undefined ? input.checkOutTime : before.checkOutTime,
+      );
+    }
 
     const updated = await tx.attendanceRecord.update({
       where: { id: recordId },

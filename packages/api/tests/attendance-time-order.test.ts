@@ -224,6 +224,17 @@ describe('PATCH /attendance/:id', () => {
     expect(res.statusCode).toBe(200);
   });
 
+  it('a status or notes change is still accepted on an older record whose stored times are out of order', async () => {
+    // Records saved before this rule existed can hold a check-out earlier than the check-in.
+    const rec = await makeRecord('09:00', '07:00');
+    const res = await patch(rec.id, { status: 'late', notes: 'corrected status' });
+    expect(res.statusCode).toBe(200);
+    expect(await stored(rec.id)).toEqual({ checkInTime: '09:00', checkOutTime: '07:00' });
+    // Changing one of its times is still checked against the other.
+    expect((await patch(rec.id, { checkOutTime: '08:00' })).statusCode).toBe(422);
+    expect((await patch(rec.id, { checkOutTime: '17:00' })).statusCode).toBe(200);
+  });
+
   it('an unknown record is still a 404', async () => {
     const res = await patch('00000000-0000-4000-8000-000000000000', { checkOutTime: '07:00' });
     expect(res.statusCode).toBe(404);
