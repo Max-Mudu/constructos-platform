@@ -1,5 +1,5 @@
 /**
- * NEEDS OWNER APPROVAL - budget rule.
+ * Budget rule approved by the owner on 18 Nov 2026.
  *
  * Variation orders: only finance staff (company_admin, finance_officer) decide
  * a variation. Once it is decided (approved or rejected), the requesting
@@ -97,6 +97,23 @@ describe('PATCH /budgets/:budgetId/variations/:variationId after a decision', ()
     const res = await patch(who(), id, { amount: 120 });
     expect(res.statusCode).toBe(200);
     expect(Number((await row(id)).amount)).toBe(120);
+  });
+
+  it.each([
+    ['finance_officer', () => fo],
+    ['company_admin', () => admin],
+  ])('%s still approves and rejects pending variations and can reverse a decision', async (_label, who) => {
+    const approved = await requestVariation(`VD-ok-${_label}`);
+    const first = await patch(who(), approved, { status: 'approved' });
+    expect(first.statusCode).toBe(200);
+    expect((await row(approved)).approvedById).toBe(who().id);
+
+    const rejected = await requestVariation(`VD-no-${_label}`);
+    expect((await patch(who(), rejected, { status: 'rejected' })).statusCode).toBe(200);
+    expect((await row(rejected)).status).toBe('rejected');
+
+    expect((await patch(who(), approved, { status: 'rejected' })).statusCode).toBe(200);
+    expect((await row(approved)).status).toBe('rejected');
   });
 
   it('requester still cannot approve their own pending variation (existing rule)', async () => {
