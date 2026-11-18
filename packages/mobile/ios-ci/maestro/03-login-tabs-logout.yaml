@@ -12,7 +12,7 @@ appId: com.constructos.app
     env:
       EMAIL: ${SMOKE_EMAIL}
       PASSWORD: ${SMOKE_PASSWORD}
-      PW_LEN: ${PW_LEN}
+      PW_MASK: ${PW_MASK}
 - tapOn: "Sign in"
 # Either the tab bar or iOS's Save Password prompt (which hides the app from
 # the test driver) proves the sign-in succeeded; the prompt can come first
