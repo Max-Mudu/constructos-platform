@@ -399,11 +399,11 @@ export async function updateDelivery(
 ) {
   await checkSiteAccess(siteId, projectId, actor);
 
-  const before = await prisma.deliveryRecord.findFirst({
+  const exists = await prisma.deliveryRecord.findFirst({
     where: { id: deliveryId, projectId, siteId, companyId: actor.companyId },
-    select: DELIVERY_SELECT,
+    select: { id: true },
   });
-  if (!before) throw new NotFoundError('Delivery record');
+  if (!exists) throw new NotFoundError('Delivery record');
 
   if (input.budgetLineItemId != null) {
     await validateBudgetLineItemScope(input.budgetLineItemId, actor.companyId, projectId);
@@ -458,6 +458,13 @@ export async function updateDelivery(
       FOR UPDATE`;
     if (locked.length === 0) throw new NotFoundError('Delivery record');
     await assertStockStaysConsistent(tx, deliveryId, actor.companyId, input);
+
+    // Read for the audit row while holding the lock, so "before" is the
+    // state this update really replaced, also when two updates overlap.
+    const before = await tx.deliveryRecord.findUniqueOrThrow({
+      where:  { id: deliveryId },
+      select: DELIVERY_SELECT,
+    });
 
     let justAccepted = false;
     if (acceptsDelivery) {

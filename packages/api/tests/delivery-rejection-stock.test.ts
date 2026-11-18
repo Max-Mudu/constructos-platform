@@ -291,6 +291,32 @@ describe('concurrent accept and reject of one pending delivery', () => {
       expect(await stockOf(material)).toBe(Number(row.quantityDelivered));
     }
   });
+
+  it('two overlapping edits are each audited against the state they replaced', async () => {
+    for (let i = 0; i < 6; i++) {
+      const d = await makeDelivery(newMaterial(), 10);
+
+      const [a, b] = await Promise.all([
+        patch(pm, d.id, { comments: 'note from the project manager' }),
+        patch(supervisor, d.id, { comments: 'note from the supervisor' }),
+      ]);
+      expect(a.statusCode).toBe(200);
+      expect(b.statusCode).toBe(200);
+
+      const audits = await prisma.auditLog.findMany({
+        where: { entityType: 'delivery_record', entityId: d.id, action: 'update' },
+      });
+      expect(audits).toHaveLength(2);
+      const comment = (v: unknown) => (v as { comments: string | null }).comments;
+      const first = audits.find((r) => comment(r.changesBefore) === null);
+      const second = audits.find((r) => r !== first);
+      // One edit replaced the original (no comment); the other replaced what
+      // the first one wrote, and the stored row is what the second one wrote.
+      expect(first).toBeDefined();
+      expect(comment(second!.changesBefore)).toBe(comment(first!.changesAfter));
+      expect((await deliveryRow(d.id)).comments).toBe(comment(second!.changesAfter));
+    }
+  });
 });
 
 // ─── Scope unchanged ──────────────────────────────────────────────────────────
