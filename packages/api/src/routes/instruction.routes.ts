@@ -7,6 +7,7 @@ import * as instructionService from '../services/instruction.service';
 import { handleError } from '../utils/errors';
 import {
   storeFile,
+  removeFile,
   validateMagicBytes,
   ALLOWED_DOCUMENT_TYPES,
   MAX_FILE_SIZE_BYTES,
@@ -174,11 +175,20 @@ export async function instructionRoutes(fastify: FastifyInstance): Promise<void>
           });
         }
 
+        // Authorise before storing, so a refused upload leaves no file behind.
+        await instructionService.assertCanAddAttachment(instructionId, projectId, request.user);
+
         const stored = await storeFile(buffer, data.filename, data.mimetype, 'instructions', fastify.uploadStorage);
 
-        const attachment = await instructionService.addAttachment(
-          instructionId, projectId, stored, request.user,
-        );
+        let attachment;
+        try {
+          attachment = await instructionService.addAttachment(
+            instructionId, projectId, stored, request.user,
+          );
+        } catch (err) {
+          await removeFile(stored.fileKey, fastify.uploadStorage);
+          throw err;
+        }
 
         return reply.status(201).send({ attachment });
       } catch (err) { return handleError(err, reply); }

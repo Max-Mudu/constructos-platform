@@ -409,12 +409,18 @@ export async function updateInstruction(
 
 // ─── Attachments ──────────────────────────────────────────────────────────────
 
-export async function addAttachment(
+/**
+ * Throws unless `actor` may add a file to the instruction: company admins and
+ * project managers on any instruction they can see, consultants only on
+ * instructions they issued (the same rule as updateInstruction). An instruction
+ * the actor cannot see is a 404, checked before the issuer rule. Routes call
+ * this before storing the upload so a refusal leaves no file behind.
+ */
+export async function assertCanAddAttachment(
   instructionId: string,
   projectId: string,
-  input: AddAttachmentInput,
   actor: RequestUser,
-) {
+): Promise<void> {
   if (!canIssue(actor.role) && !canManage(actor.role)) {
     throw new ForbiddenError('Access denied');
   }
@@ -422,9 +428,22 @@ export async function addAttachment(
 
   const instruction = await prisma.consultantInstruction.findFirst({
     where: { id: instructionId, projectId, companyId: actor.companyId, ...(await instructionSiteWhere(projectId, actor)) },
-    select: { id: true },
+    select: { id: true, issuedById: true },
   });
   if (!instruction) throw new NotFoundError('Instruction');
+
+  if (actor.role === 'consultant' && instruction.issuedById !== actor.id) {
+    throw new ForbiddenError('Consultants can only add attachments to instructions they issued');
+  }
+}
+
+export async function addAttachment(
+  instructionId: string,
+  projectId: string,
+  input: AddAttachmentInput,
+  actor: RequestUser,
+) {
+  await assertCanAddAttachment(instructionId, projectId, actor);
 
   const attachment = await prisma.instructionAttachment.create({
     data: {

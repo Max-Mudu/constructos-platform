@@ -390,17 +390,31 @@ describe.each([false, true])('SITE_SCOPE_STRICT=%s', (flag) => {
       expect(onP.statusCode).toBe(201);
     });
 
-    it('consultant attaches files only to instructions they can see', async () => {
+    it('consultant attaches files only to instructions they can see (hidden: 404 before the issuer rule)', async () => {
+      // instrB was issued by the admin: when visible (flag off) the issuer
+      // rule refuses it (403); when hidden (flag on) it stays a 404.
       const file = buildMultipartFile('note.pdf', 'application/pdf', Buffer.from('%PDF-1.4 site scope'));
       const res = await app.inject({
         method: 'POST', url: `${P()}/instructions/${w.instrB}/attachments`,
         headers: { authorization: `Bearer ${consultant().accessToken}`, ...file.headers },
         payload: file.body,
       });
-      expect(res.statusCode).toBe(flag ? 404 : 201);
+      expect(res.statusCode).toBe(flag ? 404 : 403);
       if (res.statusCode === 201) {
         writtenFiles.push(path.join(UPLOAD_DIR, res.json().attachment.fileKey));
       }
+    });
+
+    it('consultant attaches files to an instruction they issued on another site', async () => {
+      // Instructions the consultant issued are always visible to them.
+      const file = buildMultipartFile('own.pdf', 'application/pdf', Buffer.from('%PDF-1.4 site scope own'));
+      const res = await app.inject({
+        method: 'POST', url: `${P()}/instructions/${w.instrBbyConsultant}/attachments`,
+        headers: { authorization: `Bearer ${consultant().accessToken}`, ...file.headers },
+        payload: file.body,
+      });
+      expect(res.statusCode).toBe(201);
+      writtenFiles.push(path.join(UPLOAD_DIR, res.json().attachment.fileKey));
     });
 
     it('project manager with a site-A membership stays project-wide', async () => {
