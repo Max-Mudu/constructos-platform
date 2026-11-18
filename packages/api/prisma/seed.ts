@@ -1,10 +1,34 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { createHash } from 'crypto';
 
 const prisma = new PrismaClient();
 
+// Demo records have fixed ids so the seed can be run again without duplicating
+// them. The API validates referenced ids as UUIDs, so each fixed id is a UUID
+// derived from its readable name. A database seeded before this (ids such as
+// LEGACY_DEMO_PROJECT_ID) keeps its existing ids, so seeding it again still
+// updates the same rows.
+const LEGACY_DEMO_PROJECT_ID = ['demo', 'project', 'id', '0000', '0000', '000000000001'].join('-');
+let useLegacyDemoIds = false;
+
+function demoId(name: string): string {
+  if (useLegacyDemoIds) return name;
+  const h = createHash('sha1').update(`constructos-demo:${name}`).digest('hex');
+  const variant = ((parseInt(h.slice(16, 18), 16) & 0x3f) | 0x80).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(18, 20)}-${h.slice(20, 32)}`;
+}
+
 async function main() {
   console.log('Seeding database...');
+
+  useLegacyDemoIds = (await prisma.project.findUnique({
+    where:  { id: LEGACY_DEMO_PROJECT_ID },
+    select: { id: true },
+  })) !== null;
+  if (useLegacyDemoIds) {
+    console.log('  Existing demo data uses the older non-UUID ids: keeping them.');
+  }
 
   // ── Demo company ──────────────────────────────────────────────────────────
   const company = await prisma.company.upsert({
@@ -113,10 +137,10 @@ async function main() {
 
   // ── Project ───────────────────────────────────────────────────────────────
   const project = await prisma.project.upsert({
-    where: { id: 'demo-project-id-0000-0000-000000000001' },
+    where: { id: demoId('demo-project-id-0000-0000-000000000001') },
     update: {},
     create: {
-      id: 'demo-project-id-0000-0000-000000000001',
+      id: demoId('demo-project-id-0000-0000-000000000001'),
       companyId: company.id,
       name: 'Westlands Office Complex',
       code: 'WOC-2024',
@@ -130,10 +154,10 @@ async function main() {
 
   // ── Job Site ──────────────────────────────────────────────────────────────
   const site = await prisma.jobSite.upsert({
-    where: { id: 'demo-site-id-000000-0000-0000-000000000001' },
+    where: { id: demoId('demo-site-id-000000-0000-0000-000000000001') },
     update: {},
     create: {
-      id: 'demo-site-id-000000-0000-0000-000000000001',
+      id: demoId('demo-site-id-000000-0000-0000-000000000001'),
       companyId: company.id,
       projectId: project.id,
       name: 'Main Building Site',
@@ -166,10 +190,10 @@ async function main() {
 
   // ── Contractors ───────────────────────────────────────────────────────────
   const contractorRecord = await prisma.contractor.upsert({
-    where: { id: 'demo-contractor-0000-0000-0000-000000000001' },
+    where: { id: demoId('demo-contractor-0000-0000-0000-000000000001') },
     update: {},
     create: {
-      id: 'demo-contractor-0000-0000-0000-000000000001',
+      id: demoId('demo-contractor-0000-0000-0000-000000000001'),
       companyId: company.id,
       userId: contractor.id,
       name: 'BuildRight Construction Ltd',
@@ -181,10 +205,10 @@ async function main() {
 
   // ── Contractor schedule ───────────────────────────────────────────────────
   await prisma.contractorSchedule.upsert({
-    where: { id: 'demo-schedule-0000-0000-0000-000000000001' },
+    where: { id: demoId('demo-schedule-0000-0000-0000-000000000001') },
     update: {},
     create: {
-      id: 'demo-schedule-0000-0000-0000-000000000001',
+      id: demoId('demo-schedule-0000-0000-0000-000000000001'),
       companyId: company.id,
       projectId: project.id,
       contractorId: contractorRecord.id,
@@ -229,10 +253,10 @@ async function main() {
 
   for (const line of budgetLines) {
     await prisma.budgetLineItem.upsert({
-      where: { id: `demo-budget-line-${line.category}` },
+      where: { id: demoId(`demo-budget-line-${line.category}`) },
       update: {},
       create: {
-        id: `demo-budget-line-${line.category}`,
+        id: demoId(`demo-budget-line-${line.category}`),
         budgetId: budget.id,
         companyId: company.id,
         projectId: project.id,
@@ -246,7 +270,7 @@ async function main() {
 
   // Consultant cost entry
   const consultantLine = await prisma.budgetLineItem.findUnique({
-    where: { id: 'demo-budget-line-consultants' },
+    where: { id: demoId('demo-budget-line-consultants') },
   });
   if (consultantLine) {
     await prisma.consultantCostEntry.upsert({
@@ -269,7 +293,7 @@ async function main() {
 
   // Marketing budget entry
   const marketingLine = await prisma.budgetLineItem.findUnique({
-    where: { id: 'demo-budget-line-marketing' },
+    where: { id: demoId('demo-budget-line-marketing') },
   });
   if (marketingLine) {
     await prisma.marketingBudgetEntry.upsert({
@@ -294,7 +318,7 @@ async function main() {
   // ── Suppliers ─────────────────────────────────────────────────────────────
   const supplierData = [
     {
-      id:            'demo-supplier-0000-0000-0000-000000000001',
+      id:            demoId('demo-supplier-0000-0000-0000-000000000001'),
       name:          'East Africa Cement Ltd',
       contactPerson: 'James Waweru',
       email:         'orders@eacement.co.ke',
@@ -302,7 +326,7 @@ async function main() {
       address:       'Industrial Area, Nairobi',
     },
     {
-      id:            'demo-supplier-0000-0000-0000-000000000002',
+      id:            demoId('demo-supplier-0000-0000-0000-000000000002'),
       name:          'Nairobi Steel Works',
       contactPerson: 'Grace Otieno',
       email:         'sales@nairobisteelworks.co.ke',
@@ -310,7 +334,7 @@ async function main() {
       address:       'Mombasa Road, Nairobi',
     },
     {
-      id:            'demo-supplier-0000-0000-0000-000000000003',
+      id:            demoId('demo-supplier-0000-0000-0000-000000000003'),
       name:          'Glazetech Windows',
       contactPerson: 'Amos Mutua',
       email:         'info@glazetech.co.ke',
@@ -318,7 +342,7 @@ async function main() {
       address:       'Westlands, Nairobi',
     },
     {
-      id:            'demo-supplier-0000-0000-0000-000000000004',
+      id:            demoId('demo-supplier-0000-0000-0000-000000000004'),
       name:          'BuildSmart Aggregates',
       contactPerson: 'Mary Njoki',
       email:         'supply@buildsmart.co.ke',
@@ -340,7 +364,7 @@ async function main() {
   // ── Delivery records ──────────────────────────────────────────────────────
   const deliverySeedData = [
     {
-      id: 'demo-delivery-0000-0000-0000-000000000001',
+      id: demoId('demo-delivery-0000-0000-0000-000000000001'),
       supplierName: 'East Africa Cement Ltd',
       deliveryDate: new Date('2026-04-01'),
       deliveryTime: '08:30',
@@ -359,7 +383,7 @@ async function main() {
       comments: 'All bags in good condition. Stored in weather-proof shed.',
     },
     {
-      id: 'demo-delivery-0000-0000-0000-000000000002',
+      id: demoId('demo-delivery-0000-0000-0000-000000000002'),
       supplierName: 'Nairobi Steel Works',
       deliveryDate: new Date('2026-04-03'),
       deliveryTime: '11:00',
@@ -378,7 +402,7 @@ async function main() {
       receivedById: siteSupervisor.id,
     },
     {
-      id: 'demo-delivery-0000-0000-0000-000000000003',
+      id: demoId('demo-delivery-0000-0000-0000-000000000003'),
       supplierName: 'Glazetech Windows',
       deliveryDate: new Date('2026-04-04'),
       deliveryTime: '14:00',
@@ -415,7 +439,7 @@ async function main() {
   // ── Workers ───────────────────────────────────────────────────────────────
   const workerSeedData = [
     {
-      id: 'demo-worker-000000-0000-0000-000000000001',
+      id: demoId('demo-worker-000000-0000-0000-000000000001'),
       firstName: 'Peter',   lastName: 'Kamau',
       trade: 'Mason',       phone: '+254 700 001 001',
       dailyWage: 1800,      currency: 'KES',
@@ -423,7 +447,7 @@ async function main() {
       emergencyContactName: 'Jane Kamau', emergencyContactPhone: '+254 700 001 002',
     },
     {
-      id: 'demo-worker-000000-0000-0000-000000000002',
+      id: demoId('demo-worker-000000-0000-0000-000000000002'),
       firstName: 'John',    lastName: 'Odhiambo',
       trade: 'Carpenter',   phone: '+254 700 002 001',
       dailyWage: 1600,      currency: 'KES',
@@ -431,21 +455,21 @@ async function main() {
       emergencyContactName: 'Mary Odhiambo', emergencyContactPhone: '+254 700 002 002',
     },
     {
-      id: 'demo-worker-000000-0000-0000-000000000003',
+      id: demoId('demo-worker-000000-0000-0000-000000000003'),
       firstName: 'Samuel',  lastName: 'Njoroge',
       trade: 'Electrician', phone: '+254 700 003 001',
       dailyWage: 2200,      currency: 'KES',
       idNumber: 'ID-003001',
     },
     {
-      id: 'demo-worker-000000-0000-0000-000000000004',
+      id: demoId('demo-worker-000000-0000-0000-000000000004'),
       firstName: 'David',   lastName: 'Otieno',
       trade: 'Plumber',     phone: '+254 700 004 001',
       dailyWage: 2000,      currency: 'KES',
       idNumber: 'ID-004001',
     },
     {
-      id: 'demo-worker-000000-0000-0000-000000000005',
+      id: demoId('demo-worker-000000-0000-0000-000000000005'),
       firstName: 'Grace',   lastName: 'Wanjiku',
       trade: 'Labourer',    phone: '+254 700 005 001',
       dailyWage: 1200,      currency: 'KES',
@@ -483,17 +507,17 @@ async function main() {
 
   // ── Labour entries ────────────────────────────────────────────────────────
   const labourSeedData = [
-    { workerId: 'demo-worker-000000-0000-0000-000000000001', date: new Date('2026-04-01'), hoursWorked: 8, dailyRate: 1800 },
-    { workerId: 'demo-worker-000000-0000-0000-000000000002', date: new Date('2026-04-01'), hoursWorked: 8, dailyRate: 1600 },
-    { workerId: 'demo-worker-000000-0000-0000-000000000003', date: new Date('2026-04-01'), hoursWorked: 8, dailyRate: 2200 },
-    { workerId: 'demo-worker-000000-0000-0000-000000000001', date: new Date('2026-04-02'), hoursWorked: 8, dailyRate: 1800 },
-    { workerId: 'demo-worker-000000-0000-0000-000000000004', date: new Date('2026-04-02'), hoursWorked: 6, dailyRate: 2000 },
-    { workerId: 'demo-worker-000000-0000-0000-000000000005', date: new Date('2026-04-02'), hoursWorked: 8, dailyRate: 1200 },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000001'), date: new Date('2026-04-01'), hoursWorked: 8, dailyRate: 1800 },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000002'), date: new Date('2026-04-01'), hoursWorked: 8, dailyRate: 1600 },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000003'), date: new Date('2026-04-01'), hoursWorked: 8, dailyRate: 2200 },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000001'), date: new Date('2026-04-02'), hoursWorked: 8, dailyRate: 1800 },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000004'), date: new Date('2026-04-02'), hoursWorked: 6, dailyRate: 2000 },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000005'), date: new Date('2026-04-02'), hoursWorked: 8, dailyRate: 1200 },
   ];
 
   for (let i = 0; i < labourSeedData.length; i++) {
     const l = labourSeedData[i];
-    const id = `demo-labour-entry-0000-0000-00000000000${i + 1}`;
+    const id = demoId(`demo-labour-entry-0000-0000-00000000000${i + 1}`);
     await prisma.labourEntry.upsert({
       where:  { id },
       update: {},
@@ -516,19 +540,19 @@ async function main() {
 
   // ── Attendance records ────────────────────────────────────────────────────
   const attendanceSeedData = [
-    { workerId: 'demo-worker-000000-0000-0000-000000000001', date: new Date('2026-04-07'), status: 'present' as const,  checkInTime: '07:30', checkOutTime: '17:00' },
-    { workerId: 'demo-worker-000000-0000-0000-000000000002', date: new Date('2026-04-07'), status: 'present' as const,  checkInTime: '07:45', checkOutTime: '17:00' },
-    { workerId: 'demo-worker-000000-0000-0000-000000000003', date: new Date('2026-04-07'), status: 'late' as const,     checkInTime: '09:15', checkOutTime: '17:00', notes: 'Traffic on Waiyaki Way' },
-    { workerId: 'demo-worker-000000-0000-0000-000000000004', date: new Date('2026-04-07'), status: 'present' as const,  checkInTime: '07:30', checkOutTime: '17:00' },
-    { workerId: 'demo-worker-000000-0000-0000-000000000005', date: new Date('2026-04-07'), status: 'excused' as const,  notes: 'Medical appointment — clearance obtained' },
-    { workerId: 'demo-worker-000000-0000-0000-000000000001', date: new Date('2026-04-06'), status: 'present' as const,  checkInTime: '07:30', checkOutTime: '17:00' },
-    { workerId: 'demo-worker-000000-0000-0000-000000000002', date: new Date('2026-04-06'), status: 'half_day' as const, checkInTime: '07:30', checkOutTime: '12:30', notes: 'Left at noon — family emergency' },
-    { workerId: 'demo-worker-000000-0000-0000-000000000003', date: new Date('2026-04-06'), status: 'absent' as const,   notes: 'No show — no prior notice' },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000001'), date: new Date('2026-04-07'), status: 'present' as const,  checkInTime: '07:30', checkOutTime: '17:00' },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000002'), date: new Date('2026-04-07'), status: 'present' as const,  checkInTime: '07:45', checkOutTime: '17:00' },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000003'), date: new Date('2026-04-07'), status: 'late' as const,     checkInTime: '09:15', checkOutTime: '17:00', notes: 'Traffic on Waiyaki Way' },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000004'), date: new Date('2026-04-07'), status: 'present' as const,  checkInTime: '07:30', checkOutTime: '17:00' },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000005'), date: new Date('2026-04-07'), status: 'excused' as const,  notes: 'Medical appointment — clearance obtained' },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000001'), date: new Date('2026-04-06'), status: 'present' as const,  checkInTime: '07:30', checkOutTime: '17:00' },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000002'), date: new Date('2026-04-06'), status: 'half_day' as const, checkInTime: '07:30', checkOutTime: '12:30', notes: 'Left at noon — family emergency' },
+    { workerId: demoId('demo-worker-000000-0000-0000-000000000003'), date: new Date('2026-04-06'), status: 'absent' as const,   notes: 'No show — no prior notice' },
   ];
 
   for (let i = 0; i < attendanceSeedData.length; i++) {
     const a   = attendanceSeedData[i];
-    const id  = `demo-attendance-0000-0000-0000-00000000000${i + 1}`;
+    const id  = demoId(`demo-attendance-0000-0000-0000-00000000000${i + 1}`);
     const existing = await prisma.attendanceRecord.findUnique({ where: { id } });
     if (!existing) {
       await prisma.attendanceRecord.create({
@@ -554,7 +578,7 @@ async function main() {
   // ── Daily targets ─────────────────────────────────────────────────────────
   const targetSeedData = [
     {
-      id:          'demo-target-000000-0000-0000-000000000001',
+      id:          demoId('demo-target-000000-0000-0000-000000000001'),
       date:        new Date('2026-04-07'),
       description: 'Pour concrete slab — Level 3',
       targetValue: 50,
@@ -563,7 +587,7 @@ async function main() {
       notes:       'Concrete mix: 1:2:4',
     },
     {
-      id:          'demo-target-000000-0000-0000-000000000002',
+      id:          demoId('demo-target-000000-0000-0000-000000000002'),
       date:        new Date('2026-04-07'),
       description: 'Install window frames — Block A',
       targetValue: 20,
@@ -572,16 +596,16 @@ async function main() {
       notes:       'All frames installed and sealed',
     },
     {
-      id:          'demo-target-000000-0000-0000-000000000003',
+      id:          demoId('demo-target-000000-0000-0000-000000000003'),
       date:        new Date('2026-04-07'),
       description: 'Lay brickwork — Ground floor east wall',
       targetValue: 500,
       targetUnit:  'bricks',
-      workerId:    'demo-worker-000000-0000-0000-000000000001',
+      workerId:    demoId('demo-worker-000000-0000-0000-000000000001'),
       notes:       'Mix ratio 1:3',
     },
     {
-      id:          'demo-target-000000-0000-0000-000000000004',
+      id:          demoId('demo-target-000000-0000-0000-000000000004'),
       date:        new Date('2026-04-06'),
       description: 'Steel bar cutting and bending — Level 2',
       targetValue: 2000,
@@ -589,13 +613,13 @@ async function main() {
       actualValue: 1800,
     },
     {
-      id:          'demo-target-000000-0000-0000-000000000005',
+      id:          demoId('demo-target-000000-0000-0000-000000000005'),
       date:        new Date('2026-04-06'),
       description: 'Electrical conduit installation — Ground floor',
       targetValue: 80,
       targetUnit:  'metres',
       actualValue: 80,
-      workerId:    'demo-worker-000000-0000-0000-000000000003',
+      workerId:    demoId('demo-worker-000000-0000-0000-000000000003'),
       notes:       'Phase 1 complete',
     },
   ];
@@ -624,7 +648,7 @@ async function main() {
 
   // Approve the first two targets
   await prisma.dailyTarget.updateMany({
-    where: { id: { in: ['demo-target-000000-0000-0000-000000000001', 'demo-target-000000-0000-0000-000000000002'] } },
+    where: { id: { in: [demoId('demo-target-000000-0000-0000-000000000001'), demoId('demo-target-000000-0000-0000-000000000002')] } },
     data: { approvedById: siteSupervisor.id, approvedAt: new Date('2026-04-07T17:30:00Z') },
   });
 
@@ -632,10 +656,10 @@ async function main() {
 
   // ── Contractors ───────────────────────────────────────────────────────────
   const contractorReg = await prisma.contractor.upsert({
-    where: { id: 'demo-contractor-0000-0000-000000000001' },
+    where: { id: demoId('demo-contractor-0000-0000-000000000001') },
     update: {},
     create: {
-      id:                  'demo-contractor-0000-0000-000000000001',
+      id:                  demoId('demo-contractor-0000-0000-000000000001'),
       companyId:           company.id,
       userId:              contractor.id,
       name:                'BuildRight Civil Works Ltd',
@@ -648,10 +672,10 @@ async function main() {
   });
 
   const contractor2 = await prisma.contractor.upsert({
-    where: { id: 'demo-contractor-0000-0000-000000000002' },
+    where: { id: demoId('demo-contractor-0000-0000-000000000002') },
     update: {},
     create: {
-      id:                  'demo-contractor-0000-0000-000000000002',
+      id:                  demoId('demo-contractor-0000-0000-000000000002'),
       companyId:           company.id,
       name:                'SteelPro Fabrications',
       contactPerson:       'James Mwangi',
@@ -666,10 +690,10 @@ async function main() {
 
   // ── Work Packages & Schedule Tasks ────────────────────────────────────────
   const pkg1 = await prisma.workPackage.upsert({
-    where: { id: 'demo-workpkg-0000-0000-000000000001' },
+    where: { id: demoId('demo-workpkg-0000-0000-000000000001') },
     update: {},
     create: {
-      id:           'demo-workpkg-0000-0000-000000000001',
+      id:           demoId('demo-workpkg-0000-0000-000000000001'),
       companyId:    company.id,
       projectId:    project.id,
       siteId:       site.id,
@@ -685,10 +709,10 @@ async function main() {
   });
 
   await prisma.workPackage.upsert({
-    where: { id: 'demo-workpkg-0000-0000-000000000002' },
+    where: { id: demoId('demo-workpkg-0000-0000-000000000002') },
     update: {},
     create: {
-      id:           'demo-workpkg-0000-0000-000000000002',
+      id:           demoId('demo-workpkg-0000-0000-000000000002'),
       companyId:    company.id,
       projectId:    project.id,
       siteId:       site.id,
@@ -704,10 +728,10 @@ async function main() {
   });
 
   const task1 = await prisma.scheduleTask.upsert({
-    where: { id: 'demo-task-000000-0000-0000-000000000001' },
+    where: { id: demoId('demo-task-000000-0000-0000-000000000001') },
     update: {},
     create: {
-      id:               'demo-task-000000-0000-0000-000000000001',
+      id:               demoId('demo-task-000000-0000-0000-000000000001'),
       companyId:        company.id,
       projectId:        project.id,
       siteId:           site.id,
@@ -730,10 +754,10 @@ async function main() {
   });
 
   const task2 = await prisma.scheduleTask.upsert({
-    where: { id: 'demo-task-000000-0000-0000-000000000002' },
+    where: { id: demoId('demo-task-000000-0000-0000-000000000002') },
     update: {},
     create: {
-      id:               'demo-task-000000-0000-0000-000000000002',
+      id:               demoId('demo-task-000000-0000-0000-000000000002'),
       companyId:        company.id,
       projectId:        project.id,
       siteId:           site.id,
@@ -755,10 +779,10 @@ async function main() {
   });
 
   const task3 = await prisma.scheduleTask.upsert({
-    where: { id: 'demo-task-000000-0000-0000-000000000003' },
+    where: { id: demoId('demo-task-000000-0000-0000-000000000003') },
     update: {},
     create: {
-      id:               'demo-task-000000-0000-0000-000000000003',
+      id:               demoId('demo-task-000000-0000-0000-000000000003'),
       companyId:        company.id,
       projectId:        project.id,
       siteId:           site.id,
@@ -781,10 +805,10 @@ async function main() {
   });
 
   const task4 = await prisma.scheduleTask.upsert({
-    where: { id: 'demo-task-000000-0000-0000-000000000004' },
+    where: { id: demoId('demo-task-000000-0000-0000-000000000004') },
     update: {},
     create: {
-      id:               'demo-task-000000-0000-0000-000000000004',
+      id:               demoId('demo-task-000000-0000-0000-000000000004'),
       companyId:        company.id,
       projectId:        project.id,
       siteId:           site.id,
@@ -986,10 +1010,10 @@ async function main() {
 
   // ── Finance inflow ────────────────────────────────────────────────────────
   await prisma.financeInflow.upsert({
-    where: { id: 'demo-finance-inflow-000000000001' },
+    where: { id: demoId('demo-finance-inflow-000000000001') },
     update: {},
     create: {
-      id: 'demo-finance-inflow-000000000001',
+      id: demoId('demo-finance-inflow-000000000001'),
       companyId: company.id,
       projectId: project.id,
       sourceType: 'sales_revenue',
@@ -1006,12 +1030,12 @@ async function main() {
   // ── Invoices ───────────────────────────────────────────────────────────────
   const invoiceSeed = [
     {
-      id:            'demo-invoice-0000-0000-0000-000000000001',
+      id:            demoId('demo-invoice-0000-0000-0000-000000000001'),
       invoiceNumber: 'INV-2026-001',
       vendorType:    'contractor' as const,
-      contractorId:  'demo-contractor-0000-0000-0000-000000000001',
+      contractorId:  demoId('demo-contractor-0000-0000-0000-000000000001'),
       vendorName:    'BuildRight Construction Ltd',
-      budgetLineItemId: 'demo-budget-line-subcontractors',
+      budgetLineItemId: demoId('demo-budget-line-subcontractors'),
       subtotal:      4500000,
       taxAmount:     675000,
       totalAmount:   5175000,
@@ -1026,12 +1050,12 @@ async function main() {
       notes:         'Foundation works — Progress claim 1',
     },
     {
-      id:            'demo-invoice-0000-0000-0000-000000000002',
+      id:            demoId('demo-invoice-0000-0000-0000-000000000002'),
       invoiceNumber: 'INV-2026-002',
       vendorType:    'supplier' as const,
-      supplierId:    'demo-supplier-0000-0000-0000-000000000001',
+      supplierId:    demoId('demo-supplier-0000-0000-0000-000000000001'),
       vendorName:    'East Africa Cement Ltd',
-      budgetLineItemId: 'demo-budget-line-materials',
+      budgetLineItemId: demoId('demo-budget-line-materials'),
       subtotal:      1200000,
       taxAmount:     192000,
       totalAmount:   1392000,
@@ -1045,12 +1069,12 @@ async function main() {
       notes:         'Cement delivery batch 3 — partial payment pending',
     },
     {
-      id:            'demo-invoice-0000-0000-0000-000000000003',
+      id:            demoId('demo-invoice-0000-0000-0000-000000000003'),
       invoiceNumber: 'INV-2026-003',
       vendorType:    'consultant' as const,
       consultantUserId: consultant.id,
       vendorName:    'Apex Engineers Ltd',
-      budgetLineItemId: 'demo-budget-line-consultants',
+      budgetLineItemId: demoId('demo-budget-line-consultants'),
       consultantCostEntryId: null as null,
       subtotal:      350000,
       taxAmount:     0,
@@ -1065,11 +1089,11 @@ async function main() {
       notes:         'Structural engineering fees — Q1 2026',
     },
     {
-      id:            'demo-invoice-0000-0000-0000-000000000004',
+      id:            demoId('demo-invoice-0000-0000-0000-000000000004'),
       invoiceNumber: 'INV-2026-004',
       vendorType:    'marketing' as const,
       vendorName:    'DigitalAds Kenya',
-      budgetLineItemId: 'demo-budget-line-marketing',
+      budgetLineItemId: demoId('demo-budget-line-marketing'),
       subtotal:      180000,
       taxAmount:     0,
       totalAmount:   180000,
@@ -1081,12 +1105,12 @@ async function main() {
       notes:         'Digital marketing campaign — March 2026',
     },
     {
-      id:            'demo-invoice-0000-0000-0000-000000000005',
+      id:            demoId('demo-invoice-0000-0000-0000-000000000005'),
       invoiceNumber: 'INV-2026-005',
       vendorType:    'contractor' as const,
-      contractorId:  'demo-contractor-0000-0000-0000-000000000001',
+      contractorId:  demoId('demo-contractor-0000-0000-0000-000000000001'),
       vendorName:    'BuildRight Construction Ltd',
-      budgetLineItemId: 'demo-budget-line-subcontractors',
+      budgetLineItemId: demoId('demo-budget-line-subcontractors'),
       subtotal:      3200000,
       taxAmount:     480000,
       totalAmount:   3680000,
@@ -1120,7 +1144,7 @@ async function main() {
   }
 
   // Add payment records for paid invoice
-  const paidInvoice = await prisma.invoice.findUnique({ where: { id: 'demo-invoice-0000-0000-0000-000000000001' } });
+  const paidInvoice = await prisma.invoice.findUnique({ where: { id: demoId('demo-invoice-0000-0000-0000-000000000001') } });
   if (paidInvoice) {
     const existingPayments = await prisma.invoicePayment.findFirst({ where: { invoiceId: paidInvoice.id } });
     if (!existingPayments) {
@@ -1141,7 +1165,7 @@ async function main() {
   }
 
   // Add partial payment for partially_paid invoice
-  const partialInvoice = await prisma.invoice.findUnique({ where: { id: 'demo-invoice-0000-0000-0000-000000000002' } });
+  const partialInvoice = await prisma.invoice.findUnique({ where: { id: demoId('demo-invoice-0000-0000-0000-000000000002') } });
   if (partialInvoice) {
     const existingPayments = await prisma.invoicePayment.findFirst({ where: { invoiceId: partialInvoice.id } });
     if (!existingPayments) {
@@ -1162,7 +1186,7 @@ async function main() {
   }
 
   // Add line items for the draft invoice
-  const draftInvoice = await prisma.invoice.findUnique({ where: { id: 'demo-invoice-0000-0000-0000-000000000005' } });
+  const draftInvoice = await prisma.invoice.findUnique({ where: { id: demoId('demo-invoice-0000-0000-0000-000000000005') } });
   if (draftInvoice) {
     const existingLines = await prisma.invoiceLineItem.findFirst({ where: { invoiceId: draftInvoice.id } });
     if (!existingLines) {
