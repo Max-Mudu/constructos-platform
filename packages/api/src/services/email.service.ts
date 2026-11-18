@@ -84,6 +84,9 @@ interface OutgoingEmail {
  *  - SMTP unset + production → log only that the email was not sent.
  *  - SMTP unset + development/test → print the link locally (guarded by
  *    !isProduction) so developers can follow the flow without SMTP.
+ *  - SMTP unset + CI (the CI variable is set) → print neither the link nor
+ *    the recipient: CI job logs can be readable by others. The API response
+ *    outside production is unchanged, so CI scripts still get the link there.
  *  - SMTP failure → rethrow a fresh error built only from the error code, so
  *    an SMTP response that echoes the message body cannot leak the link
  *    through the global error handler.
@@ -97,6 +100,8 @@ async function deliver(email: OutgoingEmail): Promise<boolean> {
         `[email] SMTP not configured — ${email.kind} email not sent. ` +
         'Set SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM in env vars.',
       );
+    } else if (env.isCI) {
+      console.log(`[email-dev] ${email.kind} email not sent (SMTP not configured; link not printed in CI)`);
     } else {
       console.log(`[email-dev] ${email.kind} for ${email.to} → ${email.link}`);
     }

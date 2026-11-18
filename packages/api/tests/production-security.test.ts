@@ -105,8 +105,8 @@ describe('email service — links never logged in production', () => {
     expect(output).not.toContain('new@example.com');
   });
 
-  it('positive control: development + SMTP unset still logs the link for local use', async () => {
-    const { output } = await withEnv({ isProduction: false, SMTP_HOST: '' }, () =>
+  it('positive control: development + SMTP unset (outside CI) still logs the link for local use', async () => {
+    const { output } = await withEnv({ isProduction: false, isCI: false, SMTP_HOST: '' }, () =>
       captureConsole(() => emailService.sendPasswordResetEmail('dev@example.com', LINK)),
     );
     expect(output).toContain('SECRET_TOKEN_abc123');
