@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Starts a throwaway PostgreSQL and the API on this runner, applies the Prisma
-# migrations and creates one company with one user for the smoke test.
-# The user's password is generated here, masked in the log and never printed.
+# migrations and creates one company with its admin, then (seed-fixture.mjs)
+# a project manager, a site supervisor and the records the role flows read.
+# The password is generated here, masked in the log and never printed.
 set -euo pipefail
 : "${OUT:?}" "${RUNNER_TEMP:?}" "${DATABASE_URL:?}"
 
@@ -80,5 +81,10 @@ echo "API login with the generated password: HTTP $code"
 code="$(post /auth/login "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"Wrong-password-1\"}")"
 echo "API login with a wrong password: HTTP $code"
 [ "$code" = 401 ]
+
+# Project manager, site supervisor and the records the role flows read
+# (04, 05). Appends PM_EMAIL and SUP_EMAIL to the credentials file.
+API_ORIGIN="$API_ORIGIN" node "$REPO_ROOT/packages/mobile/ios-ci/seed-fixture.mjs" \
+  "$RUNNER_TEMP/smoke-credentials" "$RUNNER_TEMP/fixture.json"
 
 echo "Backend ready: PostgreSQL on localhost:5432, API on $API_ORIGIN, test user $SMOKE_EMAIL"
