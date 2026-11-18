@@ -41,8 +41,10 @@ export async function sendPushToUser(
   body: string,
   data?: Record<string, unknown>,
 ): Promise<void> {
+  // Deactivated accounts get no pushes; their device rows are kept so a
+  // reactivation restores delivery.
   const tokens = await prisma.pushToken.findMany({
-    where: { userId },
+    where: { userId, user: { isActive: true } },
     select: { token: true },
   });
 
