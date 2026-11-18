@@ -294,6 +294,46 @@ describe('detail pages without ?projectId no longer spin forever', () => {
   });
 });
 
+describe('instruction attachments: upload offered only where the API allows it', () => {
+  const instruction = (issuedById: string) => ({
+    id: 'i1', companyId: 'c1', projectId: 'p1', siteId: null, contractorId: null, issuedById,
+    type: 'instruction', title: 'Fix the parapet', category: null, priority: 'medium', status: 'open',
+    description: null, issuedDate: '2026-11-01', targetActionDate: null, drawingId: null, revisionId: null,
+    milestoneId: null, workPackageId: null, contractorResponse: null, resolutionNotes: null,
+    createdAt: '', updatedAt: '', issuedBy: { id: issuedById, firstName: 'Ann', lastName: 'Issuer', role: 'consultant' },
+    site: null, contractor: null, drawing: null, revision: null, milestone: null, workPackage: null, attachments: [],
+  });
+
+  async function renderAs(role: UserRole, issuedById: string) {
+    asUser(role);
+    mockParams.mockReturnValue({ instructionId: 'i1' });
+    mockSearch.mockImplementation(() => new URLSearchParams('projectId=p1'));
+    mockApi.instructionGet.mockResolvedValue({ instruction: instruction(issuedById) });
+    render(<InstructionDetailPage />);
+    expect(await screen.findByText('No attachments')).toBeInTheDocument();
+  }
+
+  it('the issuing consultant sees the upload control', async () => {
+    await renderAs('consultant', 'me');
+    expect(screen.getByRole('button', { name: /Upload/ })).toBeInTheDocument();
+  });
+
+  it('another consultant does not', async () => {
+    await renderAs('consultant', 'someone-else');
+    expect(screen.queryByRole('button', { name: /Upload/ })).not.toBeInTheDocument();
+  });
+
+  it('a project manager sees it on any instruction', async () => {
+    await renderAs('project_manager', 'someone-else');
+    expect(screen.getByRole('button', { name: /Upload/ })).toBeInTheDocument();
+  });
+
+  it('a company admin sees it on any instruction', async () => {
+    await renderAs('company_admin', 'someone-else');
+    expect(screen.getByRole('button', { name: /Upload/ })).toBeInTheDocument();
+  });
+});
+
 // ── silent failures ──────────────────────────────────────────────────────────
 
 const site = { id: 's1', companyId: 'c1', projectId: 'p1', name: 'North Yard', address: null, latitude: null, longitude: null, isActive: true, createdAt: '' };
