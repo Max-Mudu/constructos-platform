@@ -423,25 +423,57 @@ export async function adjustStock(
 
 // ─── Threshold management ─────────────────────────────────────────────────────
 
+/**
+ * Sets or clears the low-stock level of one inventory item. The change and its
+ * audit row (level before and after) commit together. The item row is locked
+ * first, so the recorded before value is the one this change replaced even
+ * when several changes of the same item arrive at once.
+ */
 export async function updateThreshold(
   projectId:   string,
   siteId:      string,
   inventoryId: string,
   threshold:   number | null,
   actor:       RequestUser,
+  request:     { ip?: string; userAgent?: string } = {},
 ) {
   await checkSiteAccess(siteId, projectId, actor);
 
-  const existing = await prisma.siteInventory.findFirst({
-    where:  { id: inventoryId, siteId, companyId: actor.companyId },
-    select: { id: true },
-  });
-  if (!existing) throw new NotFoundError('Inventory item');
+  const updated = await prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "site_inventory"
+      WHERE "id" = ${inventoryId} AND "siteId" = ${siteId} AND "companyId" = ${actor.companyId}
+      FOR UPDATE`;
+    if (locked.length === 0) throw new NotFoundError('Inventory item');
 
-  const updated = await prisma.siteInventory.update({
-    where:  { id: inventoryId },
-    data:   { lowStockThreshold: threshold !== null ? new Prisma.Decimal(threshold) : null },
-    select: INVENTORY_ITEM_SELECT,
+    const before = await tx.siteInventory.findUniqueOrThrow({
+      where:  { id: inventoryId },
+      select: { lowStockThreshold: true },
+    });
+
+    const after = await tx.siteInventory.update({
+      where:  { id: inventoryId },
+      data:   { lowStockThreshold: threshold !== null ? new Prisma.Decimal(threshold) : null },
+      select: INVENTORY_ITEM_SELECT,
+    });
+
+    await tx.auditLog.create({
+      data: {
+        companyId:     actor.companyId,
+        userId:        actor.id,
+        userEmail:     actor.email,
+        userRole:      actor.role,
+        action:        'update',
+        entityType:    'site_inventory',
+        entityId:      inventoryId,
+        changesBefore: { lowStockThreshold: before.lowStockThreshold?.toString() ?? null },
+        changesAfter:  { lowStockThreshold: after.lowStockThreshold?.toString() ?? null },
+        ipAddress: request.ip ?? null,
+        userAgent: request.userAgent ?? null,
+      },
+    });
+
+    return after;
   });
 
   return {

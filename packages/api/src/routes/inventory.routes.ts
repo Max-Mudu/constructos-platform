@@ -109,6 +109,7 @@ export async function inventoryRoutes(fastify: FastifyInstance): Promise<void> {
         }
         const item = await inventoryService.updateThreshold(
           projectId, siteId, inventoryId, parsed.data.lowStockThreshold, request.user,
+          { ip: request.ip, userAgent: request.headers['user-agent'] },
         );
         return reply.send({ item });
       } catch (err) {

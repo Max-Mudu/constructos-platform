@@ -1,6 +1,6 @@
-import { AttendanceStatus } from '@prisma/client';
+import { AttendanceStatus, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { NotFoundError, ForbiddenError } from '../utils/errors';
+import { NotFoundError, ForbiddenError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
 
@@ -87,6 +87,37 @@ async function validateWorkerOnSite(
   }
 }
 
+/**
+ * Check-in and check-out are "HH:MM" times on the record's date (the product
+ * has no overnight shifts), so a check-out earlier than the check-in is
+ * rejected. Equal times are allowed. Zero-padded HH:MM strings sort in time
+ * order, so a string comparison is exact.
+ */
+function assertTimeOrder(checkInTime: string | null, checkOutTime: string | null): void {
+  if (checkInTime && checkOutTime && checkOutTime < checkInTime) {
+    throw new ValidationError(
+      `Check-out time (${checkOutTime}) cannot be earlier than check-in time (${checkInTime})`,
+    );
+  }
+}
+
+/**
+ * Locks one attendance record row until the surrounding transaction ends, so
+ * a change that is checked against the stored times cannot interleave with
+ * another change of the same record. Returns false when no row matches.
+ */
+async function lockAttendanceRecord(
+  tx: Prisma.TransactionClient,
+  where: { id: string; projectId: string; siteId: string; companyId: string },
+): Promise<boolean> {
+  const locked = await tx.$queryRaw<Array<{ id: string }>>`
+    SELECT "id" FROM "attendance_records"
+    WHERE "id" = ${where.id} AND "projectId" = ${where.projectId}
+      AND "siteId" = ${where.siteId} AND "companyId" = ${where.companyId}
+    FOR UPDATE`;
+  return locked.length === 1;
+}
+
 function buildDateFilter(filters: ListAttendanceFilters): object {
   if (filters.date) {
     const d    = new Date(filters.date);
@@ -150,6 +181,7 @@ export async function createAttendanceRecord(
   actor: RequestUser,
 ) {
   await checkSiteAccess(siteId, projectId, actor);
+  assertTimeOrder(input.checkInTime ?? null, input.checkOutTime ?? null);
   await validateWorkerOnSite(input.workerId, siteId, projectId, actor.companyId);
 
   // Check for duplicate (one attendance per worker per site per day)
@@ -205,38 +237,58 @@ export async function updateAttendanceRecord(
 ) {
   await checkSiteAccess(siteId, projectId, actor);
 
-  const before = await prisma.attendanceRecord.findFirst({
-    where: { id: recordId, projectId, siteId, companyId: actor.companyId },
-    select: RECORD_SELECT,
-  });
-  if (!before) throw new NotFoundError('Attendance record');
+  // The record row is locked before the times are checked, so a time sent
+  // alone is checked against the other time as it is stored when this change
+  // commits, not as it was when the request started. The update and its audit
+  // row commit together.
+  return prisma.$transaction(async (tx) => {
+    const found = await lockAttendanceRecord(tx, {
+      id: recordId, projectId, siteId, companyId: actor.companyId,
+    });
+    if (!found) throw new NotFoundError('Attendance record');
 
-  const updated = await prisma.attendanceRecord.update({
-    where: { id: recordId },
-    data: {
-      ...(input.status       !== undefined && { status:       input.status }),
-      ...(input.checkInTime  !== undefined && { checkInTime:  input.checkInTime }),
-      ...(input.checkOutTime !== undefined && { checkOutTime: input.checkOutTime }),
-      ...(input.notes        !== undefined && { notes:        input.notes }),
-    },
-    select: RECORD_SELECT,
-  });
+    const before = await tx.attendanceRecord.findUniqueOrThrow({
+      where: { id: recordId },
+      select: RECORD_SELECT,
+    });
 
-  await prisma.auditLog.create({
-    data: {
-      companyId:     actor.companyId,
-      userId:        actor.id,
-      userEmail:     actor.email,
-      userRole:      actor.role,
-      action:        'update',
-      entityType:    'attendance_record',
-      entityId:      recordId,
-      changesBefore: before  as object,
-      changesAfter:  updated as object,
-    },
-  });
+    // Only a request that changes a time is checked, so a status or notes
+    // correction still works on an older record whose stored times are out
+    // of order.
+    if (input.checkInTime !== undefined || input.checkOutTime !== undefined) {
+      assertTimeOrder(
+        input.checkInTime  !== undefined ? input.checkInTime  : before.checkInTime,
+        input.checkOutTime !== undefined ? input.checkOutTime : before.checkOutTime,
+      );
+    }
 
-  return updated;
+    const updated = await tx.attendanceRecord.update({
+      where: { id: recordId },
+      data: {
+        ...(input.status       !== undefined && { status:       input.status }),
+        ...(input.checkInTime  !== undefined && { checkInTime:  input.checkInTime }),
+        ...(input.checkOutTime !== undefined && { checkOutTime: input.checkOutTime }),
+        ...(input.notes        !== undefined && { notes:        input.notes }),
+      },
+      select: RECORD_SELECT,
+    });
+
+    await tx.auditLog.create({
+      data: {
+        companyId:     actor.companyId,
+        userId:        actor.id,
+        userEmail:     actor.email,
+        userRole:      actor.role,
+        action:        'update',
+        entityType:    'attendance_record',
+        entityId:      recordId,
+        changesBefore: before  as object,
+        changesAfter:  updated as object,
+      },
+    });
+
+    return updated;
+  });
 }
 
 export async function deleteAttendanceRecord(
@@ -314,30 +366,47 @@ export async function selfAttendance(
   });
 
   if (existing) {
-    // Update check-in time / notes if provided
-    const updated = await prisma.attendanceRecord.update({
-      where: { id: existing.id },
-      data: {
-        ...(input.checkInTime !== undefined && { checkInTime: input.checkInTime }),
-        ...(input.notes       !== undefined && { notes:       input.notes }),
-      },
-      select: RECORD_SELECT,
-    });
+    // Update check-in time / notes if provided. A check-out may have been
+    // recorded by a supervisor since; the new check-in is checked against it
+    // under the row lock, and the update and its audit row commit together.
+    return prisma.$transaction(async (tx) => {
+      const found = await lockAttendanceRecord(tx, {
+        id: existing.id, projectId: existing.projectId, siteId: existing.siteId, companyId: existing.companyId,
+      });
+      if (!found) throw new NotFoundError('Attendance record');
 
-    await prisma.auditLog.create({
-      data: {
-        companyId:    actor.companyId,
-        userId:       actor.id,
-        userEmail:    actor.email,
-        userRole:     actor.role,
-        action:       'update',
-        entityType:   'attendance_record',
-        entityId:     existing.id,
-        changesAfter: updated as object,
-      },
-    });
+      if (input.checkInTime !== undefined) {
+        const current = await tx.attendanceRecord.findUniqueOrThrow({
+          where:  { id: existing.id },
+          select: { checkOutTime: true },
+        });
+        assertTimeOrder(input.checkInTime, current.checkOutTime);
+      }
 
-    return updated;
+      const updated = await tx.attendanceRecord.update({
+        where: { id: existing.id },
+        data: {
+          ...(input.checkInTime !== undefined && { checkInTime: input.checkInTime }),
+          ...(input.notes       !== undefined && { notes:       input.notes }),
+        },
+        select: RECORD_SELECT,
+      });
+
+      await tx.auditLog.create({
+        data: {
+          companyId:    actor.companyId,
+          userId:       actor.id,
+          userEmail:    actor.email,
+          userRole:     actor.role,
+          action:       'update',
+          entityType:   'attendance_record',
+          entityId:     existing.id,
+          changesAfter: updated as object,
+        },
+      });
+
+      return updated;
+    });
   }
 
   const record = await prisma.attendanceRecord.create({
