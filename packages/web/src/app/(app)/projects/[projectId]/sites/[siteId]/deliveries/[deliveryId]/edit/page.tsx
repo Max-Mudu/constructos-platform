@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { deliveryApi, supplierApi, ApiError } from '@/lib/api';
 import { formErrorState } from '@/lib/workflows-form-errors';
+import { useRevealError } from '@/hooks/useRevealError';
 import { acceptancePatch } from '@/lib/workflows-delivery';
 import { DeliveryRecord, DeliveryCondition, InspectionStatus, AcceptanceStatus, Supplier } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -56,6 +57,7 @@ export default function EditDeliveryPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]       = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+  const errorRef = useRevealError(error);
 
   // ── Controlled field state (pre-filled from delivery) ──────────────────────
   const [supplierName, setSupplierName]           = useState('');
@@ -155,7 +157,8 @@ export default function EditDeliveryPage() {
     } catch (err) {
       const shown = formErrorState(err, ['supplierName', 'itemDescription'], 'Failed to update delivery record');
       setFieldErrors(shown.fieldErrors);
-      setError(shown.message);
+      // The banner is what is brought into view, so it also names inline-only errors.
+      setError(shown.message || 'Please correct the highlighted fields below.');
       setSubmitting(false);
     }
   }
@@ -203,12 +206,14 @@ export default function EditDeliveryPage() {
         </p>
       </div>
 
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+      <div ref={errorRef} tabIndex={-1} className={error ? 'outline-none' : 'hidden'}>
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-8">
 

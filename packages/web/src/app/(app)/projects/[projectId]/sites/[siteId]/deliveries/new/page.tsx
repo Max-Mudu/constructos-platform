@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { deliveryApi, supplierApi } from '@/lib/api';
 import { localToday } from '@/lib/workflows-dates';
 import { formErrorState } from '@/lib/workflows-form-errors';
+import { useRevealError } from '@/hooks/useRevealError';
 import { DeliveryCondition, InspectionStatus, AcceptanceStatus, Supplier } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -57,6 +58,7 @@ export default function NewDeliveryPage() {
   const [supplierContact, setSupplierContact] = useState('');
 
   const formRef = useRef<HTMLFormElement>(null);
+  const errorRef = useRevealError(error);
 
   // Optional quick-fill: supplier details can always be typed in, so a failed
   // list just leaves the picker hidden.
@@ -112,7 +114,8 @@ export default function NewDeliveryPage() {
     } catch (err) {
       const shown = formErrorState(err, ['supplierName', 'deliveryDate', 'itemDescription'], 'Failed to save delivery record');
       setFieldErrors(shown.fieldErrors);
-      setError(shown.message);
+      // The banner is what is brought into view, so it also names inline-only errors.
+      setError(shown.message || 'Please correct the highlighted fields below.');
       setSubmitting(false);
     }
   }
@@ -134,12 +137,14 @@ export default function NewDeliveryPage() {
         </p>
       </div>
 
-      {error && (
-        <Alert variant="destructive">
-          <AlertCircle />
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+      <div ref={errorRef} tabIndex={-1} className={error ? 'outline-none' : 'hidden'}>
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+      </div>
 
       <form ref={formRef} onSubmit={handleSubmit} className="space-y-8">
 
