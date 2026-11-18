@@ -1,0 +1,114 @@
+# Signs in as the project manager seed-fixture.mjs created, checks the role's
+# tab set and, on every tab, waits for a record that exists only in the API on
+# this runner (created by seed-fixture.mjs), not just the tab title.
+# Stays signed in: smoke.sh then reinstalls the app and flow 05 checks that the
+# reinstalled app does not reuse this session from the Keychain.
+#
+# Selector notes (iOS): a touchable's children are exposed as ONE element whose
+# label joins their texts with ", " (for example "🏗, Project, <name>, ›"), so
+# list rows are matched with ".*<text>.*". Tab buttons are
+# "<title>, tab, <n> of <count>".
+appId: com.constructos.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 90000
+- runFlow:
+    file: subflows/enter-credentials.yaml
+    env:
+      EMAIL: ${PM_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+- tapOn: "Sign in"
+# A sign-in the loaded runner answers too slowly is tried again (see the subflow).
+- runFlow:
+    file: subflows/retry-sign-in-if-unreachable.yaml
+    env:
+      WAIT_FOR: "(Cannot reach the server.*|Dashboard, tab.*|Save Password.)"
+# Either the tab bar or iOS's Save Password prompt (which hides the app from
+# the test driver) proves the sign-in succeeded; the prompt can come first
+# (run 44285338082, flow 05).
+- extendedWaitUntil:
+    visible: "(Dashboard, tab.*|Save Password\\?)"
+    timeout: 60000
+# iOS offers to save the password shortly after the login form goes away and
+# the prompt hides the app from the test driver (see flow 03).
+- extendedWaitUntil:
+    visible: "Save Password\\?"
+    timeout: 10000
+    optional: true
+- tapOn:
+    text: "Not Now"
+    optional: true
+- extendedWaitUntil:
+    visible: "Dashboard, tab.*"
+    timeout: 30000
+- waitForAnimationToEnd
+
+# Tab set for project_manager (src/constants/roleTabs.ts): 9 tabs, no
+# Invoices or Attendance.
+- assertVisible: "Profile, tab, 9 of 9"
+- assertNotVisible: "Invoices, tab.*"
+- assertNotVisible: "Attendance, tab.*"
+
+# Dashboard: first name from the login response, project from GET /dashboard.
+- extendedWaitUntil:
+    visible: "Pendo"
+    timeout: 20000
+- extendedWaitUntil:
+    visible: ".*iOS CI Smoke Co Main Project.*"
+    timeout: 20000
+- takeScreenshot: pm-01-dashboard
+
+- tapOn: "Projects, tab.*"
+- extendedWaitUntil:
+    visible: ".*iOS CI Smoke Co Main Project.*"
+    timeout: 20000
+- takeScreenshot: pm-02-projects
+
+- tapOn: "Labour, tab.*"
+- extendedWaitUntil:
+    visible: ".*Wanjiru Kamau.*"
+    timeout: 20000
+- takeScreenshot: pm-03-labour
+
+- tapOn: "Deliveries, tab.*"
+- extendedWaitUntil:
+    visible: ".*Bamburi Cement Ltd.*"
+    timeout: 20000
+- takeScreenshot: pm-04-deliveries
+
+# The inventory item exists only because the API credited the accepted delivery.
+- tapOn: "Inventory, tab.*"
+- extendedWaitUntil:
+    visible: ".*Cement 50kg bags.*"
+    timeout: 20000
+- takeScreenshot: pm-05-inventory
+
+# The task is planned for today, so the default "Today" filter shows it.
+- tapOn: "Schedule, tab.*"
+- extendedWaitUntil:
+    visible: ".*Pour ground floor slab.*"
+    timeout: 20000
+- takeScreenshot: pm-06-schedule
+
+# Reports lists the report types (static); the downloads are not exercised.
+- tapOn: "Reports, tab.*"
+- extendedWaitUntil:
+    visible: ".*Labour Report.*"
+    timeout: 20000
+- takeScreenshot: pm-07-reports
+
+# The fixture creates no notifications: the API returns an empty list.
+- tapOn: "Alerts, tab.*"
+- extendedWaitUntil:
+    visible: "No notifications"
+    timeout: 20000
+- takeScreenshot: pm-08-alerts
+
+- tapOn: "Profile, tab.*"
+- extendedWaitUntil:
+    visible: ${PM_EMAIL}
+    timeout: 20000
+- assertVisible: ".*Project Manager.*"
+- takeScreenshot: pm-09-profile

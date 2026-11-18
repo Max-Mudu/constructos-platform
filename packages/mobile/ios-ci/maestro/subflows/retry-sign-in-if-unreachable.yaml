@@ -1,0 +1,40 @@
+# Run right after tapping "Sign in". Waits for the result and, if the app says
+# it cannot reach the server, dismisses the message and signs in again, up to
+# twice, as a user would.
+#
+# Why: the app gives a request 15 seconds. On this runner the API shares three
+# cores with the simulator and the test driver, and in run 44324537648 the
+# app's sign-ins took 3 to 10 seconds and one took longer than 15 (the app had
+# connected and sent the request; the same API answered in about a second
+# before and after). The form keeps the typed e-mail and password.
+#
+# A retry shows in the log as the "Cannot reach the server" block being run
+# instead of skipped. The calling flow still makes its own strict checks
+# afterwards, so a sign-in that never succeeds still fails the flow.
+#
+# Env: WAIT_FOR, a pattern matching either the "cannot reach" message or the
+# result the calling flow expects. Avoid backslashes in it: use "." for a
+# literal "?".
+appId: com.constructos.app
+---
+- extendedWaitUntil:
+    visible: ${WAIT_FOR}
+    timeout: 60000
+- runFlow:
+    when:
+      visible: "Cannot reach the server.*"
+    commands:
+      - tapOn: "OK"
+      - tapOn: "Sign in"
+      - extendedWaitUntil:
+          visible: ${WAIT_FOR}
+          timeout: 60000
+- runFlow:
+    when:
+      visible: "Cannot reach the server.*"
+    commands:
+      - tapOn: "OK"
+      - tapOn: "Sign in"
+      - extendedWaitUntil:
+          visible: ${WAIT_FOR}
+          timeout: 60000
