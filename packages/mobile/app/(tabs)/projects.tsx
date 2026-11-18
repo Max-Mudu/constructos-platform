@@ -18,6 +18,8 @@ import {
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { getAccessToken } from '../../src/auth/secureStorage';
+import { apiClient } from '../../src/api/client';
+import { drawingPdfFileName } from '../../src/utils/drawingFile';
 import { projectsApi } from '../../src/api/projects';
 import { drawingsApi } from '../../src/api/drawings';
 import { instructionsApi } from '../../src/api/instructions';
@@ -820,8 +822,7 @@ export default function ProjectsScreen() {
         ? rev.fileUrl
         : `${BASE_URL}${rev.fileUrl}`;
 
-      const safeFileName = `${selectedDrawing?.drawingNumber ?? 'drawing'}-rev-${rev.revisionNumber}.pdf`
-        .replace(/[^a-zA-Z0-9.-]/g, '_');
+      const safeFileName = drawingPdfFileName(selectedDrawing?.drawingNumber, rev);
 
       const localUri = `${FileSystem.cacheDirectory}${safeFileName}`;
 
@@ -851,12 +852,22 @@ export default function ProjectsScreen() {
 
       // File not cached — download it now.
       try {
-        const token = await getAccessToken();
-        console.log('[openPdf] token present:', !!token);
+        const download = async () => {
+          const token = await getAccessToken();
+          return FileSystem.downloadAsync(pdfUrl, localUri, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+        };
 
-        const result = await FileSystem.downloadAsync(pdfUrl, localUri, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
+        let result = await download();
+        if (result.status === 401) {
+          // downloadAsync bypasses the axios refresh interceptor. One cheap
+          // authenticated call lets it refresh an expired access token (or
+          // end the session if the refresh token is invalid); retry once.
+          await FileSystem.deleteAsync(result.uri, { idempotent: true }).catch(() => {});
+          await apiClient.get('/auth/me');
+          result = await download();
+        }
 
         console.log('[openPdf] download status:', result.status);
 

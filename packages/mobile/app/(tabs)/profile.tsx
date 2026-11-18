@@ -6,12 +6,16 @@ import {
 import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../src/store/auth.store';
 import { getExpoPushToken } from '../../src/utils/push';
+import { withTimeout } from '../../src/utils/withTimeout';
 import { clearQueue, getQueue } from '../../src/utils/offlineQueue';
 import { authApi } from '../../src/api/auth';
 import { notificationsApi } from '../../src/api/notifications';
 import { Project, JobSite } from '../../src/types';
 import { projectsApi } from '../../src/api/projects';
 import { useAppBarInset } from '../../src/hooks/useAppBarInset';
+
+/** Longest wait for the push token at logout before revoking the session anyway. */
+const PUSH_TOKEN_LOOKUP_MS = 5000;
 
 const ROLE_LABEL: Record<string, string> = {
   company_admin:    'Company Admin',
@@ -178,7 +182,9 @@ export default function ProfileScreen() {
             setLoggingOut(true);
             try {
               try {
-                const pushToken = await getExpoPushToken();
+                // The lookup waits on APNs and an HTTPS call to Expo with no
+                // time limit; on a poor connection it must not block logout.
+                const pushToken = await withTimeout(getExpoPushToken(), PUSH_TOKEN_LOOKUP_MS);
                 if (pushToken) await notificationsApi.unregisterPushToken(pushToken);
               } catch { /* non-fatal */ }
 
