@@ -1,8 +1,8 @@
 import { prisma } from '../utils/prisma';
-import { NotFoundError, ForbiddenError, ValidationError } from '../utils/errors';
+import { NotFoundError, ForbiddenError, ValidationError, ConflictError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
-import { DeliveryCondition, InspectionStatus, AcceptanceStatus } from '@prisma/client';
+import { DeliveryCondition, InspectionStatus, AcceptanceStatus, Prisma } from '@prisma/client';
 import { emitToCompany } from './event-emitter.service';
 import * as inventoryService from './inventory.service';
 
@@ -216,6 +216,62 @@ async function checkSiteAccess(
   }
 }
 
+const ACCEPTED_STATES: ReadonlyArray<AcceptanceStatus | null> = ['accepted', 'partially_accepted'];
+
+/**
+ * Once a delivery's goods have been added to site stock (it has a delivery_in
+ * transaction), moving it from an accepted state to rejected, or changing the
+ * quantity, item or unit the credit was based on, would leave stock disagreeing
+ * with the delivery. Such a change is refused; a company admin or project
+ * manager corrects stock with a stock adjustment instead. Values that are sent
+ * unchanged (the web edit form sends every field) are not a change. The caller
+ * holds the delivery's row lock.
+ */
+async function assertStockStaysConsistent(
+  tx: Prisma.TransactionClient,
+  deliveryId: string,
+  companyId: string,
+  input: UpdateDeliveryInput,
+): Promise<void> {
+  const touchesStock =
+    input.acceptanceStatus === 'rejected' ||
+    input.quantityDelivered !== undefined ||
+    input.itemDescription   !== undefined ||
+    input.unitOfMeasure     !== undefined;
+  if (!touchesStock) return;
+
+  const credited = await tx.inventoryTransaction.count({
+    where: { deliveryId, companyId, type: 'delivery_in' },
+  });
+  if (credited === 0) return;
+
+  const current = await tx.deliveryRecord.findUniqueOrThrow({
+    where:  { id: deliveryId },
+    select: { acceptanceStatus: true, quantityDelivered: true, itemDescription: true, unitOfMeasure: true },
+  });
+
+  if (input.acceptanceStatus === 'rejected' && ACCEPTED_STATES.includes(current.acceptanceStatus)) {
+    throw new ConflictError(
+      'This delivery\'s goods have already been added to site stock, so it can no longer be marked rejected. ' +
+      'To take returned goods out of stock, a company admin or project manager records a stock adjustment.',
+    );
+  }
+
+  const changed =
+    (input.quantityDelivered !== undefined &&
+      !current.quantityDelivered.equals(new Prisma.Decimal(input.quantityDelivered))) ||
+    (input.itemDescription !== undefined &&
+      input.itemDescription.trim() !== current.itemDescription.trim()) ||
+    (input.unitOfMeasure !== undefined &&
+      input.unitOfMeasure.trim() !== current.unitOfMeasure.trim());
+  if (changed) {
+    throw new ConflictError(
+      'The delivered quantity, item and unit of a delivery cannot be changed after its goods were added to site stock. ' +
+      'To correct stock, a company admin or project manager records a stock adjustment.',
+    );
+  }
+}
+
 // ─── Service functions ────────────────────────────────────────────────────────
 
 export async function listDeliveries(
@@ -383,6 +439,17 @@ export async function updateDelivery(
   // inventory. The others wait on the row lock, find the delivery already
   // accepted and apply their update without crediting again.
   return prisma.$transaction(async (tx) => {
+    // Lock the delivery row first, so the stock check below and the update
+    // see the same delivery: a concurrent accept either commits before this
+    // check (and the check sees its credit) or waits until this one commits.
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "delivery_records"
+      WHERE "id" = ${deliveryId} AND "projectId" = ${projectId}
+        AND "siteId" = ${siteId} AND "companyId" = ${actor.companyId}
+      FOR UPDATE`;
+    if (locked.length === 0) throw new NotFoundError('Delivery record');
+    await assertStockStaysConsistent(tx, deliveryId, actor.companyId, input);
+
     let justAccepted = false;
     if (acceptsDelivery) {
       const res = await tx.deliveryRecord.updateMany({
@@ -423,10 +490,11 @@ export async function updateDelivery(
       },
     });
 
-    // A delivery adds its goods to stock once. One that was accepted, moved
-    // out of an accepted state and is now accepted again keeps its earlier
-    // credit. The row lock taken by the conditional update above makes this
-    // check and the credit safe against concurrent requests.
+    // A delivery adds its goods to stock once. A credited delivery can no
+    // longer be moved to rejected (see assertStockStaysConsistent); one that
+    // was rejected after acceptance before that rule keeps its earlier credit
+    // when accepted again. The row lock taken at the start of this transaction
+    // makes this check and the credit safe against concurrent requests.
     if (justAccepted) {
       const earlierCredits = await tx.inventoryTransaction.count({
         where: { deliveryId, companyId: actor.companyId, type: 'delivery_in' },
