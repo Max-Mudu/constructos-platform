@@ -275,19 +275,34 @@ describe('single requests', () => {
     expect(await creditsFor(delivery.id)).toHaveLength(1);
   });
 
-  it('a delivery accepted, rejected and accepted again is credited once', async () => {
+  it('a delivery accepted, then refused a rejection (409) and accepted again is credited once', async () => {
     const material = newMaterial();
     const delivery = await makeDelivery(material, 10);
 
     expect((await patch(pm, delivery.id, { acceptanceStatus: 'accepted' })).statusCode).toBe(200);
-    expect((await patch(pm, delivery.id, { acceptanceStatus: 'rejected', rejectionReason: 'damaged' })).statusCode).toBe(200);
+    // Its goods are in stock, so it can no longer be marked rejected
+    // (see delivery-rejection-stock.test.ts).
+    expect((await patch(pm, delivery.id, { acceptanceStatus: 'rejected', rejectionReason: 'damaged' })).statusCode).toBe(409);
     expect((await patch(pm, delivery.id, { acceptanceStatus: 'accepted' })).statusCode).toBe(200);
 
     expect(await stockOf(material)).toBe(10);
     expect(await creditsFor(delivery.id)).toHaveLength(1);
   });
 
-  it('a delivery created accepted, then rejected and accepted again is credited once', async () => {
+  it('a delivery rejected after acceptance before the 409 rule existed keeps its single credit when accepted again', async () => {
+    const material = newMaterial();
+    const delivery = await makeDelivery(material, 10);
+
+    expect((await patch(pm, delivery.id, { acceptanceStatus: 'accepted' })).statusCode).toBe(200);
+    // Simulate a record rejected after acceptance by the earlier code.
+    await prisma.deliveryRecord.update({ where: { id: delivery.id }, data: { acceptanceStatus: 'rejected' } });
+    expect((await patch(pm, delivery.id, { acceptanceStatus: 'accepted' })).statusCode).toBe(200);
+
+    expect(await stockOf(material)).toBe(10);
+    expect(await creditsFor(delivery.id)).toHaveLength(1);
+  });
+
+  it('a delivery created accepted is refused a rejection (409) and is credited once', async () => {
     const material = newMaterial();
     const res = await create(pm, {
       supplierName: 'Test Supplier Ltd',
@@ -302,7 +317,7 @@ describe('single requests', () => {
     expect(res.statusCode).toBe(201);
     const id = res.json().delivery.id as string;
 
-    expect((await patch(pm, id, { acceptanceStatus: 'rejected', rejectionReason: 'damaged' })).statusCode).toBe(200);
+    expect((await patch(pm, id, { acceptanceStatus: 'rejected', rejectionReason: 'damaged' })).statusCode).toBe(409);
     expect((await patch(pm, id, { acceptanceStatus: 'partially_accepted' })).statusCode).toBe(200);
 
     expect(await stockOf(material)).toBe(6);

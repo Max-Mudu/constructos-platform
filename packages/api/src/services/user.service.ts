@@ -457,6 +457,7 @@ export async function setCompanyUserStatus(
 
     let refreshTokensRevoked = 0;
     let setupTokensInvalidated = 0;
+    let pushDevicesRemoved = 0;
     if (!isActive) {
       // Every access and refresh token issued so far carries the old version
       // and is refused from now on, including after a later reactivation.
@@ -472,8 +473,14 @@ export async function setCompanyUserStatus(
         where: { userId: target.id, usedAt: null },
         data:  { usedAt: now },
       });
+      // The devices registered for notifications belong to the sessions that
+      // just ended. Removing them means a later reactivation does not start
+      // sending to a device nobody is signed in on: the app registers the
+      // device again at the next sign-in.
+      const removed = await tx.pushToken.deleteMany({ where: { userId: target.id } });
       refreshTokensRevoked   = revoked.count;
       setupTokensInvalidated = invalidated.count;
+      pushDevicesRemoved     = removed.count;
     }
 
     if (changed) {
@@ -492,6 +499,7 @@ export async function setCompanyUserStatus(
             event: isActive ? 'user_reactivated' : 'user_deactivated',
             refreshTokensRevoked,
             setupTokensInvalidated,
+            ...(!isActive && { pushDevicesRemoved }),
           },
           ipAddress: context.ipAddress ?? null,
           userAgent: context.userAgent ?? null,
