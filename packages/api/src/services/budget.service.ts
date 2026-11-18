@@ -666,6 +666,11 @@ export async function updateVariation(
   if (input.status && input.status !== 'pending' && !isFinance) {
     throw new ForbiddenError('Only finance officers and admins can approve or reject variations');
   }
+  // Once decided, only finance staff may change it, so an approved amount
+  // always carries a finance approval.
+  if (variation.status !== 'pending' && !isFinance) {
+    throw new ForbiddenError('Only finance officers and admins can change a variation after it is decided');
+  }
 
   const updated = await prisma.variationOrder.update({
     where: { id: variationId },
