@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma';
 import { AppError, ForbiddenError, NotFoundError, ValidationError } from '../utils/errors';
 import { getAccessibleProjectIds, getAccessibleSiteIds } from '../middleware/requireProjectAccess';
 import { RequestUser } from '../types';
+import { labourCostByCurrency } from '../utils/labour-cost';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -340,8 +341,13 @@ export async function labourReport(
     { label: 'Total Hours',    value: fmt(totalHours, 1) },
   ];
   if (showWages) {
-    const totalCost = entries.reduce((s, e) => s + Number(e.dailyRate), 0);
-    summary.push({ label: 'Total Cost', value: fmt(totalCost) });
+    // hours / 8 x daily rate per entry (utils/labour-cost), one figure per
+    // currency: "2718.75 KES + 4562.50 USD". Never summed across currencies.
+    const totals = labourCostByCurrency(entries);
+    const value = totals.length === 0
+      ? fmt(0)
+      : totals.map((t) => `${t.total.toFixed(2, Prisma.Decimal.ROUND_HALF_UP)} ${t.currency}`).join(' + ');
+    summary.push({ label: 'Total Cost', value });
   }
 
   const rows = entries.map((e) => [

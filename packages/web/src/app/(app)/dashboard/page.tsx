@@ -18,6 +18,7 @@ import {
   Bell, ClipboardCheck, PieChart, Ban, Activity,
 } from 'lucide-react';
 import { cn, formatMoney } from '@/lib/utils';
+import { formatMonthLabourCost } from '@/lib/workflows-labour';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -653,7 +654,9 @@ export default function DashboardPage() {
                   {/* Labour cost is withheld (null) by the API for non-finance users */}
                   {thisMonthCost !== null && (
                     <div className="rounded-lg bg-muted/30 py-2">
-                      <p className="font-semibold text-foreground">{formatMoney(thisMonthCost, user.currency, MONEY_COMPACT)}</p>
+                      <p className="font-semibold text-foreground">
+                        {formatMonthLabourCost(stats.labour, user.currency, (v, c) => formatMoney(v, c, MONEY_COMPACT))}
+                      </p>
                       <p className="text-muted-foreground">Month Cost</p>
                     </div>
                   )}

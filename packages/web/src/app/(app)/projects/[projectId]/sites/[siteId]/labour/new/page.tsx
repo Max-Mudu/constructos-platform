@@ -7,7 +7,7 @@ import { labourApi, workerApi } from '@/lib/api';
 import { formErrorState } from '@/lib/workflows-form-errors';
 import { useRevealError } from '@/hooks/useRevealError';
 import { localToday } from '@/lib/workflows-dates';
-import { rateForWorker } from '@/lib/workflows-labour';
+import { entryWage, rateForWorker } from '@/lib/workflows-labour';
 import { Worker } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/Button';
@@ -110,7 +110,7 @@ export default function NewLabourEntryPage() {
 
   const estimatedWage =
     canSetRate && form.hoursWorked && form.dailyRate
-      ? ((Number(form.hoursWorked) / 8) * Number(form.dailyRate)).toLocaleString(undefined, {
+      ? entryWage(form).toLocaleString(undefined, {
           maximumFractionDigits: 0,
         })
       : null;

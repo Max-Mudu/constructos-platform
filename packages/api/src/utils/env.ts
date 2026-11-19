@@ -22,6 +22,16 @@ export function flagDefaultOffInProduction(
   return parseEnvFlag(key, raw, !isProduction);
 }
 
+/**
+ * True when running under CI. GitHub Actions and most CI services set CI=true;
+ * any non-empty value other than 'false' / '0' counts. Never throws: an odd
+ * value must not stop a CI job from booting the API.
+ */
+export function isCiEnvironment(raw: string | undefined): boolean {
+  const value = (raw ?? '').trim().toLowerCase();
+  return value !== '' && value !== 'false' && value !== '0';
+}
+
 export type TrustProxySetting = false | number | string[];
 
 const TRUST_PROXY_PRESETS = new Set(['loopback', 'linklocal', 'uniquelocal']);
@@ -147,6 +157,8 @@ export const env = {
   SMTP_FROM: process.env['SMTP_FROM'] ?? 'noreply@constructos.app',
   isProduction: IS_PRODUCTION,
   isTest:       process.env['NODE_ENV'] === 'test',
+  // CI job logs may be readable by others: development-only link printing is off there.
+  isCI:         isCiEnvironment(process.env['CI']),
   // Proxy trust for request.ip / rate limiting. Default: trust nothing.
   TRUST_PROXY: parseTrustProxy(process.env['TRUST_PROXY']) as TrustProxySetting,
   // POST /auth/register. Default: on outside production, off in production.
