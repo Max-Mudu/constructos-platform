@@ -179,22 +179,41 @@ latency_report() {
 # does what it does during a sign-in (asks for the screen tree over and over)
 # and again after it has gone. No app request is involved, so any slowdown
 # here cannot come from the app.
+#
+# polling_control <A|B> <what differs>. Round B repeats round A with the
+# job's own `log stream` of the app stopped: in run 44432016833 `log` and the
+# two diagnosticd processes that feed it were among the busiest processes
+# while logins waited, and this shows how much of the slowdown they explain.
 polling_control() {
-  echo "::group::Latency control: curl logins while the test driver polls the screen"
-  ( maestro_run 00-control-polling > "$OUT/logs/control-polling.log" 2>&1 ) &
+  echo "::group::Latency control $1 ($2): curl logins while the test driver polls the screen"
+  log_writers "before control $1"
+  ( maestro_run 00-control-polling > "$OUT/logs/control-polling-$1.log" 2>&1 ) &
   local driver=$! i=0
   while kill -0 "$driver" 2>/dev/null && [ "$i" -lt 30 ]; do
     i=$((i + 1))
-    api_probe "control $i, test driver session running"
+    api_probe "control $1 $i, test driver session running ($2)"
     sleep 3
   done
   wait "$driver"
-  echo "Control flow ended with status $?"
+  echo "Control flow $1 ended with status $?"
   for i in 1 2 3; do
     sleep 3
-    api_probe "control idle $i, no test driver"
+    api_probe "control $1 idle $i, no test driver ($2)"
   done
   echo "::endgroup::"
+}
+
+# The stream launch.sh started (same command, appending), and its stop.
+app_log_stream_stop() {
+  pkill -f "log stream --level info --style compact --predicate" 2>/dev/null || true
+  sleep 2
+  echo "App log stream stopped at $(now_iso); matching processes left: $(pgrep -f "log stream --level info --style compact --predicate" 2>/dev/null | wc -l | tr -d ' ')"
+}
+
+app_log_stream_start() {
+  nohup xcrun simctl spawn "$SIM_UDID" log stream --level info --style compact \
+    --predicate "process == \"${APP_EXECUTABLE:-ConstructOS}\"" >> "$OUT/logs/simulator-app.log" 2>&1 &
+  echo "App log stream started again at $(now_iso)"
 }
 
 regression_suite() {
@@ -376,7 +395,11 @@ push_flows() {
   export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1
   if ! command -v applesimutils >/dev/null 2>&1; then
     perl -e 'alarm shift; exec @ARGV' 120 brew tap wix/brew > "$OUT/logs/applesimutils-install.log" 2>&1 || true
-    perl -e 'alarm shift; exec @ARGV' 300 brew install applesimutils >> "$OUT/logs/applesimutils-install.log" 2>&1 || true
+    # Homebrew refuses formulae from a tap it has not been told to trust
+    # (run 44432016833). This runner is thrown away after the job and holds
+    # no secrets.
+    brew trust --formula wix/brew/applesimutils >> "$OUT/logs/applesimutils-install.log" 2>&1 || true
+    perl -e 'alarm shift; exec @ARGV' 300 brew install wix/brew/applesimutils >> "$OUT/logs/applesimutils-install.log" 2>&1 || true
   fi
   if command -v applesimutils >/dev/null 2>&1; then
     echo "applesimutils: $(applesimutils --version 2>&1 | awk 'NR==1')"
@@ -445,6 +468,7 @@ JSON
 
 echo "Suite: $SUITE (signing: ${SIGNING:-?}); runner clock $(now_iso), time zone offset $(date +%z), $(sysctl -n hw.ncpu) CPUs"
 free_runner
+log_writers "simulator booted, app launched, before the flows"
 load_sampler_start
 ( cd "$API_REPO_ROOT/packages/api" && node "$HERE/bcrypt-bench.mjs" "after the build, simulator booted, no test driver" ) || true
 
@@ -473,7 +497,10 @@ else
     failed="$failed api-cross-check"
   fi
   echo "::endgroup::"
-  polling_control
+  polling_control A "app log stream running"
+  app_log_stream_stop
+  polling_control B "app log stream stopped"
+  app_log_stream_start
   latency_report
 fi
 load_sampler_stop

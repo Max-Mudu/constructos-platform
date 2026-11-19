@@ -170,14 +170,20 @@ const samples = [];
   for (const l of lines(join(OUT, 'logs', 'load-samples.log'))) {
     let m;
     if ((m = /^@ (\S+) load ([\d.]+) ([\d.]+) ([\d.]+)/.exec(l))) {
-      cur = { at: Date.parse(m[1]), load1: Number(m[2]), procs: new Map() };
+      cur = { at: Date.parse(m[1]), load1: Number(m[2]), procs: new Map(), cpuTotal: null };
       samples.push(cur);
+    } else if (cur && (m = /^# cpu_total ([\d.]+) processes (\d+)/.exec(l))) {
+      cur.cpuTotal = Number(m[1]);
+      cur.processes = Number(m[2]);
     } else if (cur && (m = /^\s*(\d+)\s+[\d.]+\s+(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)(?:\.(\d+))?\s+(.+)$/.exec(l))) {
       const secs = Number(m[2] ?? 0) * 86400 + Number(m[3] ?? 0) * 3600 + Number(m[4]) * 60 + Number(m[5]) + Number(`0.${m[6] ?? 0}`);
-      cur.procs.set(m[1], { cpu: secs, name: m[7].trim().split('/').pop().slice(0, 34) });
+      // Simulator system processes share names with the host's (diagnosticd, apsd).
+      const path = m[7].trim();
+      cur.procs.set(m[1], { cpu: secs, name: `${path.split('/').pop().slice(0, 34)}${/simruntime|CoreSimulator/.test(path) ? ' (simulator)' : ''}` });
     }
   }
 }
+const ticks = api.filter((e) => e.ev === 'tick');
 function loadDuring(a, b) {
   if (a == null || b == null || samples.length < 2) return null;
   // Only when the samples cover the window (the sampler runs during the flows).
@@ -192,9 +198,21 @@ function loadDuring(a, b) {
     if (p0 && p.cpu >= p0.cpu) used.push({ name: p.name, cores: (p.cpu - p0.cpu) / span });
   }
   used.sort((x, y) => y.cores - x.cores);
-  return { span, load1: after.load1, top: used.slice(0, 5).filter((u) => u.cores >= 0.03) };
+  // Whole machine: difference of the CPU seconds of all processes alive at
+  // each sample (a process that exited in between drops out, so this is a
+  // lower bound). The API's own share comes from its once-a-second samples.
+  const all = before.cpuTotal != null && after.cpuTotal != null ? Math.max(0, (after.cpuTotal - before.cpuTotal) / span) : null;
+  const apiMs = ticks.filter((t) => t.at > before.at && t.at <= after.at).reduce((sum, t) => sum + t.cpu_ms, 0);
+  return {
+    span, load1: after.load1, processes: after.processes ?? null,
+    all_cores: all == null ? null : Math.round(all * 100) / 100,
+    api_cores: Math.round((apiMs / 1000 / span) * 100) / 100,
+    top: used.slice(0, 6).filter((u) => u.cores >= 0.03),
+  };
 }
-const loadText = (l) => (l ? `load ${l.load1}; ${l.top.map((u) => `${u.name} ${u.cores.toFixed(2)}`).join(', ') || 'nothing above 0.03 cores'} (cores, over ${Math.round(l.span)} s)` : '');
+const loadText = (l) => (l
+  ? `load ${l.load1}${l.all_cores == null ? '' : `; all processes ${l.all_cores} cores`}; API ${l.api_cores}; ${l.top.map((u) => `${u.name} ${u.cores.toFixed(2)}`).join(', ') || 'nothing above 0.03 cores'} (cores, over ${Math.round(l.span)} s)`
+  : '');
 
 // ── Probes made with curl (runner-health.sh): "<iso>\t<label>\t<http>\t<secs>" ─
 const probes = lines(join(OUT, 'logs', 'probes.tsv')).filter(Boolean).map((l) => {
@@ -293,6 +311,10 @@ group('app sign-in, test driver polling the screen', polled, (x) => x.client_tot
 group('app sign-in, test driver not polling', quiet, (x) => x.client_total_ms);
 group('curl login, test driver polling the screen', curlPolled, (x) => x.curl_total_ms);
 group('curl login, test driver not polling', curlQuiet, (x) => x.curl_total_ms);
+for (const state of ['app log stream running', 'app log stream stopped']) {
+  const xs = curlPolled.filter((c) => c.label.includes(state));
+  if (xs.length) group(`curl login, test driver polling, ${state}`, xs, (x) => x.curl_total_ms);
+}
 md.push('');
 md.push('Reading the columns: "tap -> request handed to iOS" is the app\'s own share before the network (touch delivery, JavaScript, the request leaving React Native); "API handling" is measured inside the API process, from the request line being parsed to the response being finished; "API process CPU" is the CPU time that process received in that interval, so wall time far above CPU time means the API was waiting (for the CPU or for PostgreSQL), not computing; the password check is bcryptjs running on the API\'s only JavaScript thread.');
 

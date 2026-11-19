@@ -54,6 +54,10 @@ load_sampler_start() {
   (
     while :; do
       printf '@ %s load %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(load_average)"
+      # CPU seconds used so far by every process alive now, and how many
+      # there are: the difference between two samples is the whole machine's
+      # CPU use, not only that of the 14 busiest processes listed below.
+      ps -Ao time= 2>/dev/null | awk '{ n = split($1, t, ":"); s = 0; for (i = 1; i <= n; i++) s = s * 60 + t[i]; total += s } END { printf "# cpu_total %.2f processes %d\n", total, NR }'
       ps -Ao pid=,pcpu=,time=,comm= -r 2>/dev/null | head -n 14
       sleep 3
     done
@@ -67,6 +71,19 @@ load_sampler_stop() {
     kill "$(cat "$RUNNER_TEMP/load-sampler.pid")" 2>/dev/null || true
     rm -f "$RUNNER_TEMP/load-sampler.pid"
   fi
+}
+
+# log_writers <label>: which simulator processes are writing to the unified
+# log, counted over 4 seconds at the level the job's own app log stream uses.
+# Run 44432016833 showed the simulator's diagnosticd, the host's diagnosticd
+# and `log` among the busiest processes while sign-ins waited for the API.
+log_writers() {
+  : "${SIM_UDID:?}"
+  echo "--- Simulator log writers over 4 s ($1)"
+  xcrun simctl spawn "$SIM_UDID" log stream --level info --style compact --timeout 4 2>/dev/null \
+    | awk 'NR > 2 && $4 ~ /\[/ { p = $4; sub(/\[.*/, "", p); n[p]++; total++ }
+           END { printf "%d lines in all\n", total; for (p in n) printf "%7d %s\n", n[p], p }' \
+    | sort -rn | awk 'NR <= 11' || true
 }
 
 # One timed API login with the admin account; prints "<http code> <seconds>".
