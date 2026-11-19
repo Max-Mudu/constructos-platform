@@ -6,6 +6,7 @@ import { JwtPayload } from '../types';
 import { FastifyInstance } from 'fastify';
 import { env } from '../utils/env';
 import { emailService } from './email.service';
+import { removeUserPushDevices } from './push.service';
 
 const MAX_FAILED_ATTEMPTS = 10;
 const LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes
@@ -575,6 +576,15 @@ export async function resetPassword(
       data: { revokedAt: new Date() },
     });
 
+    // Devices registered for notifications belong to the sessions that just
+    // ended (this is also how an account setup link completes). The app
+    // registers the device again at the next sign-in. Runs after the session
+    // version bump above, so a registration racing this transaction either
+    // committed before it (and is removed here) or is refused afterwards.
+    const pushDevicesRemoved = await removeUserPushDevices(
+      tx, resetToken.userId, resetToken.user.companyId,
+    );
+
     await tx.auditLog.create({
       data: {
         companyId:    resetToken.user.companyId,
@@ -583,7 +593,7 @@ export async function resetPassword(
         userRole:     resetToken.user.role,
         action:       'update',
         entityType:   'auth',
-        changesAfter: { event: 'password_reset_completed' },
+        changesAfter: { event: 'password_reset_completed', pushDevicesRemoved },
       },
     });
   });

@@ -18,6 +18,8 @@ export interface RequestUser {
   role: UserRole;
   companyId: string;
   canViewFinance: boolean;
+  /** Session version of the access token (set by middleware/authenticate.ts). */
+  sessionVersion?: number;
 }
 
 // Augment @fastify/jwt so request.user resolves to RequestUser
