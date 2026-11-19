@@ -532,24 +532,50 @@ export async function deleteDelivery(
 ) {
   await checkSiteAccess(siteId, projectId, actor);
 
-  const record = await prisma.deliveryRecord.findFirst({
-    where: { id: deliveryId, projectId, siteId, companyId: actor.companyId },
-    select: DELIVERY_SELECT,
-  });
-  if (!record) throw new NotFoundError('Delivery record');
+  // The check, the delete and its audit row commit together under the same
+  // row lock updateDelivery takes, so a delete racing an accept either runs
+  // first (the accept then finds no delivery and credits nothing) or sees the
+  // accept's credit and is refused.
+  await prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "delivery_records"
+      WHERE "id" = ${deliveryId} AND "projectId" = ${projectId}
+        AND "siteId" = ${siteId} AND "companyId" = ${actor.companyId}
+      FOR UPDATE`;
+    if (locked.length === 0) throw new NotFoundError('Delivery record');
 
-  await prisma.deliveryRecord.delete({ where: { id: deliveryId } });
+    // A delivery whose goods were added to site stock stays, with its photos,
+    // documents, stock transaction and audit history. Stock is not reversed
+    // here; a company admin or project manager corrects it with a stock
+    // adjustment.
+    const credited = await tx.inventoryTransaction.count({
+      where: { deliveryId, companyId: actor.companyId, type: 'delivery_in' },
+    });
+    if (credited > 0) {
+      throw new ConflictError(
+        'This delivery\'s goods have already been added to site stock, so it cannot be deleted. ' +
+        'The delivery record is kept. To correct stock, a company admin or project manager records a stock adjustment.',
+      );
+    }
 
-  await prisma.auditLog.create({
-    data: {
-      companyId: actor.companyId,
-      userId: actor.id,
-      userEmail: actor.email,
-      userRole: actor.role,
-      action: 'delete',
-      entityType: 'delivery_record',
-      entityId: deliveryId,
-      changesBefore: record as object,
-    },
+    const record = await tx.deliveryRecord.findUniqueOrThrow({
+      where:  { id: deliveryId },
+      select: DELIVERY_SELECT,
+    });
+
+    await tx.deliveryRecord.delete({ where: { id: deliveryId } });
+
+    await tx.auditLog.create({
+      data: {
+        companyId: actor.companyId,
+        userId: actor.id,
+        userEmail: actor.email,
+        userRole: actor.role,
+        action: 'delete',
+        entityType: 'delivery_record',
+        entityId: deliveryId,
+        changesBefore: record as object,
+      },
+    });
   });
 }
