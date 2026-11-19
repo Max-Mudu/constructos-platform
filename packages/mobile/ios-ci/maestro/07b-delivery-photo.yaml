@@ -15,11 +15,13 @@
 #   closes the sheet: looking for a field by scrolling UP swiped 350 pt after a
 #   129 pt scroll and iOS dismissed the form. So the fields are filled while the
 #   form is at the top and every later scroll goes DOWN.
-# - iOS does not expose the placeholder of a multi-line field, only its
-#   accessibility name, which is its visible label ("Item Description *"). The
-#   label text above the field carries the same words, so the field is the
-#   element with that name below the label. Single-line fields (the supplier)
-#   are still found by their placeholder.
+# - While it is empty, iOS names a multi-line field by its accessibility name
+#   AND its placeholder joined: "Item Description * Portland cement 50kg bags"
+#   (screen tree of run 44580601112). Maestro matches the whole name, so the
+#   placeholder alone matches nothing (run 44548289901) and the label alone
+#   matches only the label text above the field (run 44580601112). The full
+#   name matches the field and nothing else. Single-line fields (the supplier)
+#   are found by their placeholder, which iOS reports separately.
 appId: com.constructos.app
 ---
 - runFlow:
@@ -36,37 +38,23 @@ appId: com.constructos.app
     visible: "New Delivery"
     timeout: 15000
 - extendedWaitUntil:
-    visible: "Item Description \\*"
+    visible: "Item Description \\* Portland cement 50kg bags"
     timeout: 15000
 
 # The description first (a multi-line field keeps the keyboard open), then the
 # supplier, whose Enter key closes the keyboard.
-- runFlow:
-    when:
-      visible:
-        text: "Item Description \\*"
-        below: "Item Description \\*"
-    commands:
-      - tapOn:
-          text: "Item Description \\*"
-          below: "Item Description \\*"
-- runFlow:
-    when:
-      notVisible:
-        text: "Item Description \\*"
-        below: "Item Description \\*"
-    commands:
-      - tapOn: "Item Description \\*"
-- inputText: "Rebar Y12 six metre lengths"
+- tapOn: "Item Description \\* Portland cement 50kg bags"
+# Plain dictionary words, so iOS autocorrection cannot change them.
+- inputText: "Steel bars for the slab"
 # Typed again once if the simulator dropped keys. Whether the test driver can
 # read a multi-line field's text on iOS is not established, so this is not an
 # assertion: the saved delivery's card at the end must show the description.
 - runFlow:
     when:
-      notVisible: "Rebar Y12 six metre lengths"
+      notVisible: "Steel bars for the slab"
     commands:
       - eraseText: 100
-      - inputText: "Rebar Y12 six metre lengths"
+      - inputText: "Steel bars for the slab"
 - extendedWaitUntil:
     visible: "Acme Supplies Ltd"
     timeout: 10000
@@ -123,5 +111,5 @@ appId: com.constructos.app
     timeout: 20000
 # The card names the supplier and the item: both typed values were kept
 # through the camera message and saved.
-- assertVisible: ".*Simulator Photo Check Ltd.*Rebar Y12 six metre lengths.*"
+- assertVisible: ".*Simulator Photo Check Ltd.*Steel bars for the slab.*"
 - takeScreenshot: delivery-04-saved
