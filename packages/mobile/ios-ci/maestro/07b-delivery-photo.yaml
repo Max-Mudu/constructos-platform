@@ -6,8 +6,20 @@
 # No photo is taken or uploaded by the app in this flow.
 #
 # Fails if: tapping "Take Photo" closes the app or shows anything other than
-# the message, the form is gone after the message, the save is refused
-# ("Validation Error"), or the new delivery is not in the list afterwards.
+# the message, the form is gone after the message, the typed values are lost,
+# the save is refused ("Validation Error"), or the new delivery is not in the
+# list afterwards.
+#
+# Two things about this form on iOS (run 44548289901):
+# - It is a page sheet. A downward swipe once its content is back at the top
+#   closes the sheet: looking for a field by scrolling UP swiped 350 pt after a
+#   129 pt scroll and iOS dismissed the form. So the fields are filled while the
+#   form is at the top and every later scroll goes DOWN.
+# - iOS does not expose the placeholder of a multi-line field, only its
+#   accessibility name, which is its visible label ("Item Description *"). The
+#   label text above the field carries the same words, so the field is the
+#   element with that name below the label. Single-line fields (the supplier)
+#   are still found by their placeholder.
 appId: com.constructos.app
 ---
 - runFlow:
@@ -23,11 +35,53 @@ appId: com.constructos.app
 - extendedWaitUntil:
     visible: "New Delivery"
     timeout: 15000
+- extendedWaitUntil:
+    visible: "Item Description \\*"
+    timeout: 15000
+
+# The description first (a multi-line field keeps the keyboard open), then the
+# supplier, whose Enter key closes the keyboard.
+- runFlow:
+    when:
+      visible:
+        text: "Item Description \\*"
+        below: "Item Description \\*"
+    commands:
+      - tapOn:
+          text: "Item Description \\*"
+          below: "Item Description \\*"
+- runFlow:
+    when:
+      notVisible:
+        text: "Item Description \\*"
+        below: "Item Description \\*"
+    commands:
+      - tapOn: "Item Description \\*"
+- inputText: "Rebar Y12 six metre lengths"
+# Typed again once if the simulator dropped keys. Whether the test driver can
+# read a multi-line field's text on iOS is not established, so this is not an
+# assertion: the saved delivery's card at the end must show the description.
+- runFlow:
+    when:
+      notVisible: "Rebar Y12 six metre lengths"
+    commands:
+      - eraseText: 100
+      - inputText: "Rebar Y12 six metre lengths"
+- extendedWaitUntil:
+    visible: "Acme Supplies Ltd"
+    timeout: 10000
+- runFlow:
+    file: subflows/type-into.yaml
+    env:
+      FIELD: "Acme Supplies Ltd"
+      VALUE: "Simulator Photo Check Ltd"
+- pressKey: Enter
+- takeScreenshot: delivery-01-form
+
 - scrollUntilVisible:
     element:
       text: ".*Take Photo.*"
     direction: DOWN
-- takeScreenshot: delivery-01-form
 - tapOn: ".*Take Photo.*"
 # iOS may ask for camera access first; the test driver normally answers the
 # prompt itself, otherwise allow it here.
@@ -48,37 +102,16 @@ appId: com.constructos.app
 - extendedWaitUntil:
     notVisible: "Camera Unavailable"
     timeout: 15000
-# The form is still open and still has no photo.
+# The form is still open and still has no photo (what was typed is checked on
+# the saved delivery below).
 - assertVisible: "New Delivery"
 - assertVisible: ".*Take Photo.*"
-# The description first (a multi-line field keeps the keyboard open), then the
-# supplier, whose Enter key closes the keyboard.
-- scrollUntilVisible:
-    element:
-      text: "Portland cement 50kg bags"
-    direction: UP
-- runFlow:
-    file: subflows/type-into.yaml
-    env:
-      FIELD: "Portland cement 50kg bags"
-      VALUE: "Rebar Y12 six metre lengths"
-# The supplier field is the first on the form; bring it back if the keyboard
-# pushed it out of view.
-- scrollUntilVisible:
-    element:
-      text: "Acme Supplies Ltd"
-    direction: UP
-- runFlow:
-    file: subflows/type-into.yaml
-    env:
-      FIELD: "Acme Supplies Ltd"
-      VALUE: "Simulator Photo Check Ltd"
-- pressKey: Enter
-- takeScreenshot: delivery-03-filled
+
 - scrollUntilVisible:
     element:
       text: "Create Delivery"
     direction: DOWN
+- takeScreenshot: delivery-03-filled
 - tapOn: "Create Delivery"
 # The form closes only after POST .../deliveries succeeded.
 - extendedWaitUntil:
@@ -88,4 +121,7 @@ appId: com.constructos.app
 - extendedWaitUntil:
     visible: ".*Simulator Photo Check Ltd.*"
     timeout: 20000
+# The card names the supplier and the item: both typed values were kept
+# through the camera message and saved.
+- assertVisible: ".*Simulator Photo Check Ltd.*Rebar Y12 six metre lengths.*"
 - takeScreenshot: delivery-04-saved
