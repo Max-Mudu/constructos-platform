@@ -53,7 +53,7 @@ const today = new Date().toISOString().slice(0, 10);
 const tag = (SMOKE_EMAIL.split('@')[0] ?? 'ios-ci').replace(/[^a-z0-9-]/gi, '');
 
 async function call(method, path, { token, body, expect, what }) {
-  const res = await fetch(`${API}${path}`, {
+  const request = () => fetch(`${API}${path}`, {
     method,
     headers: {
       ...(body !== undefined && { 'Content-Type': 'application/json' }),
@@ -61,6 +61,16 @@ async function call(method, path, { token, body, expect, what }) {
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  let res = await request();
+  // A 5xx here has been the API stalled on a busy runner (run 44535956687: a
+  // transaction passed its time limit and was rolled back). Ask again, at
+  // most twice; had the first attempt been saved after all, the repeat would
+  // answer 409 and stop the seeding.
+  for (let attempt = 1; res.status >= 500 && attempt <= 2; attempt += 1) {
+    console.log(`${what}: HTTP ${res.status}, asking again in 10 s (attempt ${attempt + 1} of 3)`);
+    await new Promise((r) => setTimeout(r, 10000));
+    res = await request();
+  }
   console.log(`${what}: HTTP ${res.status}`);
   if (res.status !== expect) {
     // The error code only (never the body, which can echo input).

@@ -194,6 +194,17 @@ polling_control() {
     api_probe "control $1 $i, test driver session running ($2)"
     sleep 3
   done
+  # The control must never hold the job up: give the driver 90 s more, then stop it.
+  i=0
+  while kill -0 "$driver" 2>/dev/null && [ "$i" -lt 30 ]; do
+    i=$((i + 1))
+    sleep 3
+  done
+  if kill -0 "$driver" 2>/dev/null; then
+    echo "::warning::Control flow $1 was still running and was stopped"
+    pkill -f "00-control-polling" 2>/dev/null || true
+    kill "$driver" 2>/dev/null || true
+  fi
   wait "$driver"
   echo "Control flow $1 ended with status $?"
   for i in 1 2 3; do
@@ -214,6 +225,20 @@ app_log_stream_start() {
   nohup xcrun simctl spawn "$SIM_UDID" log stream --level info --style compact \
     --predicate "process == \"${APP_EXECUTABLE:-ConstructOS}\"" >> "$OUT/logs/simulator-app.log" 2>&1 &
   echo "App log stream started again at $(now_iso)"
+}
+
+# The simulator's push daemon. In run 44535956687 it wrote 1400 to 4250 log
+# lines a second, which keeps two diagnosticd processes busy all the time.
+# Pausing it (SIGSTOP, resumed afterwards) for one control round shows how
+# much of the slowdown under polling that log traffic explains.
+sim_apsd_pids() { pgrep -f "simruntime.*ApplePushService.framework/apsd" 2>/dev/null; }
+
+sim_apsd_signal() {
+  local pid n=0
+  for pid in $(sim_apsd_pids); do
+    if kill "-$1" "$pid" 2>/dev/null; then n=$((n + 1)); fi
+  done
+  echo "Simulator apsd processes sent SIG$1 at $(now_iso): $n"
 }
 
 regression_suite() {
@@ -500,6 +525,9 @@ else
   polling_control A "app log stream running"
   app_log_stream_stop
   polling_control B "app log stream stopped"
+  sim_apsd_signal STOP
+  polling_control C "app log stream stopped, simulator apsd paused"
+  sim_apsd_signal CONT
   app_log_stream_start
   latency_report
 fi

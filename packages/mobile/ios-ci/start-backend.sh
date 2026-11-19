@@ -41,9 +41,23 @@ cd "$REPO_ROOT/packages/api"
 npx prisma generate
 npx prisma migrate deploy
 
-# How long one password check takes on this runner while it is idle.
+# How long one password check takes on this runner right now. The simulator
+# was asked to boot in the previous step and its first boot can take the CPUs
+# for minutes: in run 44535956687 one check took up to 11 s here, and on
+# another runner a password hash took 30 s, a transaction passed its 5 s
+# limit and the seeding below failed with HTTP 500.
 echo "Runner: $(sysctl -n hw.ncpu) CPUs, $(( $(sysctl -n hw.memsize) / 1073741824 )) GB, time zone offset $(date +%z)"
-node "$HERE/bcrypt-bench.mjs" "on the idle runner, before the build"
+node "$HERE/bcrypt-bench.mjs" "before the build, simulator still booting"
+
+# So let the simulator finish booting before the API is started and seeded
+# (launch.sh waited for this anyway, later). At most 10 minutes.
+if [ -n "${SIM_UDID:-}" ]; then
+  echo "Waiting for the simulator to finish booting before the API is started"
+  BOOT_WAIT_START="$(date +%s)"
+  perl -e 'alarm shift; exec @ARGV' 600 xcrun simctl bootstatus "$SIM_UDID" -b 2>&1 | tail -n 2 || true
+  echo "Simulator boot wait ended after $(( $(date +%s) - BOOT_WAIT_START )) s"
+  node "$HERE/bcrypt-bench.mjs" "before the build, simulator booted"
+fi
 
 # The API's environment (the throwaway database and the dummy CI values from
 # the workflow), saved so later steps can restart it. Never printed.

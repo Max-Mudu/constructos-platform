@@ -311,9 +311,11 @@ group('app sign-in, test driver polling the screen', polled, (x) => x.client_tot
 group('app sign-in, test driver not polling', quiet, (x) => x.client_total_ms);
 group('curl login, test driver polling the screen', curlPolled, (x) => x.curl_total_ms);
 group('curl login, test driver not polling', curlQuiet, (x) => x.curl_total_ms);
-for (const state of ['app log stream running', 'app log stream stopped']) {
-  const xs = curlPolled.filter((c) => c.label.includes(state));
-  if (xs.length) group(`curl login, test driver polling, ${state}`, xs, (x) => x.curl_total_ms);
+// One line per control round: the round's state is the text in the brackets
+// at the end of the probe label.
+const roundOf = (c) => (/\(([^)]*)\)$/.exec(c.label) ?? [])[1];
+for (const state of [...new Set(curlPolled.map(roundOf).filter(Boolean))]) {
+  group(`curl login, test driver polling, ${state}`, curlPolled.filter((c) => roundOf(c) === state), (x) => x.curl_total_ms);
 }
 md.push('');
 md.push('Reading the columns: "tap -> request handed to iOS" is the app\'s own share before the network (touch delivery, JavaScript, the request leaving React Native); "API handling" is measured inside the API process, from the request line being parsed to the response being finished; "API process CPU" is the CPU time that process received in that interval, so wall time far above CPU time means the API was waiting (for the CPU or for PostgreSQL), not computing; the password check is bcryptjs running on the API\'s only JavaScript thread.');
