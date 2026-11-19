@@ -1,0 +1,58 @@
+# Token refresh after expiry, then logout. Runs more than 2 minutes after
+# 09a, with the app left open: the access token from the sign-in has expired
+# (they live 2 minutes in this phase). Meanwhile smoke.sh created a delivery
+# from "After Expiry Supplies" through the API, so that name can only be on
+# screen if the app loaded data after the expiry, which needs a refreshed
+# token. Then the supervisor logs out, the app is restarted and must stay on
+# the login screen.
+# smoke.sh checks the API log afterwards, by status codes only: a 401, then
+# POST /auth/refresh 200, then POST /auth/logout 200.
+#
+# Fails if: the app was signed out during the wait, the delivery created
+# after the expiry never appears, logout does not reach the login screen, or
+# the restarted app shows the tabs again.
+appId: com.constructos.app
+---
+- assertVisible: "Home, tab.*"
+- tapOn: "Deliveries, tab.*"
+- extendedWaitUntil:
+    visible: ".*Bamburi Cement Ltd.*"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      text: ".*After Expiry Supplies.*"
+    direction: DOWN
+    timeout: 30000
+- takeScreenshot: session-03-data-loaded-after-expiry
+- tapOn: "Profile, tab.*"
+- extendedWaitUntil:
+    visible: ${SUP_EMAIL}
+    timeout: 20000
+- scrollUntilVisible:
+    element:
+      text: "Log Out"
+    direction: DOWN
+- tapOn: "Log Out"
+- extendedWaitUntil:
+    visible: "Are you sure you want to log out\\?"
+    timeout: 15000
+# See flow 03 for why both relative selectors are needed.
+- tapOn:
+    text: "Log Out"
+    rightOf: "Cancel"
+    below: "Are you sure you want to log out\\?"
+- extendedWaitUntil:
+    notVisible: "Are you sure you want to log out\\?"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 30000
+- takeScreenshot: session-04-logged-out
+# Stop and start the app: nothing may bring the session back.
+- launchApp
+- extendedWaitUntil:
+    visible: "(Welcome back|Home, tab.*)"
+    timeout: 90000
+- assertVisible: "Welcome back"
+- assertNotVisible: "Home, tab.*"
+- takeScreenshot: session-05-restarted-still-logged-out

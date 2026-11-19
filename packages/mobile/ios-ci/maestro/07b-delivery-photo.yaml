@@ -1,0 +1,85 @@
+# Continues 07a (site supervisor). The app takes delivery photos with the
+# camera only and the simulator has none: "Take Photo" must end in the
+# "Camera Unavailable" message, not in a crash, and the delivery must still be
+# saved without a photo. smoke.sh then confirms through the API that exactly
+# one such delivery exists, with no photo, recorded by this supervisor.
+# No photo is taken or uploaded by the app in this flow.
+#
+# Fails if: tapping "Take Photo" closes the app or shows anything other than
+# the message, the form is gone after the message, the save is refused
+# ("Validation Error"), or the new delivery is not in the list afterwards.
+appId: com.constructos.app
+---
+- runFlow:
+    file: subflows/after-sign-in.yaml
+    env:
+      TAB: "Home, tab.*"
+- tapOn: "Deliveries, tab.*"
+- extendedWaitUntil:
+    visible: ".*Bamburi Cement Ltd.*"
+    timeout: 20000
+- assertNotVisible: ".*Simulator Photo Check Ltd.*"
+- tapOn: "\\+ Add"
+- extendedWaitUntil:
+    visible: "New Delivery"
+    timeout: 15000
+- scrollUntilVisible:
+    element:
+      text: ".*Take Photo.*"
+    direction: DOWN
+- takeScreenshot: delivery-01-form
+- tapOn: ".*Take Photo.*"
+# iOS may ask for camera access first; the test driver normally answers the
+# prompt itself, otherwise allow it here.
+- extendedWaitUntil:
+    visible: "(Camera Unavailable|Permission Required|.*Would Like to Access the Camera.*)"
+    timeout: 20000
+- runFlow:
+    when:
+      visible: ".*Would Like to Access the Camera.*"
+    commands:
+      - tapOn: "(Allow|OK)"
+- extendedWaitUntil:
+    visible: "Camera Unavailable"
+    timeout: 20000
+- assertVisible: "The camera could not be opened on this device."
+- takeScreenshot: delivery-02-camera-unavailable
+- tapOn: "OK"
+- extendedWaitUntil:
+    notVisible: "Camera Unavailable"
+    timeout: 15000
+# The form is still open and still has no photo.
+- assertVisible: "New Delivery"
+- assertVisible: ".*Take Photo.*"
+# The description first (a multi-line field keeps the keyboard open), then the
+# supplier, whose Enter key closes the keyboard.
+- scrollUntilVisible:
+    element:
+      text: "Portland cement 50kg bags"
+    direction: UP
+- runFlow:
+    file: subflows/type-into.yaml
+    env:
+      FIELD: "Portland cement 50kg bags"
+      VALUE: "Rebar Y12 six metre lengths"
+- runFlow:
+    file: subflows/type-into.yaml
+    env:
+      FIELD: "Acme Supplies Ltd"
+      VALUE: "Simulator Photo Check Ltd"
+- pressKey: Enter
+- takeScreenshot: delivery-03-filled
+- scrollUntilVisible:
+    element:
+      text: "Create Delivery"
+    direction: DOWN
+- tapOn: "Create Delivery"
+# The form closes only after POST .../deliveries succeeded.
+- extendedWaitUntil:
+    notVisible: "New Delivery"
+    timeout: 30000
+- assertNotVisible: "Validation Error"
+- extendedWaitUntil:
+    visible: ".*Simulator Photo Check Ltd.*"
+    timeout: 20000
+- takeScreenshot: delivery-04-saved

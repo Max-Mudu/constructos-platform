@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 # Starts a throwaway PostgreSQL and the API on this runner, applies the Prisma
 # migrations and creates one company with its admin, then (seed-fixture.mjs)
-# a project manager, a site supervisor and the records the role flows read.
+# a project manager, a site supervisor and the records the flows read.
 # The password is generated here, masked in the log and never printed.
 set -euo pipefail
 : "${OUT:?}" "${RUNNER_TEMP:?}" "${DATABASE_URL:?}"
 
-REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$HERE/../../.." && pwd)"
 API_ORIGIN="http://localhost:3001"
 DB_NAME="constructos_ios_ci"
+# shellcheck source=api-ctl.sh
+. "$HERE/api-ctl.sh"
 
 show_logs() {
   echo "--- api.log (last 60 lines)"
-  tail -n 60 "$OUT/logs/api.log" 2>/dev/null | sed -E "s/token=[A-Za-z0-9]+/token=[redacted]/g" || true
+  tail -n 60 "$OUT/logs/api.log" 2>/dev/null | scrub_log || true
   echo "--- postgres.log (last 30 lines)"
   tail -n 30 "$OUT/logs/postgres.log" 2>/dev/null || true
 }
@@ -38,21 +41,19 @@ cd "$REPO_ROOT/packages/api"
 npx prisma generate
 npx prisma migrate deploy
 
-# API on localhost:3001.
-nohup npx tsx src/server.ts > "$OUT/logs/api.log" 2>&1 &
-echo $! > "$RUNNER_TEMP/api.pid"
+# How long one password check takes on this runner while it is idle.
+echo "Runner: $(sysctl -n hw.ncpu) CPUs, $(( $(sysctl -n hw.memsize) / 1073741824 )) GB, time zone offset $(date +%z)"
+node "$HERE/bcrypt-bench.mjs" "on the idle runner, before the build"
 
-up=0
-for i in $(seq 1 90); do
-  if curl -fsS -o /dev/null "$API_ORIGIN/health" 2>/dev/null; then
-    echo "API answered /health after about ${i}s"
-    up=1
-    break
-  fi
-  sleep 1
-done
-if [ "$up" != 1 ]; then
-  echo "::error::The API did not answer on $API_ORIGIN/health within 90 s"
+# The API's environment (the throwaway database and the dummy CI values from
+# the workflow), saved so later steps can restart it. Never printed.
+( umask 077
+  for name in NODE_ENV DATABASE_URL JWT_SECRET JWT_REFRESH_SECRET STORAGE_DRIVER DAILY_REPORT_AI_PROVIDER; do
+    printf '%s=%q\n' "$name" "${!name:-}"
+  done > "$RUNNER_TEMP/api.env" )
+
+# API on localhost:3001, with the request-timing preload.
+if ! api_start; then
   show_logs
   exit 1
 fi
@@ -82,8 +83,8 @@ code="$(post /auth/login "{\"email\":\"$SMOKE_EMAIL\",\"password\":\"Wrong-passw
 echo "API login with a wrong password: HTTP $code"
 [ "$code" = 401 ]
 
-# Project manager, site supervisor and the records the role flows read
-# (04, 05). Appends PM_EMAIL and SUP_EMAIL to the credentials file.
+# Project manager, site supervisor and the records the flows read. Appends
+# PM_EMAIL and SUP_EMAIL to the credentials file.
 API_ORIGIN="$API_ORIGIN" node "$REPO_ROOT/packages/mobile/ios-ci/seed-fixture.mjs" \
   "$RUNNER_TEMP/smoke-credentials" "$RUNNER_TEMP/fixture.json"
 

@@ -1,0 +1,52 @@
+# Continues 06a (project manager signed in, or signing in). Downloads the
+# Labour Report as a PDF from the API on this runner and checks that iOS's
+# share sheet opens for it (on iOS the app hands a downloaded file to the
+# share sheet, which offers Save to Files, Print and Quick Look), then closes
+# the sheet and checks the app is still on the Reports screen.
+#
+# Fails if: the download fails ("Download Failed" alert, no sheet), the share
+# sheet never appears, or the Reports screen is not there after closing it.
+# smoke.sh separately checks in the API log that the app fetched
+# /reports/labour and got application/pdf.
+appId: com.constructos.app
+---
+- runFlow:
+    file: subflows/after-sign-in.yaml
+    env:
+      TAB: "Dashboard, tab.*"
+- tapOn: "Reports, tab.*"
+- extendedWaitUntil:
+    visible: "Select a report to view or export"
+    timeout: 20000
+- assertVisible: "Labour Report"
+- takeScreenshot: pdf-01-reports
+# Every report card has a "PDF" button; the Labour Report is the first card
+# for this role, and "below" narrows the match to buttons under its title.
+- tapOn:
+    text: "PDF"
+    below: "Labour Report"
+# Actions iOS lists for a file in the share sheet. None of these words is on
+# an app screen.
+- extendedWaitUntil:
+    visible: "(Save to Files|Copy|Print|Markup)"
+    timeout: 45000
+- assertNotVisible: "Download Failed"
+- takeScreenshot: pdf-02-report-share-sheet
+- tapOn:
+    text: "Close"
+    optional: true
+# No Close button on this iOS version: drag the sheet down instead.
+- runFlow:
+    when:
+      visible: "(Save to Files|Copy|Print|Markup)"
+    commands:
+      - swipe:
+          start: "50%,35%"
+          end: "50%,95%"
+- extendedWaitUntil:
+    notVisible: "(Save to Files|Copy|Print|Markup)"
+    timeout: 15000
+- assertVisible: "Select a report to view or export"
+- assertVisible: "Reports, tab.*"
+- assertNotVisible: "Download Failed"
+- takeScreenshot: pdf-03-after-report-share-sheet

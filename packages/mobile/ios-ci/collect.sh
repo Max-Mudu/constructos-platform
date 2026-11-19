@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # Gathers the last screenshot, crash reports and log tails for the artifact,
-# removes the generated password from anything that will be uploaded and
-# writes the job summary. Never fails the job.
+# removes the generated password and anything token-like from what will be
+# uploaded or printed, and writes the job summary. Never fails the job.
 set -uo pipefail
 : "${OUT:?}"
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=api-ctl.sh
+. "$HERE/api-ctl.sh"
 
 if [ -n "${SIM_UDID:-}" ]; then
   xcrun simctl io "$SIM_UDID" screenshot "$OUT/screenshots/99-final.png" 2>/dev/null || true
@@ -14,12 +18,15 @@ cp ~/Library/Logs/DiagnosticReports/*"${APP_EXECUTABLE:-ConstructOS}"* "$OUT/log
 # Memory-pressure kills leave a JetsamEvent report instead of a crash report.
 cp ~/Library/Logs/DiagnosticReports/JetsamEvent* "$OUT/logs/crash-reports/" 2>/dev/null || true
 
-# The API prints account setup links (one-time tokens) in development mode.
+# The API prints account setup links (one-time tokens) outside production.
 # seed-fixture.mjs used them and they die with this runner's database, but
-# keep them out of the uploaded artifact anyway.
-if [ -f "$OUT/logs/api.log" ]; then
-  LC_ALL=C sed -i '' -E 's/token=[A-Za-z0-9]+/token=[redacted]/g' "$OUT/logs/api.log"
-fi
+# keep them, and anything shaped like a bearer value or a JWT, out of the
+# uploaded artifact and out of the job log (scrub_log, api-ctl.sh).
+for f in "$OUT/logs/api.log" "$OUT/logs/simulator-app.log"; do
+  if [ -f "$f" ]; then
+    scrub_log < "$f" > "$f.scrubbed" && mv "$f.scrubbed" "$f"
+  fi
+done
 
 if [ -f "${RUNNER_TEMP:-/nonexistent}/smoke-credentials" ]; then
   # shellcheck disable=SC1091
@@ -32,19 +39,22 @@ if [ -f "${RUNNER_TEMP:-/nonexistent}/smoke-credentials" ]; then
 fi
 
 echo "--- API log (last 40 lines)"
-tail -n 40 "$OUT/logs/api.log" 2>/dev/null || echo "(none)"
+tail -n 40 "$OUT/logs/api.log" 2>/dev/null | scrub_log || echo "(none)"
+if [ -f "$OUT/logs/api-timing.jsonl" ]; then
+  echo "--- API timing log: $(wc -l < "$OUT/logs/api-timing.jsonl" | tr -d ' ') lines; lines with a query string, bearer value or JWT: $(LC_ALL=C grep -c -E '[?]|Bearer |eyJ' "$OUT/logs/api-timing.jsonl" || true)"
+fi
 echo "--- Simulator app log (last 80 lines)"
-tail -n 80 "$OUT/logs/simulator-app.log" 2>/dev/null || echo "(none)"
+tail -n 80 "$OUT/logs/simulator-app.log" 2>/dev/null | scrub_log || echo "(none)"
 echo "--- Crash reports"
 ls -l "$OUT/logs/crash-reports" 2>/dev/null || true
 
 if [ -f "$OUT/logs/xcodebuild.log" ]; then gzip -9 "$OUT/logs/xcodebuild.log"; fi
 
 echo "--- Artifact contents"
-find "$OUT" -type f | sort | awk 'NR<=300'
+find "$OUT" -type f | sort | awk 'NR<=400'
 
 {
-  echo "### iOS simulator run (signing: ${SIGNING:-?})"
+  echo "### iOS simulator run (signing: ${SIGNING:-?}, suite: ${SUITE:-?})"
   echo
   echo "| | |"
   echo "|---|---|"

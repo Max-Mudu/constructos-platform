@@ -1,0 +1,21 @@
+# Types a value into the form field with the given placeholder and checks the
+# field holds it. The simulator has dropped typed keys (run 44285338082), so
+# the value is typed again, up to twice, if it is not there in full.
+# Env: FIELD (the placeholder text), VALUE.
+appId: com.constructos.app
+---
+- tapOn: ${FIELD}
+- inputText: ${VALUE}
+- runFlow:
+    when:
+      notVisible: ${VALUE}
+    commands:
+      - eraseText: 100
+      - inputText: ${VALUE}
+- runFlow:
+    when:
+      notVisible: ${VALUE}
+    commands:
+      - eraseText: 100
+      - inputText: ${VALUE}
+- assertVisible: ${VALUE}

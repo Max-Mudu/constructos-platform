@@ -1,0 +1,35 @@
+# Offline queue, part 1 of 3 (API still running): the site supervisor opens
+# the New Labour Entry form and picks the second fixture worker, who has no
+# labour entry yet. The form loads its worker list from the API, so it has to
+# be opened before smoke.sh stops the API. Nothing is saved in this part.
+#
+# What the app queues (src/utils/offlineQueue.ts): a labour entry or a
+# worker's own check-in whose request failed for a network reason. It sends
+# the queue when the app returns to the foreground.
+appId: com.constructos.app
+---
+- runFlow:
+    file: subflows/ensure-signed-in.yaml
+    env:
+      EMAIL: ${SUP_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+      TAB: "Home, tab.*"
+- tapOn: "Labour, tab.*"
+- extendedWaitUntil:
+    visible: ".*Wanjiru Kamau.*"
+    timeout: 20000
+- assertNotVisible: ".*Otieno Offline.*"
+- takeScreenshot: offline-01-labour-before
+- tapOn: "\\+ Add"
+- extendedWaitUntil:
+    visible: "New Labour Entry"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: ".*Otieno Offline.*"
+    timeout: 20000
+- tapOn: ".*Otieno Offline.*"
+- scrollUntilVisible:
+    element:
+      text: "Create Entry"
+    direction: DOWN
+- takeScreenshot: offline-02-form-ready
