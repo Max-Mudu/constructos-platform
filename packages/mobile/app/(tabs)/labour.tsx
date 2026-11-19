@@ -800,12 +800,18 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
 
+  // flexShrink 0: on Android a long list below otherwise squeezes this row
+  // until the chip labels are cut off (same styles as Deliveries and Inventory).
   filterBar: {
     flexGrow: 0,
+    flexShrink: 0,
+    alignSelf: 'stretch',
   },
   filterBarContent: {
     paddingHorizontal: 16,
     paddingBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
   filterChip: {

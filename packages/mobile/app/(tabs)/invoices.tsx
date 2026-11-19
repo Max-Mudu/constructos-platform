@@ -455,8 +455,10 @@ const styles = StyleSheet.create({
   heading:     { color: '#f1f5f9', fontSize: 24, fontWeight: '700', flex: 1 },
   count:       { color: '#64748b', fontSize: 14, fontWeight: '600' },
 
-  filterBar:        { flexGrow: 0 },
-  filterBarContent: { paddingHorizontal: 16, paddingBottom: 8, gap: 8 },
+  // flexShrink 0: on Android a long list below otherwise squeezes this row
+  // until the chip labels are cut off (same styles as Deliveries and Inventory).
+  filterBar:        { flexGrow: 0, flexShrink: 0, alignSelf: 'stretch' },
+  filterBarContent: { paddingHorizontal: 16, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
   filterChip:       { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: '#1e293b', borderWidth: 1, borderColor: '#334155' },
   filterChipActive: { backgroundColor: '#1d4ed8', borderColor: '#3b82f6' },
   filterChipText:      { color: '#94a3b8', fontSize: 12, fontWeight: '600' },
