@@ -62,6 +62,12 @@ appId: com.constructos.app
     env:
       FIELD: "Portland cement 50kg bags"
       VALUE: "Rebar Y12 six metre lengths"
+# The supplier field is the first on the form; bring it back if the keyboard
+# pushed it out of view.
+- scrollUntilVisible:
+    element:
+      text: "Acme Supplies Ltd"
+    direction: UP
 - runFlow:
     file: subflows/type-into.yaml
     env:

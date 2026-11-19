@@ -78,12 +78,20 @@ load_sampler_stop() {
 # Run 44432016833 showed the simulator's diagnosticd, the host's diagnosticd
 # and `log` among the busiest processes while sign-ins waited for the API.
 log_writers() {
-  : "${SIM_UDID:?}"
-  echo "--- Simulator log writers over 4 s ($1)"
-  xcrun simctl spawn "$SIM_UDID" log stream --level info --style compact --timeout 4 2>/dev/null \
-    | awk 'NR > 2 && $4 ~ /\[/ { p = $4; sub(/\[.*/, "", p); n[p]++; total++ }
-           END { printf "%d lines in all\n", total; for (p in n) printf "%7d %s\n", n[p], p }' \
+  : "${SIM_UDID:?}" "${RUNNER_TEMP:?}"
+  local sample="$RUNNER_TEMP/log-writers.txt" pid
+  echo "--- Simulator log writers over about 4 s ($1)"
+  # Into a file and stopped from here, so a stream that does not end on its
+  # own can never hold this script up.
+  xcrun simctl spawn "$SIM_UDID" log stream --level info --style compact --timeout 4 > "$sample" 2>/dev/null &
+  pid=$!
+  sleep 6
+  kill "$pid" 2>/dev/null || true
+  pkill -f "log stream --level info --style compact --timeout" 2>/dev/null || true
+  awk 'NR > 2 && $4 ~ /\[/ { p = $4; sub(/\[.*/, "", p); n[p]++; total++ }
+       END { printf "%d lines in all\n", total; for (p in n) printf "%7d %s\n", n[p], p }' "$sample" \
     | sort -rn | awk 'NR <= 11' || true
+  rm -f "$sample"
 }
 
 # One timed API login with the admin account; prints "<http code> <seconds>".
