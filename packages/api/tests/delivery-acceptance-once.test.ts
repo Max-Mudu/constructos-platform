@@ -143,7 +143,7 @@ describe('concurrent acceptance of one delivery', () => {
     expect(Number(credits[0]!.quantity)).toBe(10);
   });
 
-  it('concurrent accepted and partially_accepted requests credit inventory once', async () => {
+  it('concurrent accepted and partially_accepted requests credit inventory once (partial refused for now)', async () => {
     const material = newMaterial();
     const delivery = await makeDelivery(material, 25);
 
@@ -154,12 +154,14 @@ describe('concurrent acceptance of one delivery', () => {
         })),
     );
 
-    expect(results.map((r) => r.statusCode)).toEqual(Array(6).fill(200));
+    // Partial acceptance of delivered goods is refused until the accepted
+    // quantity can be recorded (see delivery-partial-interim.test.ts).
+    expect(results.map((r) => r.statusCode)).toEqual([409, 200, 409, 200, 409, 200]);
     expect(await stockOf(material)).toBe(25);
     expect(await creditsFor(delivery.id)).toHaveLength(1);
 
     const row = await prisma.deliveryRecord.findUniqueOrThrow({ where: { id: delivery.id } });
-    expect(['accepted', 'partially_accepted']).toContain(row.acceptanceStatus);
+    expect(row.acceptanceStatus).toBe('accepted');
   });
 
   it('an accept racing with unrelated edits of the same delivery credits once and keeps the edits', async () => {
@@ -269,7 +271,7 @@ describe('single requests', () => {
 
     expect((await patch(pm, delivery.id, { acceptanceStatus: 'accepted' })).statusCode).toBe(200);
     expect((await patch(pm, delivery.id, { acceptanceStatus: 'accepted' })).statusCode).toBe(200);
-    expect((await patch(pm, delivery.id, { acceptanceStatus: 'partially_accepted' })).statusCode).toBe(200);
+    expect((await patch(pm, delivery.id, { acceptanceStatus: 'partially_accepted' })).statusCode).toBe(409);
 
     expect(await stockOf(material)).toBe(10);
     expect(await creditsFor(delivery.id)).toHaveLength(1);
@@ -318,7 +320,7 @@ describe('single requests', () => {
     const id = res.json().delivery.id as string;
 
     expect((await patch(pm, id, { acceptanceStatus: 'rejected', rejectionReason: 'damaged' })).statusCode).toBe(409);
-    expect((await patch(pm, id, { acceptanceStatus: 'partially_accepted' })).statusCode).toBe(200);
+    expect((await patch(pm, id, { acceptanceStatus: 'partially_accepted' })).statusCode).toBe(409);
 
     expect(await stockOf(material)).toBe(6);
     expect(await creditsFor(id)).toHaveLength(1);

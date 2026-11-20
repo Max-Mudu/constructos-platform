@@ -393,15 +393,26 @@ describe('(a) site_supervisor pilot day', () => {
   });
 
   it('updates inspection and acceptance from the delivery detail screen', async () => {
-    const res = await send(token, 'PATCH', `/projects/${w.projectA}/sites/${w.siteA1}/deliveries/${deliveryId}`, {
+    // Partial acceptance of delivered goods is refused until the accepted
+    // quantity can be recorded; the error text is what the screen shows.
+    const partial = await send(token, 'PATCH', `/projects/${w.projectA}/sites/${w.siteA1}/deliveries/${deliveryId}`, {
       inspectionStatus: 'passed',
       acceptanceStatus: 'partially_accepted',
       rejectionReason: null,
       discrepancyNotes: '20 bags short',
     });
+    expect(partial.statusCode).toBe(409);
+    expect(partial.json().error).toMatch(/Partial acceptance cannot be recorded yet/);
+
+    const res = await send(token, 'PATCH', `/projects/${w.projectA}/sites/${w.siteA1}/deliveries/${deliveryId}`, {
+      inspectionStatus: 'passed',
+      acceptanceStatus: 'accepted',
+      rejectionReason: null,
+      discrepancyNotes: '20 bags short',
+    });
     expect(res.statusCode).toBe(200);
     expect(res.json().delivery).toEqual(expect.objectContaining({
-      id: deliveryId, inspectionStatus: 'passed', acceptanceStatus: 'partially_accepted', discrepancyNotes: '20 bags short',
+      id: deliveryId, inspectionStatus: 'passed', acceptanceStatus: 'accepted', discrepancyNotes: '20 bags short',
     }));
   });
 });
@@ -420,7 +431,7 @@ describe('(b) project_manager views site work and updates a task', () => {
     expect(res.statusCode).toBe(200);
     const listed = res.json().records.find((r: { id: string }) => r.id === deliveryId);
     expect(listed).toBeDefined();
-    expect(listed.acceptanceStatus).toBe('partially_accepted');
+    expect(listed.acceptanceStatus).toBe('accepted');
     expect(listed.photos).toHaveLength(1);
   });
 
