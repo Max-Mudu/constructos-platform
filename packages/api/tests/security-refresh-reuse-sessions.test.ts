@@ -13,6 +13,8 @@ import { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/server';
 import { prisma } from '../src/utils/prisma';
 import { createNotification } from '../src/services/notification.service';
+import { heartbeatOrClose } from '../src/routes/events.routes';
+import { JwtPayload } from '../src/types';
 import { createTestCompany, createTestUser, clearDatabase, TestUser } from './helpers/fixtures';
 
 let app: FastifyInstance;
@@ -280,6 +282,21 @@ describe('concurrent refreshes around reuse detection', () => {
     expect((await refresh(mine.json().refreshToken)).statusCode).toBe(401);
   });
 
+  it('a device registration racing a replay never survives it (looped)', async () => {
+    for (let i = 0; i < 6; i += 1) {
+      const u = await newUser(`reuse-reg-race-${i}`);
+      const { stale, legit } = await rotatedSession(u);
+      const [reg, replay] = await Promise.all([
+        registerDevice(legit.accessToken, `ExponentPushToken[rreg-${i}]`),
+        refresh(stale.refreshToken),
+      ]);
+      expect(replay.statusCode).toBe(401);
+      expect([204, 401]).toContain(reg.statusCode);
+      // Registered before the sessions ended (and removed with them) or refused after.
+      expect(await devices(u.id)).toBe(0);
+    }
+  });
+
   it('two replays at once: both refused, no error, devices removed and counted once', async () => {
     const u = await newUser('reuse-twice');
     const { stale, legit } = await rotatedSession(u);
@@ -291,5 +308,106 @@ describe('concurrent refreshes around reuse detection', () => {
     const removed = (await reuseAudits(u.id))
       .map((l) => (l.changesAfter as { pushDevicesRemoved: number }).pushDevicesRemoved);
     expect(removed.reduce((a, b) => a + b, 0)).toBe(1);
+  });
+});
+
+// ─── legitimate concurrency ─────────────────────────────────────────────────
+
+/** A browser tab's refresh: the refresh token travels in the shared cookie. */
+function refreshWithCookie(refreshToken: string) {
+  return app.inject({ method: 'POST', url: '/api/v1/auth/refresh', cookies: { refreshToken } });
+}
+
+describe('legitimate concurrent refreshes are not treated as reuse', () => {
+  it('two browser tabs taking turns: each sends the cookie the previous refresh set; both stay signed in', async () => {
+    const u = await newUser('tabs-turns');
+    const first = await signIn(u.email);
+    await registerOk(first.accessToken, 'ExponentPushToken[tabs-1]');
+    const before = (await prisma.user.findUniqueOrThrow({ where: { id: u.id } })).sessionVersion;
+
+    // Tab A refreshes; the browser stores the new cookie; tab B's refresh,
+    // made after A's finished, carries that new cookie.
+    const tabA = await refreshWithCookie(first.refreshToken);
+    expect(tabA.statusCode).toBe(200);
+    const tabB = await refreshWithCookie(tabA.json().refreshToken);
+    expect(tabB.statusCode).toBe(200);
+
+    expect((await me(tabA.json().accessToken)).statusCode).toBe(200);
+    expect((await me(tabB.json().accessToken)).statusCode).toBe(200);
+    expect((await refreshWithCookie(tabB.json().refreshToken)).statusCode).toBe(200);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: u.id } })).sessionVersion).toBe(before);
+    expect(await reuseAudits(u.id)).toHaveLength(0);
+    expect(await devices(u.id)).toBe(1);
+  });
+
+  it('two devices of one user refreshing at the same moment both succeed (looped)', async () => {
+    for (let i = 0; i < 5; i += 1) {
+      const u = await newUser(`two-devices-${i}`);
+      const laptop = await signIn(u.email);
+      const phone = await signIn(u.email);
+      const [a, b] = await Promise.all([refresh(laptop.refreshToken), refresh(phone.refreshToken)]);
+      expect([a.statusCode, b.statusCode]).toEqual([200, 200]);
+      expect((await me(a.json().accessToken)).statusCode).toBe(200);
+      expect((await me(b.json().accessToken)).statusCode).toBe(200);
+      expect(await reuseAudits(u.id)).toHaveLength(0);
+    }
+  });
+
+  it('two tabs sending the same cookie at the same instant never yield two live sessions (looped)', async () => {
+    // Without the web client's turn-taking, both tabs can present one token.
+    // Either the second is refused outright (both read it before either
+    // rotated it) or it counts as reuse and every session ends. Never two
+    // usable pairs; the web client takes turns so this does not arise.
+    for (let i = 0; i < 6; i += 1) {
+      const u = await newUser(`tabs-same-instant-${i}`);
+      const first = await signIn(u.email);
+      const results = await Promise.all([refreshWithCookie(first.refreshToken), refreshWithCookie(first.refreshToken)]);
+      const ok = results.filter((r) => r.statusCode === 200);
+      expect(ok.length).toBeLessThanOrEqual(1);
+      expect(results.filter((r) => r.statusCode === 401).length).toBeGreaterThanOrEqual(1);
+      const reused = (await reuseAudits(u.id)).length > 0;
+      for (const r of ok) {
+        expect((await me(r.json().accessToken)).statusCode).toBe(reused ? 401 : 200);
+      }
+    }
+  });
+});
+
+// ─── open live-update streams ───────────────────────────────────────────────
+
+describe('an open live-updates stream', () => {
+  function stream() {
+    const written: string[] = [];
+    let closed = 0;
+    return { written, closedCount: () => closed, write: (d: string) => { written.push(d); }, close: () => { closed += 1; } };
+  }
+
+  it('closes at its next heartbeat once reuse has ended the sessions; another user\'s stays open', async () => {
+    const u = await newUser('stream-reuse');
+    const other = await newUser('stream-other');
+    const { stale, legit } = await rotatedSession(u);
+    const mine = stream();
+    const theirs = stream();
+    const myPayload = app.jwt.verify<JwtPayload>(legit.accessToken);
+    const theirPayload = app.jwt.verify<JwtPayload>((await signIn(other.email)).accessToken);
+
+    expect(await heartbeatOrClose(myPayload, mine)).toBe(true);
+    expect(mine.written.join('')).toContain('event: heartbeat');
+
+    expect((await refresh(stale.refreshToken)).statusCode).toBe(401);
+
+    mine.written.length = 0;
+    expect(await heartbeatOrClose(myPayload, mine)).toBe(false);
+    expect(mine.closedCount()).toBe(1);
+    expect(mine.written).toHaveLength(0);
+    expect(await heartbeatOrClose(theirPayload, theirs)).toBe(true);
+    expect(theirs.closedCount()).toBe(0);
+  });
+
+  it('closes when the session check cannot vouch for the token', async () => {
+    const s = stream();
+    const bad = { sub: undefined, companyId: cid } as unknown as JwtPayload;
+    expect(await heartbeatOrClose(bad, s)).toBe(false);
+    expect(s.closedCount()).toBe(1);
   });
 });
