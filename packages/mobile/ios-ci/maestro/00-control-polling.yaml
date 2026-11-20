@@ -1,0 +1,12 @@
+# Latency control, not a test of the app: the test driver asks for the screen
+# tree over and over for 30 seconds (exactly what it does while it waits for a
+# sign-in), with nobody signing in. smoke.sh makes timed curl logins meanwhile,
+# so the report can compare the same API request with and without this
+# polling. The text below never appears; the step is optional, so the flow
+# ends normally.
+appId: com.constructos.app
+---
+- extendedWaitUntil:
+    visible: "THIS TEXT IS NEVER SHOWN"
+    timeout: 30000
+    optional: true

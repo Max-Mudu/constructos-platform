@@ -22,6 +22,7 @@ export interface CreateDeliveryInput {
   unitOfMeasure: string;
   quantityOrdered: number;
   quantityDelivered: number;
+  quantityAccepted?: number;
   conditionOnArrival?: DeliveryCondition;
   inspectionStatus?: InspectionStatus;
   acceptanceStatus?: AcceptanceStatus;
@@ -47,6 +48,7 @@ export interface UpdateDeliveryInput {
   unitOfMeasure?: string;
   quantityOrdered?: number;
   quantityDelivered?: number;
+  quantityAccepted?: number | null;
   conditionOnArrival?: DeliveryCondition;
   inspectionStatus?: InspectionStatus;
   acceptanceStatus?: AcceptanceStatus;
@@ -77,6 +79,7 @@ const DELIVERY_LIST_SELECT = {
   unitOfMeasure: true,
   quantityOrdered: true,
   quantityDelivered: true,
+  quantityAccepted: true,
   conditionOnArrival: true,
   inspectionStatus: true,
   acceptanceStatus: true,
@@ -111,6 +114,7 @@ const DELIVERY_SELECT = {
   unitOfMeasure: true,
   quantityOrdered: true,
   quantityDelivered: true,
+  quantityAccepted: true,
   conditionOnArrival: true,
   inspectionStatus: true,
   acceptanceStatus: true,
@@ -234,8 +238,9 @@ async function assertStockStaysConsistent(
   input: UpdateDeliveryInput,
 ): Promise<void> {
   const touchesStock =
-    input.acceptanceStatus === 'rejected' ||
+    input.acceptanceStatus  !== undefined ||
     input.quantityDelivered !== undefined ||
+    input.quantityAccepted  !== undefined ||
     input.itemDescription   !== undefined ||
     input.unitOfMeasure     !== undefined;
   if (!touchesStock) return;
@@ -247,7 +252,10 @@ async function assertStockStaysConsistent(
 
   const current = await tx.deliveryRecord.findUniqueOrThrow({
     where:  { id: deliveryId },
-    select: { acceptanceStatus: true, quantityDelivered: true, itemDescription: true, unitOfMeasure: true },
+    select: {
+      acceptanceStatus: true, quantityDelivered: true, quantityAccepted: true,
+      itemDescription: true, unitOfMeasure: true,
+    },
   });
 
   if (input.acceptanceStatus === 'rejected' && ACCEPTED_STATES.includes(current.acceptanceStatus)) {
@@ -257,7 +265,30 @@ async function assertStockStaysConsistent(
     );
   }
 
+  // Full and partial acceptance credit different quantities, so switching
+  // between them after the credit would need stock added or taken back.
+  // Neither happens implicitly.
+  const switchesAcceptance =
+    input.acceptanceStatus !== undefined &&
+    input.acceptanceStatus !== current.acceptanceStatus &&
+    (input.acceptanceStatus === 'partially_accepted' || current.acceptanceStatus === 'partially_accepted');
+  if (switchesAcceptance) {
+    throw new ConflictError(
+      'This delivery\'s goods have already been added to site stock at the quantity accepted then, ' +
+      'so it cannot be switched between accepted and partially accepted. ' +
+      'To correct stock, a company admin or project manager records a stock adjustment.',
+    );
+  }
+
+  const acceptedChanged =
+    input.quantityAccepted !== undefined &&
+    (input.quantityAccepted === null
+      ? current.quantityAccepted !== null
+      : current.quantityAccepted === null ||
+        !current.quantityAccepted.equals(new Prisma.Decimal(input.quantityAccepted)));
+
   const changed =
+    acceptedChanged ||
     (input.quantityDelivered !== undefined &&
       !current.quantityDelivered.equals(new Prisma.Decimal(input.quantityDelivered))) ||
     (input.itemDescription !== undefined &&
@@ -266,11 +297,58 @@ async function assertStockStaysConsistent(
       input.unitOfMeasure.trim() !== current.unitOfMeasure.trim());
   if (changed) {
     throw new ConflictError(
-      'The delivered quantity, item and unit of a delivery cannot be changed after its goods were added to site stock. ' +
+      'The delivered quantity, accepted quantity, item and unit of a delivery cannot be changed after its goods were added to site stock. ' +
       'To correct stock, a company admin or project manager records a stock adjustment.',
     );
   }
 }
+
+/**
+ * The accepted quantity of a delivery. A partially accepted delivery of goods
+ * records how much of the delivered quantity was accepted: more than 0 and
+ * less than the delivered quantity (all of it is "accepted"). It is stored
+ * separately from the delivered quantity and is the quantity added to stock.
+ * Any other status carries no accepted quantity. `required` is false only for
+ * a delivery that is already partially accepted, so records made before the
+ * accepted quantity existed ("accepted quantity not recorded") stay editable
+ * without one being guessed.
+ */
+function validateAcceptedQuantity(
+  status: AcceptanceStatus | null,
+  quantityDelivered: Prisma.Decimal,
+  quantityAccepted: Prisma.Decimal | null,
+  required: boolean,
+): void {
+  if (status !== 'partially_accepted') {
+    if (quantityAccepted !== null) {
+      throw new ValidationError('An accepted quantity is recorded only for a partially accepted delivery.');
+    }
+    return;
+  }
+  if (!quantityDelivered.greaterThan(0)) {
+    if (quantityAccepted !== null) {
+      throw new ValidationError('Nothing was delivered, so no accepted quantity can be recorded.');
+    }
+    return;
+  }
+  if (quantityAccepted === null) {
+    if (required) {
+      throw new ValidationError(
+        'Enter the quantity accepted for a partially accepted delivery: more than 0 and less than the delivered quantity.',
+      );
+    }
+    return;
+  }
+  if (!quantityAccepted.greaterThan(0) || !quantityAccepted.lessThan(quantityDelivered)) {
+    throw new ValidationError(
+      `The accepted quantity must be more than 0 and less than the delivered quantity (${quantityDelivered.toString()}). ` +
+      'If all delivered goods were accepted, mark the delivery accepted.',
+    );
+  }
+}
+
+const toDecimal = (v: number | null | undefined): Prisma.Decimal | null =>
+  v === null || v === undefined ? null : new Prisma.Decimal(v);
 
 // ─── Service functions ────────────────────────────────────────────────────────
 
@@ -312,6 +390,12 @@ export async function createDelivery(
   actor: RequestUser,
 ) {
   await checkSiteAccess(siteId, projectId, actor);
+  validateAcceptedQuantity(
+    input.acceptanceStatus ?? null,
+    new Prisma.Decimal(input.quantityDelivered),
+    toDecimal(input.quantityAccepted),
+    true,
+  );
   await validateReceivedBy(input.receivedById, actor.companyId);
   if (input.budgetLineItemId) {
     await validateBudgetLineItemScope(input.budgetLineItemId, actor.companyId, projectId);
@@ -342,6 +426,7 @@ export async function createDelivery(
         unitOfMeasure: input.unitOfMeasure,
         quantityOrdered: input.quantityOrdered,
         quantityDelivered: input.quantityDelivered,
+        quantityAccepted: input.quantityAccepted ?? null,
         conditionOnArrival: input.conditionOnArrival ?? 'good',
         inspectionStatus: input.inspectionStatus ?? 'pending',
         acceptanceStatus: input.acceptanceStatus ?? null,
@@ -426,6 +511,7 @@ export async function updateDelivery(
     ...(input.unitOfMeasure       !== undefined && { unitOfMeasure: input.unitOfMeasure }),
     ...(input.quantityOrdered     !== undefined && { quantityOrdered: input.quantityOrdered }),
     ...(input.quantityDelivered   !== undefined && { quantityDelivered: input.quantityDelivered }),
+    ...(input.quantityAccepted    !== undefined && { quantityAccepted: input.quantityAccepted }),
     ...(input.conditionOnArrival  !== undefined && { conditionOnArrival: input.conditionOnArrival }),
     ...(input.inspectionStatus    !== undefined && { inspectionStatus: input.inspectionStatus }),
     ...(input.acceptanceStatus    !== undefined && { acceptanceStatus: input.acceptanceStatus }),
@@ -465,6 +551,21 @@ export async function updateDelivery(
       where:  { id: deliveryId },
       select: DELIVERY_SELECT,
     });
+    // Checked against the stored delivery, so a request that changes only the
+    // delivered or the accepted quantity is validated against the other one.
+    const targetStatus = input.acceptanceStatus ?? before.acceptanceStatus;
+    const entersPartial =
+      targetStatus === 'partially_accepted' && before.acceptanceStatus !== 'partially_accepted';
+    validateAcceptedQuantity(
+      targetStatus,
+      input.quantityDelivered !== undefined
+        ? new Prisma.Decimal(input.quantityDelivered)
+        : before.quantityDelivered,
+      input.quantityAccepted !== undefined
+        ? toDecimal(input.quantityAccepted)
+        : targetStatus === 'partially_accepted' ? before.quantityAccepted : null,
+      entersPartial,
+    );
 
     let justAccepted = false;
     if (acceptsDelivery) {

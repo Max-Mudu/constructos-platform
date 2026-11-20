@@ -323,6 +323,14 @@ export default function DeliveryDetailPage() {
               label="Quantity Delivered"
               value={`${formatQuantity(delivery.quantityDelivered)} ${delivery.unitOfMeasure}`}
             />
+            {delivery.acceptanceStatus === 'partially_accepted' && (
+              <DetailRow
+                label="Quantity Accepted"
+                value={delivery.quantityAccepted == null
+                  ? 'Accepted quantity not recorded'
+                  : `${formatQuantity(delivery.quantityAccepted)} ${delivery.unitOfMeasure}`}
+              />
+            )}
             <DetailRow label="Condition on Arrival" value={conditionBadge(delivery.conditionOnArrival)} />
           </dl>
         </CardContent>

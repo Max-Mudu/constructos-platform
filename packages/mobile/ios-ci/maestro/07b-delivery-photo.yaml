@@ -1,0 +1,115 @@
+# Continues 07a (site supervisor). The app takes delivery photos with the
+# camera only and the simulator has none: "Take Photo" must end in the
+# "Camera Unavailable" message, not in a crash, and the delivery must still be
+# saved without a photo. smoke.sh then confirms through the API that exactly
+# one such delivery exists, with no photo, recorded by this supervisor.
+# No photo is taken or uploaded by the app in this flow.
+#
+# Fails if: tapping "Take Photo" closes the app or shows anything other than
+# the message, the form is gone after the message, the typed values are lost,
+# the save is refused ("Validation Error"), or the new delivery is not in the
+# list afterwards.
+#
+# Two things about this form on iOS (run 44548289901):
+# - It is a page sheet. A downward swipe once its content is back at the top
+#   closes the sheet: looking for a field by scrolling UP swiped 350 pt after a
+#   129 pt scroll and iOS dismissed the form. So the fields are filled while the
+#   form is at the top and every later scroll goes DOWN.
+# - While it is empty, iOS names a multi-line field by its accessibility name
+#   AND its placeholder joined: "Item Description * Portland cement 50kg bags"
+#   (screen tree of run 44580601112). Maestro matches the whole name, so the
+#   placeholder alone matches nothing (run 44548289901) and the label alone
+#   matches only the label text above the field (run 44580601112). The full
+#   name matches the field and nothing else. Single-line fields (the supplier)
+#   are found by their placeholder, which iOS reports separately.
+appId: com.constructos.app
+---
+- runFlow:
+    file: subflows/after-sign-in.yaml
+    env:
+      TAB: "Home, tab.*"
+- tapOn: "Deliveries, tab.*"
+- extendedWaitUntil:
+    visible: ".*Bamburi Cement Ltd.*"
+    timeout: 20000
+- assertNotVisible: ".*Simulator Photo Check Ltd.*"
+- tapOn: "\\+ Add"
+- extendedWaitUntil:
+    visible: "New Delivery"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: "Item Description \\* Portland cement 50kg bags"
+    timeout: 15000
+
+# The description first (a multi-line field keeps the keyboard open), then the
+# supplier, whose Enter key closes the keyboard.
+- tapOn: "Item Description \\* Portland cement 50kg bags"
+# Plain dictionary words, so iOS autocorrection cannot change them.
+- inputText: "Steel bars for the slab"
+# Typed again once if the simulator dropped keys. Whether the test driver can
+# read a multi-line field's text on iOS is not established, so this is not an
+# assertion: the saved delivery's card at the end must show the description.
+- runFlow:
+    when:
+      notVisible: "Steel bars for the slab"
+    commands:
+      - eraseText: 100
+      - inputText: "Steel bars for the slab"
+- extendedWaitUntil:
+    visible: "Acme Supplies Ltd"
+    timeout: 10000
+- runFlow:
+    file: subflows/type-into.yaml
+    env:
+      FIELD: "Acme Supplies Ltd"
+      VALUE: "Simulator Photo Check Ltd"
+- pressKey: Enter
+- takeScreenshot: delivery-01-form
+
+- scrollUntilVisible:
+    element:
+      text: ".*Take Photo.*"
+    direction: DOWN
+- tapOn: ".*Take Photo.*"
+# iOS may ask for camera access first; the test driver normally answers the
+# prompt itself, otherwise allow it here.
+- extendedWaitUntil:
+    visible: "(Camera Unavailable|Permission Required|.*Would Like to Access the Camera.*)"
+    timeout: 20000
+- runFlow:
+    when:
+      visible: ".*Would Like to Access the Camera.*"
+    commands:
+      - tapOn: "(Allow|OK)"
+- extendedWaitUntil:
+    visible: "Camera Unavailable"
+    timeout: 20000
+- assertVisible: "The camera could not be opened on this device."
+- takeScreenshot: delivery-02-camera-unavailable
+- tapOn: "OK"
+- extendedWaitUntil:
+    notVisible: "Camera Unavailable"
+    timeout: 15000
+# The form is still open and still has no photo (what was typed is checked on
+# the saved delivery below).
+- assertVisible: "New Delivery"
+- assertVisible: ".*Take Photo.*"
+
+- scrollUntilVisible:
+    element:
+      text: "Create Delivery"
+    direction: DOWN
+- takeScreenshot: delivery-03-filled
+- tapOn: "Create Delivery"
+# The form closes only after POST .../deliveries succeeded.
+- extendedWaitUntil:
+    notVisible: "New Delivery"
+    timeout: 30000
+- assertNotVisible: "Validation Error"
+- extendedWaitUntil:
+    visible: ".*Simulator Photo Check Ltd.*"
+    timeout: 20000
+# The card names the supplier and the item: both typed values were kept
+# through the camera message and saved.
+- assertVisible: ".*Simulator Photo Check Ltd.*Steel bars for the slab.*"
+- takeScreenshot: delivery-04-saved

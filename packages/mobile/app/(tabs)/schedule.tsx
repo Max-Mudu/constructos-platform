@@ -9,7 +9,7 @@ import { projectsApi } from '../../src/api/projects';
 import { schedulesApi } from '../../src/api/schedules';
 import { contractorsApi } from '../../src/api/contractors';
 import { Project, JobSite, ScheduleTask, ScheduleTaskStatus, Contractor, ScheduleActivity } from '../../src/types';
-import { useAppBarInset } from '../../src/hooks/useAppBarInset';
+import { useAppBarInset, useModalTopInset } from '../../src/hooks/useAppBarInset';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -176,6 +176,7 @@ function UpdateTaskModal({
   onClose:   () => void;
   onUpdated: () => void;
 }) {
+  const modalInset = useModalTopInset();
   const [status,          setStatus]          = useState<ScheduleTaskStatus>('not_started');
   const [progressText,    setProgressText]    = useState('');
   const [actualStartDate, setActualStartDate] = useState('');
@@ -246,7 +247,7 @@ function UpdateTaskModal({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={UM.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={[UM.root, modalInset]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {/* Header */}
         <View style={UM.header}>
           <View style={{ flex: 1, marginRight: 12 }}>
@@ -470,6 +471,7 @@ function CreateTaskModal({
   defaultProjectId?: string | null;
   defaultSiteId?:    string | null;
 }) {
+  const modalInset = useModalTopInset();
   const hasDefaultContext = !!(defProjId && defSiteId);
   const [siteId,       setSiteId]       = useState(defSiteId ?? '');
   const [contractorId, setContractorId] = useState('');
@@ -516,7 +518,7 @@ function CreateTaskModal({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
-      <KeyboardAvoidingView style={UM.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={[UM.root, modalInset]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={UM.header}>
           <Text style={UM.title}>New Schedule Task</Text>
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" style={UM.closeBtn} onPress={handleClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>

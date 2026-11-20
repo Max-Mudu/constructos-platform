@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import { AcceptanceStatus, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { NotFoundError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
@@ -70,11 +70,20 @@ export async function creditFromDelivery(
     itemDescription:   string;
     unitOfMeasure:     string;
     quantityDelivered: Prisma.Decimal;
+    acceptanceStatus?:  AcceptanceStatus | null;
+    quantityAccepted?:  Prisma.Decimal | null;
   },
   actorId?: string,
   db?: Prisma.TransactionClient,
 ): Promise<void> {
-  const qty = Number(delivery.quantityDelivered);
+  // A partially accepted delivery adds only its accepted quantity to stock,
+  // never the full delivered quantity (none when no accepted quantity is
+  // recorded). Any other accepted delivery adds what was delivered.
+  const quantity =
+    delivery.acceptanceStatus === 'partially_accepted'
+      ? (delivery.quantityAccepted ?? new Prisma.Decimal(0))
+      : delivery.quantityDelivered;
+  const qty = Number(quantity);
 
   if (!qty || qty <= 0) {
     return;
@@ -97,10 +106,10 @@ export async function creditFromDelivery(
         siteId:          delivery.siteId,
         materialName,
         unitOfMeasure,
-        currentQuantity: delivery.quantityDelivered,
+        currentQuantity: quantity,
       },
       update: {
-        currentQuantity: { increment: delivery.quantityDelivered },
+        currentQuantity: { increment: quantity },
       },
       select: { id: true, currentQuantity: true },
     });
@@ -112,7 +121,7 @@ export async function creditFromDelivery(
         inventoryId:   inventoryItem.id,
         deliveryId:    delivery.id,
         type:          'delivery_in',
-        quantity:      delivery.quantityDelivered,
+        quantity,
         unitOfMeasure,
         note:          null,
         performedById: actorId ?? null,

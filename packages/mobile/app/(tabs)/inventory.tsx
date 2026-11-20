@@ -9,6 +9,7 @@ import {
   Modal, TextInput, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useAuthStore } from '../../src/store/auth.store';
+import { useModalTopInset } from '../../src/hooks/useAppBarInset';
 import { inventoryApi } from '../../src/api/inventory';
 import { projectsApi } from '../../src/api/projects';
 import { Screen } from '../../src/components/Screen';
@@ -163,6 +164,7 @@ function RecordUsageModal({
   onClose:   () => void;
   onSaved:   () => void;
 }) {
+  const modalInset = useModalTopInset();
   const [qty,         setQty]         = useState('');
   const [usageReason, setUsageReason] = useState('');
   const [workArea,    setWorkArea]    = useState('');
@@ -209,7 +211,7 @@ function RecordUsageModal({
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={UM.root}>
+        <View style={[UM.root, modalInset]}>
 
           {/* Header */}
           <View style={UM.header}>
@@ -326,6 +328,7 @@ function SetThresholdModal({
   onClose:   () => void;
   onSaved:   () => void;
 }) {
+  const modalInset = useModalTopInset();
   const existing = item.lowStockThreshold !== null ? String(toNumber(item.lowStockThreshold)) : '';
   const [input,    setInput]    = useState(existing);
   const [saving,   setSaving]   = useState(false);
@@ -377,7 +380,7 @@ function SetThresholdModal({
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleClose}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={UM.root}>
+        <View style={[UM.root, modalInset]}>
 
           {/* Header */}
           <View style={UM.header}>

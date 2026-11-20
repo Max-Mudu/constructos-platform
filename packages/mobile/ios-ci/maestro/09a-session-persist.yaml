@@ -1,0 +1,34 @@
+# Session persistence. For this flow smoke.sh has restarted the API so that it
+# issues access tokens that live 2 minutes (JWT_EXPIRES_IN=120s) and has
+# reinstalled the app. The site supervisor signs in, the app is stopped and
+# started again, and it must open on the tabs without asking to sign in: the
+# session is read back from the Keychain and confirmed with the API.
+#
+# Fails if: after the restart the login screen shows, or the tab bar does not.
+appId: com.constructos.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 90000
+- assertNotVisible: "Home, tab.*"
+- runFlow:
+    file: subflows/enter-credentials.yaml
+    env:
+      EMAIL: ${SUP_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+- tapOn: "Sign in"
+- runFlow:
+    file: subflows/after-sign-in.yaml
+    env:
+      TAB: "Home, tab.*"
+- takeScreenshot: session-01-signed-in
+# Stop and start the app; its data is kept.
+- launchApp
+- extendedWaitUntil:
+    visible: "(Home, tab.*|Welcome back)"
+    timeout: 90000
+- assertVisible: "Home, tab.*"
+- assertNotVisible: "Welcome back"
+- assertVisible: "Profile, tab, 7 of 7"
+- takeScreenshot: session-02-restarted-still-signed-in

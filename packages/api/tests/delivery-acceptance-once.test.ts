@@ -154,12 +154,18 @@ describe('concurrent acceptance of one delivery', () => {
         })),
     );
 
-    expect(results.map((r) => r.statusCode)).toEqual(Array(6).fill(200));
+    // A partial acceptance without an accepted quantity is refused: 422 while
+    // the delivery is pending, 409 once the full acceptance has credited it
+    // (see delivery-partial-acceptance.test.ts).
+    results.forEach((r, i) => {
+      if (i % 2) expect(r.statusCode).toBe(200);
+      else expect([409, 422]).toContain(r.statusCode);
+    });
     expect(await stockOf(material)).toBe(25);
     expect(await creditsFor(delivery.id)).toHaveLength(1);
 
     const row = await prisma.deliveryRecord.findUniqueOrThrow({ where: { id: delivery.id } });
-    expect(['accepted', 'partially_accepted']).toContain(row.acceptanceStatus);
+    expect(row.acceptanceStatus).toBe('accepted');
   });
 
   it('an accept racing with unrelated edits of the same delivery credits once and keeps the edits', async () => {
@@ -269,7 +275,7 @@ describe('single requests', () => {
 
     expect((await patch(pm, delivery.id, { acceptanceStatus: 'accepted' })).statusCode).toBe(200);
     expect((await patch(pm, delivery.id, { acceptanceStatus: 'accepted' })).statusCode).toBe(200);
-    expect((await patch(pm, delivery.id, { acceptanceStatus: 'partially_accepted' })).statusCode).toBe(200);
+    expect((await patch(pm, delivery.id, { acceptanceStatus: 'partially_accepted' })).statusCode).toBe(409);
 
     expect(await stockOf(material)).toBe(10);
     expect(await creditsFor(delivery.id)).toHaveLength(1);
@@ -318,7 +324,7 @@ describe('single requests', () => {
     const id = res.json().delivery.id as string;
 
     expect((await patch(pm, id, { acceptanceStatus: 'rejected', rejectionReason: 'damaged' })).statusCode).toBe(409);
-    expect((await patch(pm, id, { acceptanceStatus: 'partially_accepted' })).statusCode).toBe(200);
+    expect((await patch(pm, id, { acceptanceStatus: 'partially_accepted' })).statusCode).toBe(409);
 
     expect(await stockOf(material)).toBe(6);
     expect(await creditsFor(id)).toHaveLength(1);

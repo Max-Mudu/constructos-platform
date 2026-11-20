@@ -1,0 +1,36 @@
+# Simulated push while the app is open (site supervisor on the Home tab).
+# While this flow runs, smoke.sh sends `xcrun simctl push` every few seconds
+# with a payload shaped like the app's real notifications
+# (data.entityType = "delivery") and takes screenshots. A banner stays on
+# screen for a few seconds only and the test driver cannot be told when one
+# appears, so the flow taps where a banner shows until the app has opened the
+# Deliveries screen, which only a tap on that notification does from here.
+#
+# This is a simulator-only check of banner display and tap routing. A
+# simulator cannot obtain an APNs device token or an Expo push token, and the
+# app does not ask for notification permission there, so smoke.sh has to grant
+# it from outside; if that is not possible no banner appears and this flow
+# fails, which smoke.sh reports as "not shown on this simulator".
+#
+# Fails if: no tap on the banner position ever opens the Deliveries screen.
+appId: com.constructos.app
+---
+- runFlow:
+    file: subflows/ensure-signed-in.yaml
+    env:
+      EMAIL: ${SUP_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+      TAB: "Home, tab.*"
+- tapOn: "Home, tab.*"
+- assertNotVisible: "Search supplier..."
+- takeScreenshot: push-01-home-before
+- repeat:
+    while:
+      notVisible: "Search supplier..."
+    times: 30
+    commands:
+      - tapOn:
+          point: "50%,9%"
+- assertVisible: "Search supplier..."
+- takeScreenshot: push-02-foreground-tap-opened-deliveries
+- tapOn: "Home, tab.*"

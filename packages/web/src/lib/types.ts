@@ -81,6 +81,8 @@ export interface DeliveryRecord {
   quantityOrdered: string | number;
   /** Prisma Decimal(12,3): the API serialises it as a string, e.g. "12.500". */
   quantityDelivered: string | number;
+  /** Accepted part of the delivered quantity (partially accepted only); null when not recorded. */
+  quantityAccepted?: string | number | null;
   conditionOnArrival: DeliveryCondition;
   inspectionStatus: InspectionStatus;
   /** Optional on the API; records saved without a decision come back null. */

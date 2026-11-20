@@ -1,0 +1,23 @@
+# Offline queue, part 2 of 3: smoke.sh has stopped the API (the simulator has
+# no airplane mode; a closed port is the outage). Saving the labour entry now
+# cannot reach the server, and the app must say it kept the entry for later
+# instead of losing it or showing a plain error.
+#
+# Fails if: the app shows anything other than "Saved Offline" (for example
+# the "Error" alert it shows for a refused entry), or the form stays open.
+appId: com.constructos.app
+---
+- assertVisible: "New Labour Entry"
+- tapOn: "Create Entry"
+- extendedWaitUntil:
+    visible: "Saved Offline"
+    timeout: 40000
+- assertVisible: "Labour entry queued.*"
+- takeScreenshot: offline-03-saved-offline
+- tapOn: "OK"
+- extendedWaitUntil:
+    notVisible: "New Labour Entry"
+    timeout: 15000
+- assertNotVisible: "Error"
+- assertVisible: "Labour, tab.*"
+- takeScreenshot: offline-04-after-queueing

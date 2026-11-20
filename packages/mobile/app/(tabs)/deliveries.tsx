@@ -11,6 +11,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import * as Device from 'expo-device';
 import { cameraCanOpen } from '../../src/utils/camera';
+import { useModalTopInset } from '../../src/hooks/useAppBarInset';
 import { apiClient } from '../../src/api/client';
 import { getAccessToken } from '../../src/auth/secureStorage';
 import { deliveriesApi } from '../../src/api/deliveries';
@@ -81,8 +82,9 @@ function DeliveryDetailView({
 }) {
   const [inspection,  setInspection]  = useState<InspectionStatus>(record.inspectionStatus);
   const [acceptance,  setAcceptance]  = useState<AcceptanceStatus | null>(record.acceptanceStatus);
-  // quantityAccepted: UI-only — backend field does not exist yet; reserved for inventory phase
-  const [qtyAccepted, setQtyAccepted] = useState('');
+  // Accepted part of the delivered quantity, sent only for a partial acceptance.
+  const savedQtyAccepted = record.quantityAccepted == null ? '' : String(record.quantityAccepted);
+  const [qtyAccepted, setQtyAccepted] = useState(savedQtyAccepted);
   const [rejection,   setRejection]   = useState(record.rejectionReason  ?? '');
   const [discrepancy, setDiscrepancy] = useState(record.discrepancyNotes ?? '');
   const [saving,      setSaving]      = useState(false);
@@ -93,6 +95,7 @@ function DeliveryDetailView({
   const isDirty =
     inspection  !== record.inspectionStatus         ||
     acceptance  !== record.acceptanceStatus         ||
+    qtyAccepted !== savedQtyAccepted                ||
     rejection   !== (record.rejectionReason  ?? '') ||
     discrepancy !== (record.discrepancyNotes ?? '');
 
@@ -107,6 +110,9 @@ function DeliveryDetailView({
         {
           inspectionStatus: inspection,
           acceptanceStatus: acceptance,
+          quantityAccepted: acceptance === 'partially_accepted' && qtyAccepted.trim()
+            ? Number(qtyAccepted.replace(',', '.'))
+            : null,
           rejectionReason:  rejection.trim()  || null,
           discrepancyNotes: discrepancy.trim() || null,
         },
@@ -165,6 +171,14 @@ function DeliveryDetailView({
         <InfoRow label="Item / Material"  value={record.itemDescription} />
         <InfoRow label="Qty Ordered"      value={`${record.quantityOrdered} ${record.unitOfMeasure}`} />
         <InfoRow label="Qty Delivered"    value={`${record.quantityDelivered} ${record.unitOfMeasure}`} />
+        {record.acceptanceStatus === 'partially_accepted' && (
+          <InfoRow
+            label="Qty Accepted"
+            value={record.quantityAccepted == null
+              ? 'Accepted quantity not recorded'
+              : `${record.quantityAccepted} ${record.unitOfMeasure}`}
+          />
+        )}
         <InfoRow label="Condition"        value={record.conditionOnArrival} />
         {record.driverName          ? <InfoRow label="Driver"   value={record.driverName}          /> : null}
         {record.deliveryNoteNumber  ? <InfoRow label="DN #"     value={record.deliveryNoteNumber}  /> : null}
@@ -256,12 +270,16 @@ function DeliveryDetailView({
           ))}
         </View>
 
-        {/* Partial: qty accepted — UI-only, no backend field yet */}
+        {/* Partial: only the accepted quantity is added to site stock */}
         {acceptance !== null && acceptance === 'partially_accepted' && (
           <View style={DV.conditionalBlock}>
             <Text style={DV.conditionalLabel}>
               Quantity Accepted{' '}
-              <Text style={DV.conditionalHint}>(UI preview — backend field pending)</Text>
+              <Text style={DV.conditionalHint}>
+                {record.acceptanceStatus === 'partially_accepted' && record.quantityAccepted == null
+                  ? '(Accepted quantity not recorded)'
+                  : '(more than 0, less than delivered)'}
+              </Text>
             </Text>
             <TextInput
               style={DV.conditionalInput}
@@ -323,6 +341,7 @@ function CreateDeliveryModal({
   defaultProjectId?: string | null;
   defaultSiteId?:    string | null;
 }) {
+  const modalInset = useModalTopInset();
   const user = useAuthStore((s) => s.user)!;
   const hasDefaultContext = !!(defProjId && defSiteId);
   const [projects,     setProjects]     = useState<Project[]>([]);
@@ -430,7 +449,7 @@ function CreateDeliveryModal({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modal} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={[styles.modal, modalInset]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>New Delivery</Text>
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>

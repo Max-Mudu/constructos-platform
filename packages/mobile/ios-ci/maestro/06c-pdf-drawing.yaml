@@ -1,0 +1,69 @@
+# Opens the drawing seed-fixture.mjs created (its PDF was generated on this
+# runner) through Projects > project > site > Drawings, taps "Open Drawing
+# PDF" and checks that the share sheet opens, then closes it and checks the
+# drawing screen and the session are still there.
+# Restarts the app first, so it does not depend on how 06b ended.
+#
+# Fails if: the drawing is not listed, the download or the file check fails
+# (the app shows an "Error" alert and no sheet), the share sheet never
+# appears, or the app is not usable after closing it.
+appId: com.constructos.app
+---
+- runFlow:
+    file: subflows/ensure-signed-in.yaml
+    env:
+      EMAIL: ${PM_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+      TAB: "Dashboard, tab.*"
+- tapOn: "Projects, tab.*"
+- extendedWaitUntil:
+    visible: ".*iOS CI Smoke Co Main Project.*"
+    timeout: 20000
+- tapOn: ".*View Details.*"
+- extendedWaitUntil:
+    visible: ".*iOS CI Smoke Co Main Site.*"
+    timeout: 20000
+- tapOn: ".*iOS CI Smoke Co Main Site.*"
+- scrollUntilVisible:
+    element:
+      text: ".*PDFs & revisions.*"
+    direction: DOWN
+- takeScreenshot: pdf-04-site-detail
+- tapOn: ".*PDFs & revisions.*"
+# The drawing list comes from GET /projects/:id/drawings.
+- extendedWaitUntil:
+    visible: ".*CI-A-001.*"
+    timeout: 20000
+- takeScreenshot: pdf-05-drawings
+- tapOn: ".*CI-A-001.*"
+- extendedWaitUntil:
+    visible: ".*Open Drawing PDF.*"
+    timeout: 15000
+- assertVisible: "Revision A"
+- tapOn: ".*Open Drawing PDF.*"
+- extendedWaitUntil:
+    visible: "(Save to Files|Copy|Print|Markup)"
+    timeout: 45000
+- assertNotVisible: "Error"
+- takeScreenshot: pdf-06-drawing-share-sheet
+- tapOn:
+    text: "Close"
+    optional: true
+- runFlow:
+    when:
+      visible: "(Save to Files|Copy|Print|Markup)"
+    commands:
+      - swipe:
+          start: "50%,35%"
+          end: "50%,95%"
+- extendedWaitUntil:
+    notVisible: "(Save to Files|Copy|Print|Markup)"
+    timeout: 15000
+- assertVisible: ".*Open Drawing PDF.*"
+- assertNotVisible: "Error"
+- takeScreenshot: pdf-07-after-drawing-share-sheet
+# Still signed in and working: the profile loads.
+- tapOn: "Profile, tab.*"
+- extendedWaitUntil:
+    visible: ${PM_EMAIL}
+    timeout: 20000

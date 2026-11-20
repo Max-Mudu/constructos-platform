@@ -1,0 +1,27 @@
+# Run right after tapping "Sign in" with valid credentials: waits for the
+# signed-in tab bar, signing in again if the app says it cannot reach the
+# server (see retry-sign-in-if-unreachable.yaml), and dismisses iOS's
+# "Save Password?" prompt, which hides the app from the test driver and can
+# come before or a moment after the tab bar (run 44285338082, flow 05).
+# The same steps flows 03 to 05 spell out.
+# Env: TAB, a pattern for the role's first tab, for example "Home, tab.*".
+appId: com.constructos.app
+---
+- runFlow:
+    file: retry-sign-in-if-unreachable.yaml
+    env:
+      WAIT_FOR: "(Cannot reach the server.*|${TAB}|Save Password.)"
+- extendedWaitUntil:
+    visible: "(${TAB}|Save Password.)"
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Save Password."
+    timeout: 10000
+    optional: true
+- tapOn:
+    text: "Not Now"
+    optional: true
+- extendedWaitUntil:
+    visible: ${TAB}
+    timeout: 30000
+- waitForAnimationToEnd
