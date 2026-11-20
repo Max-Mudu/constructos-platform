@@ -78,6 +78,24 @@ skip_flow() {
   failed="$failed $1"
 }
 
+# Flow 09b's documented single retry of the Deliveries tab tap: say whether it
+# was needed and whether it worked, so a retry never passes unnoticed. The
+# flow writes 09b-tab-retry-1-* before the retry and 09b-tab-retry-2-* only if
+# the retry opened Deliveries.
+report_tab_retry() {
+  local first second
+  first="$(find "$OUT" -name '09b-tab-retry-1-*.png' 2>/dev/null | head -n 1)"
+  second="$(find "$OUT" -name '09b-tab-retry-2-*.png' 2>/dev/null | head -n 1)"
+  if [ -z "$first" ]; then
+    echo "TAB RETRY 09b: not needed (the first tap on the Deliveries tab opened Deliveries)"
+  elif [ -n "$second" ]; then
+    echo "TAB RETRY 09b: NEEDED - the first tap on the Deliveries tab was not acted on within 15 s; the one retry opened Deliveries"
+    echo "::warning::Flow 09b needed its documented Deliveries tab retry (first tap not acted on; the retry worked)"
+  else
+    echo "TAB RETRY 09b: NEEDED - the first tap was not acted on and the retry did not open Deliveries either"
+  fi
+}
+
 # check <name> <command ...>: an API-side check; a failure fails the step.
 check() {
   local name="$1"
@@ -396,6 +414,7 @@ session_flows() {
     sleep 135
     check delivery-created-after-expiry ci create-delivery --supplier "After Expiry Supplies"
     run_flow 09b-expiry-logout
+    report_tab_retry
     check token-refresh-sequence ci status-sequence --log "$TIMING" --since "$since"
   else
     skip_flow 09b-expiry-logout "the sign-in and restart before it failed"

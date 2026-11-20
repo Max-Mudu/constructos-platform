@@ -11,10 +11,39 @@
 # Fails if: the app was signed out during the wait, the delivery created
 # after the expiry never appears, logout does not reach the login screen, or
 # the restarted app shows the tabs again.
+#
+# Deliveries tab (run 44600462458): the first tap came 4 s after the flow
+# started; UIKit delivered the touch, the test driver saw the screen change,
+# but the app stayed on Home and requested no deliveries. Cause not
+# established (one time in three). So the flow now waits for the Home
+# screen's own content before tapping and, if Deliveries has not opened 15 s
+# after the tap, records it (screenshot 09b-tab-retry-1-*) and taps once more
+# (screenshot 09b-tab-retry-2-* if that worked). smoke.sh prints a
+# "TAB RETRY 09b" line either way, so a retry never passes unnoticed; if the
+# retry does not open Deliveries either, the flow fails.
 appId: com.constructos.app
 ---
 - assertVisible: "Home, tab.*"
+- extendedWaitUntil:
+    visible: "My Day"
+    timeout: 30000
+- waitForAnimationToEnd
 - tapOn: "Deliveries, tab.*"
+# The Deliveries screen is rendered once its search field shows.
+- extendedWaitUntil:
+    visible: "Search supplier..."
+    timeout: 15000
+    optional: true
+- runFlow:
+    when:
+      notVisible: "Search supplier..."
+    commands:
+      - takeScreenshot: 09b-tab-retry-1-first-tap-not-acted-on
+      - tapOn: "Deliveries, tab.*"
+      - extendedWaitUntil:
+          visible: "Search supplier..."
+          timeout: 15000
+      - takeScreenshot: 09b-tab-retry-2-retry-opened-deliveries
 - extendedWaitUntil:
     visible: ".*Bamburi Cement Ltd.*"
     timeout: 30000
