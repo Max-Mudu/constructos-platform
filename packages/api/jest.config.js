@@ -4,6 +4,9 @@ module.exports = {
   testEnvironment: 'node',
   rootDir: '.',
   testMatch: ['**/tests/**/*.test.ts'],
+  // Both refuse to run unless the target is a confirmed local *_test database
+  // (docs/TESTING.md). globalSetup also asks the server for current_database().
+  globalSetup: '<rootDir>/tests/global-setup.ts',
   setupFiles: ['<rootDir>/tests/setup.ts'],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',

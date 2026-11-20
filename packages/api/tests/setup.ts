@@ -1,13 +1,24 @@
 import path from 'path';
 import dotenv from 'dotenv';
+import { resolveTestDatabaseFromEnvironment, type TestDatabaseTarget } from './support/test-database';
 
-// Load .env BEFORE any module imports so DATABASE_URL is correct
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
+const ENV_FILE = path.resolve(__dirname, '../.env');
 
-// Point to the test database
-if (process.env['TEST_DATABASE_URL']) {
-  process.env['DATABASE_URL'] = process.env['TEST_DATABASE_URL'];
+// Validate the test database BEFORE anything can import Prisma. The tests
+// delete every row, so a missing or unsafe target throws here: jest reports
+// "Test suite failed to run" and no test touches a database. There is no
+// fallback to DATABASE_URL. Rules: tests/support/test-database.ts.
+let target: TestDatabaseTarget;
+try {
+  target = resolveTestDatabaseFromEnvironment({ envFile: ENV_FILE });
+} catch (err) {
+  delete process.env['DATABASE_URL'];
+  throw err;
 }
+
+// Remaining .env values (dotenv never overrides variables that are already set).
+dotenv.config({ path: ENV_FILE });
+process.env['DATABASE_URL'] = target.url;
 
 process.env['NODE_ENV'] = 'test';
 process.env['JWT_SECRET'] = 'test-secret-that-is-long-enough-32chars!!';
