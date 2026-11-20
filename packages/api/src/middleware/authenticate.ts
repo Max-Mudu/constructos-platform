@@ -62,5 +62,6 @@ export async function authenticate(
     role: payload.role,
     companyId: payload.companyId,
     canViewFinance: payload.canViewFinance,
+    sessionVersion: payload.sv === undefined ? 0 : payload.sv,
   };
 }
