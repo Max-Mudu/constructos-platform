@@ -272,7 +272,7 @@ describe('POST /deliveries', () => {
     expect(delivery.rejectionReason).toBe('Cement bags torn and wet on arrival');
   });
 
-  it('partially accepted delivery with goods delivered is refused for now (409), nothing stored', async () => {
+  it('partially accepted delivery stores discrepancy notes and the accepted quantity', async () => {
     const { company, admin } = await createTestCompany(app, 'del-create-partial');
     const project = await createTestProject(company.id);
     const site    = await createTestSite(company.id, project.id);
@@ -286,14 +286,17 @@ describe('POST /deliveries', () => {
         acceptanceStatus: 'partially_accepted',
         quantityOrdered: 200,
         quantityDelivered: 150,
+        quantityAccepted: 140,
         discrepancyNotes: '50 bags short-delivered per DN count',
       },
     });
 
-    // The accepted quantity cannot be recorded yet (delivery-partial-interim.test.ts).
-    expect(res.statusCode).toBe(409);
-    expect(res.json().code).toBe('CONFLICT');
-    expect(await prisma.deliveryRecord.count({ where: { companyId: company.id } })).toBe(0);
+    expect(res.statusCode).toBe(201);
+    const { delivery } = res.json();
+    expect(delivery.acceptanceStatus).toBe('partially_accepted');
+    expect(delivery.quantityDelivered).toBe('150');
+    expect(delivery.quantityAccepted).toBe('140');
+    expect(delivery.discrepancyNotes).toBe('50 bags short-delivered per DN count');
   });
 });
 

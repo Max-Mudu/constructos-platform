@@ -50,6 +50,7 @@ export default function NewDeliveryPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError]           = useState('');
+  const [acceptanceChoice, setAcceptanceChoice] = useState('accepted');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [suppliers, setSuppliers]   = useState<Supplier[]>([]);
 
@@ -102,6 +103,11 @@ export default function NewDeliveryPage() {
         unitOfMeasure:       get('unitOfMeasure')!,
         quantityOrdered:     getNum('quantityOrdered'),
         quantityDelivered:   getNum('quantityDelivered'),
+        // Only a partially accepted delivery carries an accepted quantity.
+        quantityAccepted:
+          get('acceptanceStatus') === 'partially_accepted' && get('quantityAccepted')
+            ? Number(get('quantityAccepted'))
+            : undefined,
         conditionOnArrival:  get('conditionOnArrival') as DeliveryCondition,
         inspectionStatus:    get('inspectionStatus') as InspectionStatus,
         acceptanceStatus:    get('acceptanceStatus') as AcceptanceStatus,
@@ -325,12 +331,36 @@ export default function NewDeliveryPage() {
             </Field>
 
             <Field label="Acceptance Status">
-              <select name="acceptanceStatus" defaultValue="accepted" className={selectCls}>
+              <select
+                name="acceptanceStatus"
+                value={acceptanceChoice}
+                onChange={(e) => setAcceptanceChoice(e.target.value)}
+                className={selectCls}
+              >
                 <option value="accepted">Accepted</option>
                 <option value="partially_accepted">Partially Accepted</option>
                 <option value="rejected">Rejected</option>
               </select>
             </Field>
+
+            {acceptanceChoice === 'partially_accepted' && (
+              <div className="sm:col-span-2">
+                <Field label="Quantity Accepted" required>
+                  <input
+                    name="quantityAccepted"
+                    type="number"
+                    step="any"
+                    min={0}
+                    required
+                    placeholder="450"
+                    className={inputCls}
+                  />
+                </Field>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  More than 0 and less than the delivered quantity. Only this quantity is added to site stock.
+                </p>
+              </div>
+            )}
 
             <div className="sm:col-span-2">
               <Field label="Rejection Reason">
