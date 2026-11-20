@@ -1,0 +1,29 @@
+# Restarts the app and makes sure the given user is signed in. A flow that
+# follows another flow of the same user normally finds the session still
+# there (the tabs open without the login screen); if an earlier flow failed or
+# the session was lost, this signs in, so each flow stands on its own.
+# Env: EMAIL, PASSWORD, TAB (pattern for the role's first tab).
+appId: com.constructos.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "(Welcome back|${TAB})"
+    timeout: 90000
+- runFlow:
+    when:
+      visible: "Welcome back"
+    commands:
+      - runFlow:
+          file: enter-credentials.yaml
+          env:
+            EMAIL: ${EMAIL}
+            PASSWORD: ${PASSWORD}
+      - tapOn: "Sign in"
+      - runFlow:
+          file: after-sign-in.yaml
+          env:
+            TAB: ${TAB}
+- extendedWaitUntil:
+    visible: ${TAB}
+    timeout: 60000
+- waitForAnimationToEnd

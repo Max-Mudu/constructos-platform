@@ -1,0 +1,17 @@
+# Types the project manager's credentials, taps "Sign in" and ends at once.
+# smoke.sh then leaves the simulator alone for 20 seconds before 06b carries
+# on, so this sign-in runs without the test driver polling the screen: the
+# latency report compares it with the sign-ins of flows 02 to 05, which are
+# polled throughout.
+appId: com.constructos.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 90000
+- runFlow:
+    file: subflows/enter-credentials.yaml
+    env:
+      EMAIL: ${PM_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+- tapOn: "Sign in"

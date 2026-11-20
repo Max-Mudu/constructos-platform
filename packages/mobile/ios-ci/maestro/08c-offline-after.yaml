@@ -1,0 +1,38 @@
+# Offline queue, part 3 of 3. Before this part smoke.sh started the API
+# again, confirmed it held no entry for the worker, sent the app to the
+# background and brought it back twice (the app sends its queue when it
+# returns to the foreground) and confirmed through the API that the entry
+# then existed exactly once. Here the app is restarted, so the Labour list is
+# loaded fresh from the API and must show the queued entry, and the queue on
+# the device must be empty.
+#
+# Fails if: the entry is not in the list loaded from the API, or the log-out
+# dialog still reports unsynced entries (the queue was not emptied).
+appId: com.constructos.app
+---
+- runFlow:
+    file: subflows/ensure-signed-in.yaml
+    env:
+      EMAIL: ${SUP_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+      TAB: "Home, tab.*"
+- tapOn: "Labour, tab.*"
+- extendedWaitUntil:
+    visible: ".*Otieno Offline.*"
+    timeout: 30000
+- takeScreenshot: offline-05-entry-from-the-api
+# With an empty queue the log-out dialog asks the plain question; with
+# anything left in it, it warns about unsynced entries instead.
+- tapOn: "Profile, tab.*"
+- scrollUntilVisible:
+    element:
+      text: "Log Out"
+    direction: DOWN
+- tapOn: "Log Out"
+- extendedWaitUntil:
+    visible: "(Are you sure you want to log out.|.*unsynced.*)"
+    timeout: 15000
+- assertNotVisible: ".*unsynced.*"
+- assertVisible: "Are you sure you want to log out."
+- takeScreenshot: offline-06-queue-empty
+- tapOn: "Cancel"

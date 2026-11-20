@@ -1,0 +1,15 @@
+# Types the site supervisor's credentials, taps "Sign in" and ends at once;
+# smoke.sh then leaves the simulator alone for 20 seconds before 07b carries
+# on. A second sign-in without the test driver polling the screen (see 06a).
+appId: com.constructos.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 90000
+- runFlow:
+    file: subflows/enter-credentials.yaml
+    env:
+      EMAIL: ${SUP_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+- tapOn: "Sign in"

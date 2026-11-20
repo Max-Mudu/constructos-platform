@@ -5,7 +5,15 @@ name: iOS simulator
 # test against an API started on the same runner. No secrets, no Apple signing
 # identity, no EAS.
 #
-# A run takes 40 to 60 minutes, so it only starts by hand or when a pull
+# Three jobs, each building the app on its own runner:
+#   signing disabled             the unsigned build starts and shows the login screen
+#   signing adhoc                regression flows 01 to 05 (roles, API data, attendance)
+#   signing adhoc, operational   flows 06 to 10 (PDF share sheet, delivery without a
+#                                camera, offline queue, session and token refresh,
+#                                simulated push)
+# Both ad-hoc jobs time every sign-in from the app side and inside the API.
+#
+# A run takes 45 to 70 minutes, so it only starts by hand or when a pull
 # request changes this workflow or its helper files.
 on:
   workflow_dispatch:
@@ -35,22 +43,31 @@ env:
 
 jobs:
   simulator:
-    name: Build, launch and smoke test (signing ${{ matrix.signing }})
+    name: Build, launch and smoke test (signing ${{ matrix.signing }}${{ matrix.suite == 'operations' && ', operational flows' || '' }})
     # Standard runner only. Never a larger (paid) runner.
     runs-on: macos-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        # disabled: CODE_SIGNING_ALLOWED=NO.
-        # adhoc:    Xcode's default for the simulator ("Sign to Run Locally",
-        #           identity "-"): no certificate, team or profile.
-        signing: [disabled, adhoc]
+        # signing disabled: CODE_SIGNING_ALLOWED=NO.
+        # signing adhoc:    Xcode's default for the simulator ("Sign to Run
+        #                   Locally", identity "-"): no certificate, team or profile.
+        # suite: which flows smoke.sh runs. The operational flows have their
+        # own job so that neither job comes near the 90-minute limit.
+        include:
+          - signing: disabled
+            suite: launch
+          - signing: adhoc
+            suite: regression
+          - signing: adhoc
+            suite: operations
     defaults:
       run:
         shell: bash
     env:
       SIGNING: ${{ matrix.signing }}
+      SUITE: ${{ matrix.suite }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -131,9 +148,12 @@ jobs:
           echo "JAVA_HOME=${JAVA_HOME_21_arm64:-$JAVA_HOME}" >> "$GITHUB_ENV"
           JAVA_HOME="${JAVA_HOME_21_arm64:-$JAVA_HOME}" "$bin" --version
 
-      - name: Smoke test (wrong password, roles, API data, attendance, reinstall, logout)
+      # regression: wrong password, roles, API data, attendance, reinstall, logout.
+      # operations: PDF, delivery, offline queue, token refresh, push. That
+      # suite includes fixed waits (token expiry, outage), hence 55 minutes.
+      - name: Smoke test (${{ matrix.suite }} flows)
         if: steps.backend.outcome == 'success' && env.ATS_LOCALHOST_HTTP == 'true'
-        timeout-minutes: 45
+        timeout-minutes: 55
         run: bash packages/mobile/ios-ci/smoke.sh
 
       - name: Collect logs
@@ -144,7 +164,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-simulator-${{ matrix.signing }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ios-simulator-${{ matrix.signing }}-${{ matrix.suite }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.OUT }}
           retention-days: 3
           if-no-files-found: warn
