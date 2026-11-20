@@ -95,6 +95,12 @@
           "backgroundColor": "#0f172a",
           "imageWidth": 200
         }
+      ],
+      [
+        "./plugins/withAndroidGwpAsanMode",
+        {
+          "mode": "never"
+        }
       ]
     ],
     "scheme": "constructos",

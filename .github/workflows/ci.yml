@@ -195,3 +195,5 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Type-check
         run: npx tsc --noEmit -p .
+      - name: Config plugin checks
+        run: node --test "plugins/*.test.js"
