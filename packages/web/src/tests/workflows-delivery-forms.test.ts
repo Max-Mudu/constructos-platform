@@ -41,3 +41,23 @@ describe('delivery detail', () => {
     expect(src.slice(gate, notes)).toMatch(/\)\}/);
   });
 });
+
+describe('accepted quantity of a partially accepted delivery', () => {
+  it.each([
+    ['new form', ['new', 'page.tsx']],
+    ['edit form', ['[deliveryId]', 'edit', 'page.tsx']],
+  ])('%s asks for it only when Partially Accepted is chosen, and sends it', (_label, p) => {
+    const src = read(...(p as string[]));
+    const gate = src.indexOf("=== 'partially_accepted' && (");
+    const field = src.indexOf('label="Quantity Accepted"');
+    expect(gate).toBeGreaterThan(-1);
+    expect(field).toBeGreaterThan(gate);
+    expect(src).toMatch(/quantityAccepted:\s*\n\s*.*partially_accepted/);
+  });
+
+  it('the detail page shows it, or that it was not recorded', () => {
+    const src = read('[deliveryId]', 'page.tsx');
+    expect(src).toContain('label="Quantity Accepted"');
+    expect(src).toContain('Accepted quantity not recorded');
+  });
+});

@@ -24,6 +24,15 @@ const CONDITIONS  = ['good', 'damaged', 'partial', 'incorrect'] as const;
 const INSPECTIONS = ['pending', 'passed', 'failed', 'waived']   as const;
 const ACCEPTANCES = ['accepted', 'partially_accepted', 'rejected'] as const;
 
+// The accepted part of a partially accepted delivery: positive, at most three
+// decimal places (the column is DECIMAL(12,3), so finer values would be
+// rounded on save). Its upper bound (below the delivered quantity) is checked
+// by the service, which knows the stored delivered quantity.
+const acceptedQuantity = z
+  .number()
+  .positive('Must be greater than 0')
+  .refine((v) => Math.abs(v * 1000 - Math.round(v * 1000)) < 1e-6, 'At most 3 decimal places');
+
 const createDeliverySchema = z.object({
   supplierName:        z.string().min(1).max(255),
   supplierContact:     z.string().max(255).optional(),
@@ -38,6 +47,7 @@ const createDeliverySchema = z.object({
   unitOfMeasure:       z.string().min(1).max(50),
   quantityOrdered:     z.number().positive(),
   quantityDelivered:   z.number().min(0),
+  quantityAccepted:    acceptedQuantity.optional(),
   conditionOnArrival:  z.enum(CONDITIONS).default('good'),
   inspectionStatus:    z.enum(INSPECTIONS).default('pending'),
   acceptanceStatus:    z.enum(ACCEPTANCES).optional(),
@@ -63,6 +73,7 @@ const updateDeliverySchema = z.object({
   unitOfMeasure:       z.string().min(1).max(50).optional(),
   quantityOrdered:     z.number().positive().optional(),
   quantityDelivered:   z.number().min(0).optional(),
+  quantityAccepted:    acceptedQuantity.nullish(),
   conditionOnArrival:  z.enum(CONDITIONS).optional(),
   inspectionStatus:    z.enum(INSPECTIONS).optional(),
   acceptanceStatus:    z.enum(ACCEPTANCES).optional(),

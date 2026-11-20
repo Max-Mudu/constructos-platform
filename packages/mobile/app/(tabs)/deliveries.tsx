@@ -82,8 +82,9 @@ function DeliveryDetailView({
 }) {
   const [inspection,  setInspection]  = useState<InspectionStatus>(record.inspectionStatus);
   const [acceptance,  setAcceptance]  = useState<AcceptanceStatus | null>(record.acceptanceStatus);
-  // quantityAccepted: UI-only — backend field does not exist yet; reserved for inventory phase
-  const [qtyAccepted, setQtyAccepted] = useState('');
+  // Accepted part of the delivered quantity, sent only for a partial acceptance.
+  const savedQtyAccepted = record.quantityAccepted == null ? '' : String(record.quantityAccepted);
+  const [qtyAccepted, setQtyAccepted] = useState(savedQtyAccepted);
   const [rejection,   setRejection]   = useState(record.rejectionReason  ?? '');
   const [discrepancy, setDiscrepancy] = useState(record.discrepancyNotes ?? '');
   const [saving,      setSaving]      = useState(false);
@@ -94,6 +95,7 @@ function DeliveryDetailView({
   const isDirty =
     inspection  !== record.inspectionStatus         ||
     acceptance  !== record.acceptanceStatus         ||
+    qtyAccepted !== savedQtyAccepted                ||
     rejection   !== (record.rejectionReason  ?? '') ||
     discrepancy !== (record.discrepancyNotes ?? '');
 
@@ -108,6 +110,9 @@ function DeliveryDetailView({
         {
           inspectionStatus: inspection,
           acceptanceStatus: acceptance,
+          quantityAccepted: acceptance === 'partially_accepted' && qtyAccepted.trim()
+            ? Number(qtyAccepted.replace(',', '.'))
+            : null,
           rejectionReason:  rejection.trim()  || null,
           discrepancyNotes: discrepancy.trim() || null,
         },
@@ -166,6 +171,14 @@ function DeliveryDetailView({
         <InfoRow label="Item / Material"  value={record.itemDescription} />
         <InfoRow label="Qty Ordered"      value={`${record.quantityOrdered} ${record.unitOfMeasure}`} />
         <InfoRow label="Qty Delivered"    value={`${record.quantityDelivered} ${record.unitOfMeasure}`} />
+        {record.acceptanceStatus === 'partially_accepted' && (
+          <InfoRow
+            label="Qty Accepted"
+            value={record.quantityAccepted == null
+              ? 'Accepted quantity not recorded'
+              : `${record.quantityAccepted} ${record.unitOfMeasure}`}
+          />
+        )}
         <InfoRow label="Condition"        value={record.conditionOnArrival} />
         {record.driverName          ? <InfoRow label="Driver"   value={record.driverName}          /> : null}
         {record.deliveryNoteNumber  ? <InfoRow label="DN #"     value={record.deliveryNoteNumber}  /> : null}
@@ -257,12 +270,16 @@ function DeliveryDetailView({
           ))}
         </View>
 
-        {/* Partial: qty accepted — UI-only, no backend field yet */}
+        {/* Partial: only the accepted quantity is added to site stock */}
         {acceptance !== null && acceptance === 'partially_accepted' && (
           <View style={DV.conditionalBlock}>
             <Text style={DV.conditionalLabel}>
               Quantity Accepted{' '}
-              <Text style={DV.conditionalHint}>(UI preview — backend field pending)</Text>
+              <Text style={DV.conditionalHint}>
+                {record.acceptanceStatus === 'partially_accepted' && record.quantityAccepted == null
+                  ? '(Accepted quantity not recorded)'
+                  : '(more than 0, less than delivered)'}
+              </Text>
             </Text>
             <TextInput
               style={DV.conditionalInput}

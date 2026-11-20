@@ -393,15 +393,28 @@ describe('(a) site_supervisor pilot day', () => {
   });
 
   it('updates inspection and acceptance from the delivery detail screen', async () => {
+    // Without the accepted quantity a partial acceptance is refused; the
+    // error text is what the screen shows.
+    const missing = await send(token, 'PATCH', `/projects/${w.projectA}/sites/${w.siteA1}/deliveries/${deliveryId}`, {
+      inspectionStatus: 'passed',
+      acceptanceStatus: 'partially_accepted',
+      quantityAccepted: null,
+      rejectionReason: null,
+      discrepancyNotes: '20 bags short',
+    });
+    expect(missing.statusCode).toBe(422);
+    expect(missing.json().error).toMatch(/Enter the quantity accepted/);
+
     const res = await send(token, 'PATCH', `/projects/${w.projectA}/sites/${w.siteA1}/deliveries/${deliveryId}`, {
       inspectionStatus: 'passed',
       acceptanceStatus: 'partially_accepted',
+      quantityAccepted: 170,
       rejectionReason: null,
       discrepancyNotes: '20 bags short',
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().delivery).toEqual(expect.objectContaining({
-      id: deliveryId, inspectionStatus: 'passed', acceptanceStatus: 'partially_accepted', discrepancyNotes: '20 bags short',
+      id: deliveryId, inspectionStatus: 'passed', acceptanceStatus: 'partially_accepted', quantityAccepted: '170', discrepancyNotes: '20 bags short',
     }));
   });
 });
@@ -421,6 +434,7 @@ describe('(b) project_manager views site work and updates a task', () => {
     const listed = res.json().records.find((r: { id: string }) => r.id === deliveryId);
     expect(listed).toBeDefined();
     expect(listed.acceptanceStatus).toBe('partially_accepted');
+    expect(listed.quantityAccepted).toBe('170');
     expect(listed.photos).toHaveLength(1);
   });
 

@@ -115,6 +115,8 @@ export interface DeliveryRecord {
   unitOfMeasure:       string;
   quantityOrdered:     number;
   quantityDelivered:   number;
+  /** Accepted part of the delivered quantity (partially accepted only); null when not recorded. */
+  quantityAccepted?:   number | string | null;
   conditionOnArrival:  DeliveryCondition;
   inspectionStatus:    InspectionStatus;
   acceptanceStatus:    AcceptanceStatus | null;

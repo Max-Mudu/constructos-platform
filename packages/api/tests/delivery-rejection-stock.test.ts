@@ -101,8 +101,13 @@ function patch(user: TestUser, deliveryId: string, body: Record<string, unknown>
 async function acceptedDelivery(quantity = 10, status: 'accepted' | 'partially_accepted' = 'accepted') {
   const material = newMaterial();
   const d = await makeDelivery(material, quantity);
-  const res = await patch(pm, d.id, { acceptanceStatus: status });
+  const res = await patch(pm, d.id, { acceptanceStatus: 'accepted' });
   expect(res.statusCode).toBe(200);
+  // Partial acceptance of delivered goods is refused for now; a partially
+  // accepted delivery in stock is one recorded before that rule.
+  if (status === 'partially_accepted') {
+    await prisma.deliveryRecord.update({ where: { id: d.id }, data: { acceptanceStatus: status } });
+  }
   return { id: d.id, material };
 }
 
@@ -165,10 +170,12 @@ describe('rejecting a delivery whose goods are in stock', () => {
     expect((await deliveryRow(id)).comments).toBeNull();
   });
 
-  it('moving between accepted and partially_accepted is still allowed and credits nothing more', async () => {
-    const { id, material } = await acceptedDelivery(8);
-    expect((await patch(pm, id, { acceptanceStatus: 'partially_accepted' })).statusCode).toBe(200);
-    expect((await patch(supervisor, id, { acceptanceStatus: 'accepted' })).statusCode).toBe(200);
+  it('a credited delivery cannot be switched between accepted and partially_accepted', async () => {
+    const { id, material } = await acceptedDelivery(8, 'partially_accepted');
+    expect((await patch(supervisor, id, { acceptanceStatus: 'accepted' })).statusCode).toBe(409);
+    const other = await acceptedDelivery(8);
+    expect((await patch(pm, other.id, { acceptanceStatus: 'partially_accepted', quantityAccepted: 5 })).statusCode).toBe(409);
+    expect(await stockOf(other.material)).toBe(8);
     expect(await stockOf(material)).toBe(8);
     expect(await creditsFor(id)).toBe(1);
   });
