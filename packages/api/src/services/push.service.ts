@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 
 // ─── Push Token Management ────────────────────────────────────────────────────
@@ -5,18 +6,55 @@ import { prisma } from '../utils/prisma';
 /**
  * Register (upsert) a push token for a user.
  * If the token already exists, update its owner/platform.
+ *
+ * `sessionVersion` is the version carried by the access token that
+ * authenticated the request. The user row is re-read with a row lock in the
+ * same transaction as the write, so a registration cannot land after a
+ * concurrent password reset or deactivation has ended that session and
+ * removed the user's devices: it waits for that transaction and then finds the
+ * session no longer current. Returns false (nothing written) in that case.
  */
 export async function registerPushToken(
   userId: string,
   companyId: string,
   token: string,
   platform: string,
-): Promise<void> {
-  await prisma.pushToken.upsert({
-    where: { token },
-    update: { userId, companyId, platform },
-    create: { userId, companyId, token, platform },
+  sessionVersion: number,
+): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM users
+      WHERE id = ${userId}
+        AND "companyId" = ${companyId}
+        AND "isActive" = true
+        AND "sessionVersion" = ${sessionVersion}
+      FOR SHARE
+    `;
+    if (current.length === 0) return false;
+
+    await tx.pushToken.upsert({
+      where: { token },
+      update: { userId, companyId, platform },
+      create: { userId, companyId, token, platform },
+    });
+    return true;
   });
+}
+
+/**
+ * Remove every device registered for one user. Called inside the transaction
+ * that ends all of that user's sessions (password reset / account setup,
+ * deactivation), after the session version has been bumped, so the devices
+ * go together with the sessions they were registered under. The app
+ * registers the device again at the next sign-in. Returns the number removed.
+ */
+export async function removeUserPushDevices(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  companyId: string,
+): Promise<number> {
+  const removed = await tx.pushToken.deleteMany({ where: { userId, companyId } });
+  return removed.count;
 }
 
 /**

@@ -5,6 +5,7 @@ import { generateToken, hashPassword, hashToken } from '../utils/hash';
 import { env } from '../utils/env';
 import { RequestUser } from '../types';
 import { emailService } from './email.service';
+import { removeUserPushDevices } from './push.service';
 
 /**
  * Roles a company_admin may assign when creating a company user.
@@ -477,10 +478,9 @@ export async function setCompanyUserStatus(
       // just ended. Removing them means a later reactivation does not start
       // sending to a device nobody is signed in on: the app registers the
       // device again at the next sign-in.
-      const removed = await tx.pushToken.deleteMany({ where: { userId: target.id } });
+      pushDevicesRemoved     = await removeUserPushDevices(tx, target.id, companyId);
       refreshTokensRevoked   = revoked.count;
       setupTokensInvalidated = invalidated.count;
-      pushDevicesRemoved     = removed.count;
     }
 
     if (changed) {

@@ -37,13 +37,23 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
           details: parsed.error.flatten().fieldErrors,
         });
       }
+      const sessionVersion = request.user.sessionVersion;
+      if (typeof sessionVersion !== 'number') {
+        return reply.status(401).send({ error: 'Invalid or expired token', code: 'UNAUTHORIZED' });
+      }
       try {
-        await pushService.registerPushToken(
+        const registered = await pushService.registerPushToken(
           request.user.id,
           request.user.companyId,
           parsed.data.token,
           parsed.data.platform,
+          sessionVersion,
         );
+        if (!registered) {
+          // The session ended (password reset, deactivation) while this
+          // request was in flight: same answer as authenticate gives.
+          return reply.status(401).send({ error: 'Invalid or expired token', code: 'UNAUTHORIZED' });
+        }
         return reply.status(204).send();
       } catch (err) { return handleError(err, reply); }
     },
