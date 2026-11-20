@@ -16,7 +16,7 @@ import { workersApi } from '../../src/api/workers';
 import { enqueue, isNetworkError } from '../../src/utils/offlineQueue';
 import { useOfflineQueue } from '../../src/hooks/useOfflineQueue';
 import { AttendanceRecord, AttendanceStatus, Project, JobSite, Worker } from '../../src/types';
-import { useAppBarInset } from '../../src/hooks/useAppBarInset';
+import { useAppBarInset, useModalTopInset } from '../../src/hooks/useAppBarInset';
 
 // ─── Status config ────────────────────────────────────────────────────────────
 
@@ -287,6 +287,7 @@ function MarkAttendanceModal({
   siteId:    string;
   onSaved:   () => void;
 }) {
+  const modalInset = useModalTopInset();
   const [workers,        setWorkers]        = useState<Worker[]>([]);
   const [workerId,       setWorkerId]       = useState('');
   const [workerSearch,   setWorkerSearch]   = useState('');
@@ -347,7 +348,7 @@ function MarkAttendanceModal({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={M.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={[M.root, modalInset]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
 
         {/* ── Header ───────────────────────────────────────────── */}
         <View style={M.header}>

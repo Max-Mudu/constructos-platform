@@ -18,6 +18,7 @@ import {
   KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useAuthStore } from '../../src/store/auth.store';
+import { useModalTopInset } from '../../src/hooks/useAppBarInset';
 import { labourApi, LabourListResponse } from '../../src/api/labour';
 import { attendanceApi } from '../../src/api/attendance';
 import { workersApi } from '../../src/api/workers';
@@ -115,6 +116,7 @@ function CreateLabourModal({
   defaultProjectId?: string | null;
   defaultSiteId?:    string | null;
 }) {
+  const modalInset = useModalTopInset();
   const hasDefaultContext = !!(defProjId && defSiteId);
   // Mirrors the API's canViewFinancialData. Without it the server derives the
   // rate from the worker's daily wage, so the form neither asks for nor sends one.
@@ -208,7 +210,7 @@ function CreateLabourModal({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modal} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={[styles.modal, modalInset]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>New Labour Entry</Text>
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={onClose}>
