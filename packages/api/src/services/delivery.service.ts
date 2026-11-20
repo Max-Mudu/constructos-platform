@@ -272,6 +272,31 @@ async function assertStockStaysConsistent(
   }
 }
 
+/**
+ * Partial acceptance cannot record how much of a delivery was accepted yet,
+ * and accepting would credit site stock with the full delivered quantity.
+ * Until the accepted quantity can be recorded, moving a delivery with a
+ * delivered quantity above zero into partially_accepted is refused. A delivery
+ * that is already partially_accepted is left as it is (the web edit form
+ * re-sends its status unchanged).
+ */
+const PARTIAL_ACCEPTANCE_UNAVAILABLE =
+  'Partial acceptance cannot be recorded yet: the accepted quantity cannot be entered, ' +
+  'and site stock would be credited with the full delivered quantity. ' +
+  'Mark the delivery accepted if all delivered goods were accepted; otherwise leave it pending ' +
+  'and describe the shortfall in the discrepancy notes.';
+
+function assertPartialAcceptanceAllowed(
+  requested: AcceptanceStatus | null | undefined,
+  current: AcceptanceStatus | null,
+  quantityDelivered: Prisma.Decimal | number,
+): void {
+  if (requested !== 'partially_accepted' || current === 'partially_accepted') return;
+  if (new Prisma.Decimal(quantityDelivered).greaterThan(0)) {
+    throw new ConflictError(PARTIAL_ACCEPTANCE_UNAVAILABLE);
+  }
+}
+
 // ─── Service functions ────────────────────────────────────────────────────────
 
 export async function listDeliveries(
@@ -312,6 +337,7 @@ export async function createDelivery(
   actor: RequestUser,
 ) {
   await checkSiteAccess(siteId, projectId, actor);
+  assertPartialAcceptanceAllowed(input.acceptanceStatus, null, input.quantityDelivered);
   await validateReceivedBy(input.receivedById, actor.companyId);
   if (input.budgetLineItemId) {
     await validateBudgetLineItemScope(input.budgetLineItemId, actor.companyId, projectId);
@@ -465,6 +491,11 @@ export async function updateDelivery(
       where:  { id: deliveryId },
       select: DELIVERY_SELECT,
     });
+    assertPartialAcceptanceAllowed(
+      input.acceptanceStatus,
+      before.acceptanceStatus,
+      input.quantityDelivered ?? before.quantityDelivered,
+    );
 
     let justAccepted = false;
     if (acceptsDelivery) {
