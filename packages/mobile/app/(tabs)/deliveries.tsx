@@ -11,6 +11,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import * as Device from 'expo-device';
 import { cameraCanOpen } from '../../src/utils/camera';
+import { useModalTopInset } from '../../src/hooks/useAppBarInset';
 import { apiClient } from '../../src/api/client';
 import { getAccessToken } from '../../src/auth/secureStorage';
 import { deliveriesApi } from '../../src/api/deliveries';
@@ -340,6 +341,7 @@ function CreateDeliveryModal({
   defaultProjectId?: string | null;
   defaultSiteId?:    string | null;
 }) {
+  const modalInset = useModalTopInset();
   const user = useAuthStore((s) => s.user)!;
   const hasDefaultContext = !!(defProjId && defSiteId);
   const [projects,     setProjects]     = useState<Project[]>([]);
@@ -447,7 +449,7 @@ function CreateDeliveryModal({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modal} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={[styles.modal, modalInset]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.modalHeader}>
           <Text style={styles.modalTitle}>New Delivery</Text>
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" onPress={onClose}><Text style={styles.modalClose}>✕</Text></TouchableOpacity>
