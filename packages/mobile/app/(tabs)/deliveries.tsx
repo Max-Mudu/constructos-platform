@@ -9,6 +9,8 @@ import {
   KeyboardAvoidingView, Platform, Linking,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as Device from 'expo-device';
+import { cameraCanOpen } from '../../src/utils/camera';
 import { apiClient } from '../../src/api/client';
 import { getAccessToken } from '../../src/auth/secureStorage';
 import { deliveriesApi } from '../../src/api/deliveries';
@@ -352,6 +354,12 @@ function CreateDeliveryModal({
   }
 
   async function pickPhoto() {
+    // Without a camera (iOS Simulator) the picker ends the app with a native
+    // exception that the try/catch below never sees; see cameraCanOpen.
+    if (!cameraCanOpen({ platformOS: Platform.OS, isDevice: Device.isDevice })) {
+      Alert.alert('Camera Unavailable', 'The camera could not be opened on this device.');
+      return;
+    }
     let result: ImagePicker.ImagePickerResult;
     try {
       const perm = await ImagePicker.requestCameraPermissionsAsync();
