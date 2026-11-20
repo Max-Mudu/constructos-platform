@@ -143,7 +143,7 @@ describe('concurrent acceptance of one delivery', () => {
     expect(Number(credits[0]!.quantity)).toBe(10);
   });
 
-  it('concurrent accepted and partially_accepted requests credit inventory once (partial refused for now)', async () => {
+  it('concurrent accepted and partially_accepted requests credit inventory once', async () => {
     const material = newMaterial();
     const delivery = await makeDelivery(material, 25);
 
@@ -154,9 +154,13 @@ describe('concurrent acceptance of one delivery', () => {
         })),
     );
 
-    // Partial acceptance of delivered goods is refused until the accepted
-    // quantity can be recorded (see delivery-partial-interim.test.ts).
-    expect(results.map((r) => r.statusCode)).toEqual([409, 200, 409, 200, 409, 200]);
+    // A partial acceptance without an accepted quantity is refused: 422 while
+    // the delivery is pending, 409 once the full acceptance has credited it
+    // (see delivery-partial-acceptance.test.ts).
+    results.forEach((r, i) => {
+      if (i % 2) expect(r.statusCode).toBe(200);
+      else expect([409, 422]).toContain(r.statusCode);
+    });
     expect(await stockOf(material)).toBe(25);
     expect(await creditsFor(delivery.id)).toHaveLength(1);
 

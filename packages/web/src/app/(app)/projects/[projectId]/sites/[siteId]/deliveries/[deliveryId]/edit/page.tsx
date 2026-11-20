@@ -73,6 +73,7 @@ export default function EditDeliveryPage() {
   const [unitOfMeasure, setUnitOfMeasure]         = useState('');
   const [quantityOrdered, setQtyOrdered]          = useState('');
   const [quantityDelivered, setQtyDelivered]      = useState('');
+  const [quantityAccepted, setQtyAccepted]        = useState('');
   const [conditionOnArrival, setCondition]        = useState<DeliveryCondition>('good');
   const [inspectionStatus, setInspection]         = useState<InspectionStatus>('pending');
   const [acceptanceStatus, setAcceptance]         = useState<AcceptanceStatus | ''>('');
@@ -104,6 +105,7 @@ export default function EditDeliveryPage() {
       setUnitOfMeasure(d.unitOfMeasure);
       setQtyOrdered(String(d.quantityOrdered));
       setQtyDelivered(String(d.quantityDelivered));
+      setQtyAccepted(d.quantityAccepted == null ? '' : String(d.quantityAccepted));
       setCondition(d.conditionOnArrival);
       setInspection(d.inspectionStatus);
       setAcceptance((d.acceptanceStatus as AcceptanceStatus | null) ?? '');
@@ -146,6 +148,11 @@ export default function EditDeliveryPage() {
         unitOfMeasure:       unitOfMeasure.trim(),
         quantityOrdered:     Number(quantityOrdered),
         quantityDelivered:   Number(quantityDelivered),
+        // Only a partially accepted delivery carries an accepted quantity.
+        quantityAccepted:
+          acceptanceStatus === 'partially_accepted' && quantityAccepted.trim()
+            ? Number(quantityAccepted)
+            : null,
         conditionOnArrival,
         inspectionStatus,
         ...acceptancePatch(acceptanceStatus),
@@ -444,6 +451,27 @@ export default function EditDeliveryPage() {
                 <option value="rejected">Rejected</option>
               </select>
             </Field>
+
+            {acceptanceStatus === 'partially_accepted' && (
+              <div className="sm:col-span-2">
+                <Field label="Quantity Accepted" required={delivery?.acceptanceStatus !== 'partially_accepted'}>
+                  <input
+                    type="number"
+                    step="any"
+                    min={0}
+                    value={quantityAccepted}
+                    onChange={(e) => setQtyAccepted(e.target.value)}
+                    placeholder={`of ${quantityDelivered || 0} ${unitOfMeasure}`}
+                    className={inputCls}
+                  />
+                </Field>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {delivery?.acceptanceStatus === 'partially_accepted' && delivery.quantityAccepted == null
+                    ? 'Accepted quantity not recorded for this delivery.'
+                    : 'More than 0 and less than the delivered quantity. Only this quantity is added to site stock.'}
+                </p>
+              </div>
+            )}
 
             <div className="sm:col-span-2">
               <Field label="Rejection Reason">

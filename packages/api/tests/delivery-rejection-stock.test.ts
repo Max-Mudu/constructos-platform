@@ -170,9 +170,12 @@ describe('rejecting a delivery whose goods are in stock', () => {
     expect((await deliveryRow(id)).comments).toBeNull();
   });
 
-  it('a partially_accepted delivery can still be moved to accepted and credits nothing more', async () => {
+  it('a credited delivery cannot be switched between accepted and partially_accepted', async () => {
     const { id, material } = await acceptedDelivery(8, 'partially_accepted');
-    expect((await patch(supervisor, id, { acceptanceStatus: 'accepted' })).statusCode).toBe(200);
+    expect((await patch(supervisor, id, { acceptanceStatus: 'accepted' })).statusCode).toBe(409);
+    const other = await acceptedDelivery(8);
+    expect((await patch(pm, other.id, { acceptanceStatus: 'partially_accepted', quantityAccepted: 5 })).statusCode).toBe(409);
+    expect(await stockOf(other.material)).toBe(8);
     expect(await stockOf(material)).toBe(8);
     expect(await creditsFor(id)).toBe(1);
   });

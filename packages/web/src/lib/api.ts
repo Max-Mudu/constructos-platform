@@ -618,6 +618,7 @@ export const deliveryApi = {
       unitOfMeasure: string;
       quantityOrdered: number;
       quantityDelivered: number;
+      quantityAccepted?: number;
       conditionOnArrival?: import('./types').DeliveryCondition;
       inspectionStatus?: import('./types').InspectionStatus;
       acceptanceStatus?: import('./types').AcceptanceStatus;
@@ -651,6 +652,7 @@ export const deliveryApi = {
       unitOfMeasure: string;
       quantityOrdered: number;
       quantityDelivered: number;
+      quantityAccepted: number | null;
       conditionOnArrival: import('./types').DeliveryCondition;
       inspectionStatus: import('./types').InspectionStatus;
       acceptanceStatus: import('./types').AcceptanceStatus;

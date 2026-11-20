@@ -1275,6 +1275,9 @@ model DeliveryRecord {
   unitOfMeasure     String
   quantityOrdered   Decimal @db.Decimal(12, 3)
   quantityDelivered Decimal @db.Decimal(12, 3)
+  // Accepted part of the delivered quantity when partially_accepted. NULL for
+  // every other status and for deliveries recorded before it existed.
+  quantityAccepted  Decimal? @db.Decimal(12, 3)
 
   // Condition & acceptance
   conditionOnArrival DeliveryCondition @default(good)
