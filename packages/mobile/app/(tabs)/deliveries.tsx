@@ -109,7 +109,10 @@ function DeliveryDetailView({
         `/projects/${record.projectId}/sites/${record.siteId}/deliveries/${record.id}`,
         {
           inspectionStatus: inspection,
-          acceptanceStatus: acceptance,
+          // An undecided delivery has no acceptance status yet. The API accepts
+          // the field only with a value, so it is sent once one is chosen;
+          // saving just the inspection result must not be refused.
+          ...(acceptance !== null && { acceptanceStatus: acceptance }),
           quantityAccepted: acceptance === 'partially_accepted' && qtyAccepted.trim()
             ? Number(qtyAccepted.replace(',', '.'))
             : null,
