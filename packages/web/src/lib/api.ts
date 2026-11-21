@@ -126,7 +126,6 @@ async function doRefresh(): Promise<boolean> {
     const res = await fetch(`${BASE}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
