@@ -41,6 +41,7 @@ jobs:
       NODE_ENV: test
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/construction_platform_test?schema=public
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/construction_platform_test?schema=public
+      TEST_DATABASE_CONFIRM: construction_platform_test
       JWT_SECRET: ci-dummy-jwt-secret-not-a-real-secret-0000
       JWT_REFRESH_SECRET: ci-dummy-refresh-secret-not-a-real-secret-00
       STORAGE_DRIVER: local
