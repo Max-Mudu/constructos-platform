@@ -12,6 +12,32 @@ import { isSessionCurrent } from '../middleware/authenticate';
 // Heartbeat interval — keeps the connection alive through proxies and load balancers
 const HEARTBEAT_MS = 25_000;
 
+/**
+ * One heartbeat of an open stream. The session is checked again first: if it
+ * has ended since the stream opened (all sessions ended after a refresh token
+ * was reused, a password reset, a deactivation), the stream is closed instead
+ * of staying open on an access token that every other route now refuses. A
+ * failed check also closes it; the client reconnects and is checked again.
+ * Returns false once the stream has been closed.
+ */
+export async function heartbeatOrClose(
+  payload: JwtPayload,
+  stream: { write: (data: string) => void; close: () => void },
+): Promise<boolean> {
+  let current = false;
+  try {
+    current = await isSessionCurrent(payload);
+  } catch {
+    current = false;
+  }
+  if (!current) {
+    stream.close();
+    return false;
+  }
+  stream.write(formatSSE('heartbeat', { t: Date.now() }));
+  return true;
+}
+
 export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
   /**
    * GET /api/v1/events?token=<jwt>
@@ -90,17 +116,27 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
       // ── Send connected event ─────────────────────────────────────────────────
       reply.raw.write(formatSSE('connected', { userId, companyId, clientId }));
 
-      // ── Heartbeat ────────────────────────────────────────────────────────────
+      // ── Heartbeat (re-checks the session) ───────────────────────────────────
+      let ended = false;
+      const endStream = () => {
+        if (ended) return;
+        ended = true;
+        clearInterval(heartbeat);
+        unregisterClient(client);
+        try { reply.raw.end(); } catch { /* stream gone */ }
+      };
       const heartbeat = setInterval(() => {
-        try {
-          reply.raw.write(formatSSE('heartbeat', { t: Date.now() }));
-        } catch {
-          clearInterval(heartbeat);
-        }
+        void heartbeatOrClose(payload, {
+          write: (data) => {
+            try { reply.raw.write(data); } catch { endStream(); }
+          },
+          close: endStream,
+        });
       }, HEARTBEAT_MS);
 
       // ── Cleanup on disconnect ────────────────────────────────────────────────
       request.raw.on('close', () => {
+        ended = true;
         clearInterval(heartbeat);
         unregisterClient(client);
       });
@@ -113,8 +149,10 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
       }
 
       // Keep the response open — do not return / call reply.send()
+      // (or until the server ends the stream after a failed session check)
       await new Promise<void>((resolve) => {
         request.raw.on('close', resolve);
+        reply.raw.on('close', resolve);
       });
     },
   );

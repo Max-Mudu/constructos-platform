@@ -309,13 +309,22 @@ export async function refreshTokens(
   });
 
   if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
-    // If token was already revoked, this may indicate theft — revoke entire family
+    // If token was already revoked, this may indicate theft.
     if (stored && stored.revokedAt) {
-      console.warn('[auth] refresh token reuse detected — revoking all sessions for userId:', stored.userId);
-      await prisma.refreshToken.updateMany({
-        where: { userId: stored.userId },
-        data: { revokedAt: new Date() },
-      });
+      if (stored.sessionVersion === stored.user.sessionVersion) {
+        // A token of the current sessions: end every session.
+        console.warn('[auth] refresh token reuse detected — ending all sessions for userId:', stored.userId);
+        await endAllSessionsAfterReuse(stored.user);
+      } else {
+        // A token from sessions that were already ended (password reset,
+        // deactivation, an earlier reuse): unchanged handling, revoke the
+        // refresh tokens.
+        console.warn('[auth] refresh token reuse detected — revoking all sessions for userId:', stored.userId);
+        await prisma.refreshToken.updateMany({
+          where: { userId: stored.userId },
+          data: { revokedAt: new Date() },
+        });
+      }
     }
     throw new UnauthorizedError('Invalid or expired refresh token');
   }
@@ -358,6 +367,46 @@ export async function refreshTokens(
     },
     tokens,
   };
+}
+
+/**
+ * Reuse of a revoked refresh token ends every session of the user, in one
+ * transaction: the session version is bumped (access tokens already issued
+ * are refused by middleware/authenticate.ts from the next request on, and a
+ * token pair minted by a refresh running concurrently carries the old version
+ * and is refused too), every live refresh token is revoked, and the user's
+ * registered push devices are removed. The audit row records counts only.
+ * The user signs in again; the app then registers the device again.
+ */
+async function endAllSessionsAfterReuse(user: {
+  id: string; companyId: string; email: string; role: UserRole;
+}): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: user.id },
+      data:  { sessionVersion: { increment: 1 } },
+    });
+    const revoked = await tx.refreshToken.updateMany({
+      where: { userId: user.id, revokedAt: null },
+      data:  { revokedAt: new Date() },
+    });
+    const pushDevicesRemoved = await removeUserPushDevices(tx, user.id, user.companyId);
+    await tx.auditLog.create({
+      data: {
+        companyId:    user.companyId,
+        userId:       user.id,
+        userEmail:    user.email,
+        userRole:     user.role,
+        action:       'update',
+        entityType:   'auth',
+        changesAfter: {
+          event:                'refresh_token_reuse_detected',
+          refreshTokensRevoked: revoked.count,
+          pushDevicesRemoved,
+        },
+      },
+    });
+  });
 }
 
 export async function getMe(userId: string): Promise<AuthUser> {
