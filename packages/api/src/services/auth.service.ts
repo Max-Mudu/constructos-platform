@@ -309,21 +309,15 @@ export async function refreshTokens(
   });
 
   if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
-    // If token was already revoked, this may indicate theft.
+    // A revoked token presented again is always refused; it may indicate theft.
     if (stored && stored.revokedAt) {
-      if (stored.sessionVersion === stored.user.sessionVersion) {
-        // A token of the current sessions: end every session.
+      if (await sessionEndedDeliberately(stored)) {
+        // Its session was already ended on purpose: refused, and the user's
+        // current sessions are not touched.
+        console.warn('[auth] refresh token from an already-ended session refused for userId:', stored.userId);
+      } else {
         console.warn('[auth] refresh token reuse detected — ending all sessions for userId:', stored.userId);
         await endAllSessionsAfterReuse(stored.user);
-      } else {
-        // A token from sessions that were already ended (password reset,
-        // deactivation, an earlier reuse): unchanged handling, revoke the
-        // refresh tokens.
-        console.warn('[auth] refresh token reuse detected — revoking all sessions for userId:', stored.userId);
-        await prisma.refreshToken.updateMany({
-          where: { userId: stored.userId },
-          data: { revokedAt: new Date() },
-        });
       }
     }
     throw new UnauthorizedError('Invalid or expired refresh token');
@@ -370,21 +364,65 @@ export async function refreshTokens(
 }
 
 /**
+ * True only when the server recorded that the presented (revoked) token's
+ * session was ended deliberately, so presenting it again says nothing about
+ * the user's current sessions:
+ *  - this very token was signed out (the logout audit row names its id), or
+ *  - its session version was ended by a password reset or account setup, or
+ *    by a deactivation (the audit row written in the same transaction names
+ *    the version it ended).
+ * Anything else is treated as reuse: a token revoked by rotation, a session
+ * version ended because reuse was detected (suspected compromise), or a
+ * version whose end is not on record.
+ */
+async function sessionEndedDeliberately(stored: {
+  id: string; userId: string; sessionVersion: number;
+  user: { id: string; companyId: string; sessionVersion: number };
+}): Promise<boolean> {
+  const signedOut = await prisma.auditLog.findFirst({
+    where:  { userId: stored.userId, action: 'logout', entityType: 'auth', entityId: stored.id },
+    select: { id: true },
+  });
+  if (signedOut) return true;
+
+  if (stored.sessionVersion >= stored.user.sessionVersion) return false;
+  const ended = { changesAfter: { path: ['sessionVersionEnded'], equals: stored.sessionVersion } };
+  const endedOnPurpose = await prisma.auditLog.findFirst({
+    where: {
+      OR: [
+        {
+          userId: stored.user.id, action: 'update', entityType: 'auth',
+          AND: [{ changesAfter: { path: ['event'], equals: 'password_reset_completed' } }, ended],
+        },
+        {
+          companyId: stored.user.companyId, action: 'update', entityType: 'user', entityId: stored.user.id,
+          AND: [{ changesAfter: { path: ['event'], equals: 'user_deactivated' } }, ended],
+        },
+      ],
+    },
+    select: { id: true },
+  });
+  return endedOnPurpose !== null;
+}
+
+/**
  * Reuse of a revoked refresh token ends every session of the user, in one
  * transaction: the session version is bumped (access tokens already issued
  * are refused by middleware/authenticate.ts from the next request on, and a
  * token pair minted by a refresh running concurrently carries the old version
  * and is refused too), every live refresh token is revoked, and the user's
- * registered push devices are removed. The audit row records counts only.
- * The user signs in again; the app then registers the device again.
+ * registered push devices are removed. The audit row records counts and the
+ * session version that ended, never a token. The user signs in again; the
+ * app then registers the device again.
  */
 async function endAllSessionsAfterReuse(user: {
   id: string; companyId: string; email: string; role: UserRole;
 }): Promise<void> {
   await prisma.$transaction(async (tx) => {
-    await tx.user.update({
-      where: { id: user.id },
-      data:  { sessionVersion: { increment: 1 } },
+    const bumped = await tx.user.update({
+      where:  { id: user.id },
+      data:   { sessionVersion: { increment: 1 } },
+      select: { sessionVersion: true },
     });
     const revoked = await tx.refreshToken.updateMany({
       where: { userId: user.id, revokedAt: null },
@@ -403,6 +441,7 @@ async function endAllSessionsAfterReuse(user: {
           event:                'refresh_token_reuse_detected',
           refreshTokensRevoked: revoked.count,
           pushDevicesRemoved,
+          sessionVersionEnded:  bumped.sessionVersion - 1,
         },
       },
     });
@@ -504,16 +543,30 @@ export async function logout(
   rawRefreshToken: string,
 ): Promise<void> {
   const tokenHash = hashToken(rawRefreshToken);
-  await prisma.refreshToken.updateMany({
-    where: { userId, tokenHash, revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
-  await prisma.auditLog.create({
-    data: {
-      userId,
-      action: 'logout',
-      entityType: 'auth',
-    },
+  await prisma.$transaction(async (tx) => {
+    const live = await tx.refreshToken.findFirst({
+      where:  { userId, tokenHash, revokedAt: null },
+      select: { id: true },
+    });
+    // Conditional, so a refresh rotating the same token at the same moment
+    // wins or loses cleanly: only a token this sign-out revoked is recorded.
+    const revoked = live
+      ? await tx.refreshToken.updateMany({
+          where: { id: live.id, revokedAt: null },
+          data:  { revokedAt: new Date() },
+        })
+      : { count: 0 };
+    await tx.auditLog.create({
+      data: {
+        userId,
+        action: 'logout',
+        entityType: 'auth',
+        // The id of the refresh token this sign-out ended (a row id, never the
+        // token): presenting that token again is then recognised as a session
+        // that was already ended, not as reuse.
+        ...(live && revoked.count === 1 && { entityId: live.id }),
+      },
+    });
   });
 }
 
@@ -610,7 +663,7 @@ export async function resetPassword(
     // password: access tokens fail in middleware/authenticate.ts and refresh
     // tokens fail in refresh(). A fresh login issues tokens under the new
     // version.
-    await tx.user.update({
+    const updated = await tx.user.update({
       where: { id: resetToken.userId },
       data: {
         passwordHash,
@@ -618,6 +671,7 @@ export async function resetPassword(
         lockedAt: null,
         sessionVersion: { increment: 1 },
       },
+      select: { sessionVersion: true },
     });
 
     await tx.refreshToken.updateMany({
@@ -642,7 +696,14 @@ export async function resetPassword(
         userRole:     resetToken.user.role,
         action:       'update',
         entityType:   'auth',
-        changesAfter: { event: 'password_reset_completed', pushDevicesRemoved },
+        // sessionVersionEnded: the sessions this reset ended, so a refresh
+        // token from them presented later is refused without touching the
+        // sessions started after the reset.
+        changesAfter: {
+          event: 'password_reset_completed',
+          pushDevicesRemoved,
+          sessionVersionEnded: updated.sessionVersion - 1,
+        },
       },
     });
   });

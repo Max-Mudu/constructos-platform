@@ -170,7 +170,7 @@ describe('password reset ends sessions and removes registered devices', () => {
 
     const logs = await resetAudits(u.id);
     expect(logs).toHaveLength(1);
-    expect(logs[0]!.changesAfter).toEqual({ event: 'password_reset_completed', pushDevicesRemoved: 2 });
+    expect(logs[0]!.changesAfter).toEqual({ event: 'password_reset_completed', pushDevicesRemoved: 2, sessionVersionEnded: expect.any(Number) });
     expect(JSON.stringify(logs[0])).not.toContain('ExponentPushToken');
   });
 
@@ -212,7 +212,7 @@ describe('password reset ends sessions and removes registered devices', () => {
     await resetOk(u.email);
     const logs = await resetAudits(u.id);
     expect(logs).toHaveLength(1);
-    expect(logs[0]!.changesAfter).toEqual({ event: 'password_reset_completed', pushDevicesRemoved: 0 });
+    expect(logs[0]!.changesAfter).toEqual({ event: 'password_reset_completed', pushDevicesRemoved: 0, sessionVersionEnded: expect.any(Number) });
   });
 });
 
@@ -245,7 +245,7 @@ describe('account setup through a setup link removes registered devices', () => 
     expect(await devices(neighbour.id)).toBe(1);
     const logs = await resetAudits(m.id);
     expect(logs).toHaveLength(1);
-    expect(logs[0]!.changesAfter).toEqual({ event: 'password_reset_completed', pushDevicesRemoved: 1 });
+    expect(logs[0]!.changesAfter).toEqual({ event: 'password_reset_completed', pushDevicesRemoved: 1, sessionVersionEnded: expect.any(Number) });
     expect(JSON.stringify(logs[0])).not.toContain('ExponentPushToken');
 
     await notify(cid, m.id);
@@ -265,7 +265,7 @@ describe('account setup through a setup link removes registered devices', () => 
     const m = await createMember('setup.none@test.com');
     expect((await resetWith(m.setupToken, 'MyOwnPass1')).statusCode).toBe(200);
     const logs = await resetAudits(m.id);
-    expect(logs[0]!.changesAfter).toEqual({ event: 'password_reset_completed', pushDevicesRemoved: 0 });
+    expect(logs[0]!.changesAfter).toEqual({ event: 'password_reset_completed', pushDevicesRemoved: 0, sessionVersionEnded: expect.any(Number) });
   });
 });
 
@@ -364,7 +364,7 @@ describe('compatibility with deactivation and reactivation', () => {
     expect(await devices(u.id)).toBe(0);
     await resetOk(u.email);
     expect((await resetAudits(u.id)).map((l) => l.changesAfter)).toEqual([
-      { event: 'password_reset_completed', pushDevicesRemoved: 0 },
+      { event: 'password_reset_completed', pushDevicesRemoved: 0, sessionVersionEnded: expect.any(Number) },
     ]);
     await notify(cid, u.id);
     expect(sent.join('')).not.toContain('ExponentPushToken[dr-1]');
@@ -378,7 +378,7 @@ describe('compatibility with deactivation and reactivation', () => {
     await resetOk(u.email);
     await setStatus(u.id, false);
 
-    expect((await resetAudits(u.id))[0]!.changesAfter).toEqual({ event: 'password_reset_completed', pushDevicesRemoved: 1 });
+    expect((await resetAudits(u.id))[0]!.changesAfter).toEqual({ event: 'password_reset_completed', pushDevicesRemoved: 1, sessionVersionEnded: expect.any(Number) });
     expect((await lastStatusAudit(u.id))?.changesAfter).toMatchObject({ event: 'user_deactivated', pushDevicesRemoved: 0 });
     expect(await devices(u.id)).toBe(0);
   });
