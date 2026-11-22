@@ -343,7 +343,8 @@ describe('legitimate concurrent refreshes are not treated as reuse', () => {
     // Without the web client's turn-taking, both tabs can present one token.
     // Either the second is refused outright (both read it before either
     // rotated it) or it counts as reuse and every session ends. Never two
-    // usable pairs; the web client takes turns so this does not arise.
+    // usable pairs. Browser tabs take turns across the whole browser (one
+    // shared refresh lock), so this does not arise in the web client.
     for (let i = 0; i < 6; i += 1) {
       const u = await newUser(`tabs-same-instant-${i}`);
       const first = await signIn(u.email);
