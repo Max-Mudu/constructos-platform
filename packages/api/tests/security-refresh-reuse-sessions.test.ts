@@ -179,6 +179,7 @@ describe('refresh-token reuse ends every session and removes registered devices'
     // The sign-in token was already rotated, so only the legitimate one was live.
     expect(logs[0]!.changesAfter).toEqual({
       event: 'refresh_token_reuse_detected', refreshTokensRevoked: 1, pushDevicesRemoved: 2,
+      sessionVersionEnded: 0,
     });
     const json = JSON.stringify(logs[0]);
     expect(json).not.toContain('ExponentPushToken');
@@ -212,24 +213,9 @@ describe('refresh-token reuse ends every session and removes registered devices'
   });
 });
 
-describe('a token from sessions that were already ended', () => {
-  it('keeps today\'s handling: refused and refresh tokens revoked, no version bump, no reuse audit', async () => {
-    const u = await newUser('reuse-ended');
-    const first = await signIn(u.email);
-    // An earlier event (reset, deactivation) ended the sessions: version bump + revocation.
-    await prisma.user.update({ where: { id: u.id }, data: { sessionVersion: { increment: 1 } } });
-    await prisma.refreshToken.updateMany({ where: { userId: u.id }, data: { revokedAt: new Date() } });
-    const later = await signIn(u.email);
-    const before = (await prisma.user.findUniqueOrThrow({ where: { id: u.id } })).sessionVersion;
-
-    expect((await refresh(first.refreshToken)).statusCode).toBe(401);
-
-    expect((await prisma.user.findUniqueOrThrow({ where: { id: u.id } })).sessionVersion).toBe(before);
-    expect(await reuseAudits(u.id)).toHaveLength(0);
-    expect(await prisma.refreshToken.count({ where: { userId: u.id, revokedAt: null } })).toBe(0);
-    expect((await me(later.accessToken)).statusCode).toBe(200);
-  });
-});
+// Tokens from sessions that were already ended (signed out, password reset,
+// account setup, deactivation, or ended after reuse was detected) are
+// covered in security-refresh-ended-sessions.test.ts.
 
 // ─── concurrency ────────────────────────────────────────────────────────────
 
@@ -357,7 +343,8 @@ describe('legitimate concurrent refreshes are not treated as reuse', () => {
     // Without the web client's turn-taking, both tabs can present one token.
     // Either the second is refused outright (both read it before either
     // rotated it) or it counts as reuse and every session ends. Never two
-    // usable pairs; the web client takes turns so this does not arise.
+    // usable pairs. Browser tabs take turns across the whole browser (one
+    // shared refresh lock), so this does not arise in the web client.
     for (let i = 0; i < 6; i += 1) {
       const u = await newUser(`tabs-same-instant-${i}`);
       const first = await signIn(u.email);

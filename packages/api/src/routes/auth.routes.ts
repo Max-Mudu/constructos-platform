@@ -167,6 +167,14 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
       });
     } catch (err) {
       if (err instanceof AppError) {
+        // A refused refresh token is never valid again, so the browser drops
+        // its cookie: it is not presented over and over (each presentation of
+        // a token from a session ended after suspected theft ends the user's
+        // sessions again). The phone app clears its stored tokens itself.
+        // Not after losing a race: the winner may already have set a new one.
+        if (err.statusCode === 401 && !(err instanceof authService.RefreshTokenSupersededError)) {
+          reply.clearCookie('refreshToken', { path: '/' });
+        }
         return reply.status(err.statusCode).send({ error: err.message, code: err.code });
       }
       throw err;

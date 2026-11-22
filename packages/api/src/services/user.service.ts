@@ -459,13 +459,16 @@ export async function setCompanyUserStatus(
     let refreshTokensRevoked = 0;
     let setupTokensInvalidated = 0;
     let pushDevicesRemoved = 0;
+    let sessionVersionEnded: number | null = null;
     if (!isActive) {
       // Every access and refresh token issued so far carries the old version
       // and is refused from now on, including after a later reactivation.
-      await tx.user.update({
-        where: { id: target.id },
-        data:  { sessionVersion: { increment: 1 } },
+      const bumped = await tx.user.update({
+        where:  { id: target.id },
+        data:   { sessionVersion: { increment: 1 } },
+        select: { sessionVersion: true },
       });
+      sessionVersionEnded = bumped.sessionVersion - 1;
       const revoked = await tx.refreshToken.updateMany({
         where: { userId: target.id, revokedAt: null },
         data:  { revokedAt: now },
@@ -499,7 +502,10 @@ export async function setCompanyUserStatus(
             event: isActive ? 'user_reactivated' : 'user_deactivated',
             refreshTokensRevoked,
             setupTokensInvalidated,
-            ...(!isActive && { pushDevicesRemoved }),
+            // sessionVersionEnded: the sessions this deactivation ended; a
+            // refresh token from them is refused later without touching the
+            // sessions started after a reactivation (auth.service).
+            ...(!isActive && { pushDevicesRemoved, sessionVersionEnded }),
           },
           ipAddress: context.ipAddress ?? null,
           userAgent: context.userAgent ?? null,
