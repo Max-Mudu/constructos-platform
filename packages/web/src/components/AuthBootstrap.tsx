@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useAuthStore, getAccessToken, TOKEN_KEY, USER_KEY } from '@/store/auth.store';
-import { configureApiClient } from '@/lib/api';
+import { configureApiClient, withRefreshLock } from '@/lib/api';
 import type { AuthUser } from '@/lib/types';
 
 const BASE = '/api/v1';
@@ -42,6 +42,8 @@ function isTokenFresh(token: string): boolean {
  *    the refresh endpoint does NOT trigger the _onUnauthorized callback and
  *    does NOT mark the session as expired — a fresh page load with no valid
  *    session should land on plain /login, not /login?reason=expired.
+ *    It runs under the same cross-tab lock as every other refresh
+ *    (withRefreshLock), because the refresh cookie is shared by all tabs.
  */
 export function AuthBootstrap() {
   const { setAuth, clearAuth, expireSession } = useAuthStore();
@@ -84,12 +86,13 @@ export function AuthBootstrap() {
     if (restoredFromStorage) return;
 
     // ── Case 3: no stored token — attempt httpOnly cookie refresh ────────────
-    void (async () => {
+    // Under the cross-tab refresh lock, so a page opened while another tab is
+    // refreshing waits for it and then sends the cookie that tab received.
+    void withRefreshLock(async () => {
       try {
         const res = await fetch(`${BASE}/auth/refresh`, {
           method:      'POST',
           credentials: 'include',
-          headers:     { 'Content-Type': 'application/json' },
         });
         if (!res.ok) throw new Error('refresh_failed');
         const data = await res.json() as { accessToken: string; user: AuthUser };
@@ -103,7 +106,7 @@ export function AuthBootstrap() {
         clearAuth();
         console.log('[auth] hydrated');
       }
-    })();
+    });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return null;

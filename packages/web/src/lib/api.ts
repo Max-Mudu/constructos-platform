@@ -19,7 +19,8 @@ export class ApiError extends Error {
 let _getAccessToken: (() => string | null) | null = null;
 let _onUnauthorized: (() => void) | null = null;
 let _onAuthRefreshed: ((user: AuthUser, token: string) => void) | null = null;
-// Shared refresh promise — prevents concurrent 401s from firing duplicate token rotations.
+// Shared refresh promise — prevents concurrent 401s in this tab from firing
+// duplicate token rotations. withRefreshLock does the same across tabs.
 let _refreshPromise: Promise<boolean> | null = null;
 
 export function configureApiClient(
@@ -125,7 +126,6 @@ async function doRefresh(): Promise<boolean> {
     const res = await fetch(`${BASE}/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -144,9 +144,61 @@ async function doRefresh(): Promise<boolean> {
   }
 }
 
+// ─── One refresh at a time across tabs ───────────────────────────────────────
+//
+// The refresh token is an httpOnly cookie shared by every tab, and the API
+// rotates it on each refresh. If two tabs refresh at the same moment, the
+// second request can leave carrying the cookie the first one just used, and
+// the server then ends the user's sessions. Every refresh therefore holds a
+// lock shared by all tabs of this origin until its response (including the new
+// cookie) has been processed and the new access token stored, so the next
+// tab's request carries the new cookie.
+
+const REFRESH_LOCK_NAME = 'constructos-auth-refresh';
+/**
+ * Stop waiting for another tab's refresh after this long and refresh anyway,
+ * as without the lock. A refresh normally holds the lock for well under a
+ * second (the mid-session request aborts after 10 s); this only matters if
+ * the tab holding it has stalled.
+ */
+const REFRESH_LOCK_WAIT_MS = 30_000;
+
+function refreshLockManager(): LockManager | null {
+  if (typeof navigator === 'undefined') return null;
+  const locks = (navigator as Navigator & { locks?: LockManager }).locks;
+  return locks && typeof locks.request === 'function' ? locks : null;
+}
+
+/**
+ * Runs `refresh` while holding the cross-tab refresh lock. Without the Web
+ * Locks API (older browsers, pages not served over HTTPS or localhost) it just
+ * runs `refresh`, as before.
+ */
+export async function withRefreshLock<T>(refresh: () => Promise<T>): Promise<T> {
+  const locks = refreshLockManager();
+  if (!locks) return refresh();
+  const waitLimit = new AbortController();
+  const timer = setTimeout(() => waitLimit.abort(), REFRESH_LOCK_WAIT_MS);
+  let granted = false;
+  try {
+    return await locks.request(REFRESH_LOCK_NAME, { signal: waitLimit.signal }, () => {
+      granted = true;
+      clearTimeout(timer);
+      return refresh();
+    });
+  } catch (err) {
+    if (granted) throw err;
+    // The lock did not come in time (or the browser refused the request):
+    // refresh without it rather than leave this tab waiting.
+    return refresh();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function tryRefresh(): Promise<boolean> {
   if (_refreshPromise) return _refreshPromise;
-  _refreshPromise = doRefresh().finally(() => { _refreshPromise = null; });
+  _refreshPromise = withRefreshLock(doRefresh).finally(() => { _refreshPromise = null; });
   return _refreshPromise;
 }
 
@@ -179,10 +231,12 @@ export const authApi = {
   me: () =>
     request<{ user: AuthUser }>('/auth/me'),
 
+  // Under the cross-tab refresh lock. A 401 here is final: it must not start
+  // a second refresh with the same cookie.
   refresh: () =>
-    request<{ user: AuthUser; accessToken: string }>('/auth/refresh', {
-      method: 'POST',
-    }),
+    withRefreshLock(() =>
+      request<{ user: AuthUser; accessToken: string }>('/auth/refresh', { method: 'POST' }, true),
+    ),
 
   updateDefaults: (data: { defaultProjectId: string | null; defaultSiteId: string | null }) =>
     request<{ user: AuthUser }>('/auth/me/defaults', {
