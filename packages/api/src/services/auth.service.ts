@@ -8,6 +8,18 @@ import { env } from '../utils/env';
 import { emailService } from './email.service';
 import { removeUserPushDevices } from './push.service';
 
+/**
+ * A refresh that lost a race to another refresh of the same, still-valid token
+ * (the other one rotated it a moment earlier). Refused like any other, but the
+ * route keeps the browser's cookie: it may already hold the new token the
+ * winning request set.
+ */
+export class RefreshTokenSupersededError extends UnauthorizedError {
+  constructor() {
+    super('Invalid or expired refresh token');
+  }
+}
+
 const MAX_FAILED_ATTEMPTS = 10;
 const LOCK_DURATION_MS = 15 * 60 * 1000; // 15 minutes
 const REFRESH_TOKEN_EXPIRES_DAYS = 7;
@@ -341,7 +353,7 @@ export async function refreshTokens(
     data: { revokedAt: new Date() },
   });
   if (rotated.count !== 1) {
-    throw new UnauthorizedError('Invalid or expired refresh token');
+    throw new RefreshTokenSupersededError();
   }
 
   const tokens = await issueTokenPair(fastify, stored.user, ipAddress, userAgent);

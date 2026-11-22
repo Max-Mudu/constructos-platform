@@ -376,3 +376,67 @@ describe('concurrent requests around an ended session', () => {
     expect((await me(after.accessToken)).statusCode).toBe(200);
   });
 });
+
+// ─── the browser's refresh cookie after a refusal ──────────────────────────
+
+function refreshWithCookie(refreshToken?: string) {
+  return app.inject({
+    method: 'POST', url: '/api/v1/auth/refresh',
+    ...(refreshToken !== undefined && { cookies: { refreshToken } }),
+  });
+}
+
+function clearsRefreshCookie(res: { headers: Record<string, unknown> }): boolean {
+  const raw = res.headers['set-cookie'];
+  const all = (Array.isArray(raw) ? raw : raw ? [raw] : []).map(String);
+  return all.some((c) => /^refreshToken=;/.test(c) && /(Expires=Thu, 01 Jan 1970|Max-Age=0)/i.test(c));
+}
+
+describe('a refused refresh in a browser', () => {
+  it('a cookie from sessions ended after suspected theft is cleared, so it is presented once and later sessions survive', async () => {
+    const u = await newUser('cookie-compromised');
+    const first = await signIn(u.email);
+    expect((await refreshWithCookie(first.refreshToken)).statusCode).toBe(200);
+    const replay = await refreshWithCookie(first.refreshToken); // reuse: every session ends
+    expect(replay.statusCode).toBe(401);
+    expect(clearsRefreshCookie(replay)).toBe(true);
+    expect(await reuseAudits(u.id)).toHaveLength(1);
+
+    const relogin = await signIn(u.email);
+    const v = await version(u.id);
+    // The browser's next visit: its cookie was cleared, so nothing is presented.
+    const nextVisit = await refreshWithCookie();
+    expect(nextVisit.statusCode).toBe(401);
+    expect((await me(relogin.accessToken)).statusCode).toBe(200);
+    expect(await version(u.id)).toBe(v);
+    expect(await reuseAudits(u.id)).toHaveLength(1);
+  });
+
+  it('a signed-out cookie and an unknown cookie are cleared too', async () => {
+    const u = await newUser('cookie-signed-out');
+    const s = await signIn(u.email);
+    expect((await signOut(s)).statusCode).toBe(200);
+    expect(clearsRefreshCookie(await refreshWithCookie(s.refreshToken))).toBe(true);
+    expect(clearsRefreshCookie(await refreshWithCookie('not-a-real-token'))).toBe(true);
+  });
+
+  it('a successful refresh sets the new cookie and does not clear it', async () => {
+    const u = await newUser('cookie-ok');
+    const s = await signIn(u.email);
+    const ok = await refreshWithCookie(s.refreshToken);
+    expect(ok.statusCode).toBe(200);
+    expect(clearsRefreshCookie(ok)).toBe(false);
+  });
+
+  it('a refresh that lost a race to another refresh of the same token keeps the cookie', async () => {
+    const u = await newUser('cookie-race-loser');
+    const s = await signIn(u.email);
+    // The other request rotated this token between this one's read and its rotation.
+    const spy = jest.spyOn(prisma.refreshToken, 'updateMany').mockResolvedValueOnce({ count: 0 } as never);
+    const lost = await refreshWithCookie(s.refreshToken);
+    spy.mockRestore();
+    expect(lost.statusCode).toBe(401);
+    expect(clearsRefreshCookie(lost)).toBe(false);
+    expect(await reuseAudits(u.id)).toHaveLength(0);
+  });
+});
