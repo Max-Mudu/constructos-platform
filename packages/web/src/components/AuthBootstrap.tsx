@@ -93,7 +93,6 @@ export function AuthBootstrap() {
         const res = await fetch(`${BASE}/auth/refresh`, {
           method:      'POST',
           credentials: 'include',
-          headers:     { 'Content-Type': 'application/json' },
         });
         if (!res.ok) throw new Error('refresh_failed');
         const data = await res.json() as { accessToken: string; user: AuthUser };
