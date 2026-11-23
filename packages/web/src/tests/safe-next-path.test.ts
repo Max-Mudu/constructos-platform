@@ -37,6 +37,13 @@ describe('safeNextPath — anything else falls back to the dashboard', () => {
     ['newline inside', '/\n/elsewhere.example'],
     ['leading space', ' //elsewhere.example'],
     ['javascript scheme', 'javascript:alert(1)'],
+    ['dot segment', '/.//elsewhere.example'],
+    ['parent segment', '/a/..//elsewhere.example'],
+    ['parent at root', '/..//elsewhere.example'],
+    ['encoded dot segment', '/%2e//elsewhere.example'],
+    ['encoded parent segment', '/%2E%2E//elsewhere.example'],
+    ['dot segment then backslash', `/./${BACKSLASH}elsewhere.example`],
+    ['parent segment then mixed slashes', `/x/../${BACKSLASH}/elsewhere.example`],
   ])('%s', (_label, next) => {
     expect(safeNextPath(next)).toBe('/dashboard');
   });
@@ -62,6 +69,32 @@ describe('safeNextPath — the router keeps every result inside the app', () => 
 
   it.each(inputs)('%j', (next) => {
     expect(resolvedLikeRouter(safeNextPath(next)).origin).toBe(APP_ORIGIN);
+  });
+
+  it('every combination of a dot or parent prefix and a run of slashes stays in the app', () => {
+    const prefixes = ['', '/.', '/..', '/a/..', '/a/b/../..', '/%2e', '/%2E', '/%2e%2e', '/.%2e', '/a/%2E%2E'];
+    const runs = ['/', BACKSLASH, '//', `${BACKSLASH}/`, `/${BACKSLASH}`, `${BACKSLASH}${BACKSLASH}`, '///', '/\t/', '/\n/'];
+    let tried = 0;
+    for (const prefix of prefixes) {
+      for (const run of runs) {
+        for (const tail of ['elsewhere.example', 'elsewhere.example/x?y=1#z']) {
+          const next = `${prefix}${run}${tail}`;
+          const result = safeNextPath(next);
+          expect({ next, origin: resolvedLikeRouter(result).origin }).toEqual({ next, origin: APP_ORIGIN });
+          expect(result.startsWith('//')).toBe(false);
+          tried++;
+        }
+      }
+    }
+    expect(tried).toBe(prefixes.length * runs.length * 2);
+  });
+
+  it('a kept page stays the same page when resolved again', () => {
+    for (const next of ['/dashboard', '/projects/abc?tab=labour#today', '/a/../projects', '/%2e/projects']) {
+      const result = safeNextPath(next);
+      expect(safeNextPath(result)).toBe(result);
+      expect(resolvedLikeRouter(result).origin).toBe(APP_ORIGIN);
+    }
   });
 
   it('the unchecked forms would leave the app (control)', () => {
