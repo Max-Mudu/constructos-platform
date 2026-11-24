@@ -70,6 +70,8 @@ export interface AttendanceRecord {
   checkInTime:  string | null;
   checkOutTime: string | null;
   notes:        string | null;
+  /** Who recorded it (the offline queue compares it with the user who queued an entry). */
+  recordedById?: string;
   worker: { id: string; firstName: string; lastName: string; trade: string | null };
 }
 
@@ -88,6 +90,8 @@ export interface LabourEntry {
   dailyRate?:  number;
   currency?:   string;
   notes:       string | null;
+  /** Who registered it (the offline queue compares it with the user who queued an entry). */
+  registeredById?: string;
   worker: { id: string; firstName: string; lastName: string; trade: string | null };
 }
 

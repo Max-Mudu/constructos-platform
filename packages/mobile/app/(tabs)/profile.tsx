@@ -7,7 +7,7 @@ import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../src/store/auth.store';
 import { getExpoPushToken } from '../../src/utils/push';
 import { withTimeout } from '../../src/utils/withTimeout';
-import { clearQueue, getQueue } from '../../src/utils/offlineQueue';
+import { offlineQueue } from '../../src/utils/offlineQueue';
 import { authApi } from '../../src/api/auth';
 import { notificationsApi } from '../../src/api/notifications';
 import { Project, JobSite } from '../../src/types';
@@ -166,39 +166,59 @@ export default function ProfileScreen() {
 
   // ── Logout ──────────────────────────────────────────────────────────────
   async function handleLogout() {
-    const pending = (await getQueue().catch(() => [])).length;
+    const userId = user?.id ?? null;
+    await offlineQueue.load().catch(() => undefined);
+    const pending = offlineQueue.unsyncedCount(userId);
+
+    async function logOut(deleteUnsynced: boolean) {
+      setLoggingOut(true);
+      try {
+        try {
+          // The lookup waits on APNs and an HTTPS call to Expo with no
+          // time limit; on a poor connection it must not block logout.
+          const pushToken = await withTimeout(getExpoPushToken(), PUSH_TOKEN_LOOKUP_MS);
+          if (pushToken) await notificationsApi.unregisterPushToken(pushToken);
+        } catch { /* non-fatal */ }
+
+        // Never throws; refreshes once if the access token has expired.
+        await authApi.logout();
+      } finally {
+        // Unsynced entries stay on the phone, bound to this user, unless the
+        // user chose to delete them.
+        if (deleteUnsynced && userId) await offlineQueue.deleteForUser(userId).catch(() => {});
+        await clearAuth();
+        router.replace('/login');
+        setLoggingOut(false);
+      }
+    }
+
+    if (pending === 0) {
+      Alert.alert('Log Out', 'Are you sure you want to log out?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Log Out', style: 'destructive', onPress: () => { void logOut(false); } },
+      ]);
+      return;
+    }
+
+    const what = `${pending} unsynced ${pending === 1 ? 'entry' : 'entries'}`;
     Alert.alert(
       'Log Out',
-      pending > 0
-        ? `You have ${pending} unsynced ${pending === 1 ? 'entry' : 'entries'} saved offline. ` +
-          'Logging out deletes them from this device. Log out anyway?'
-        : 'Are you sure you want to log out?',
+      `You have ${what} saved offline. They stay on this phone and are sent the next time you sign in on it. Log out anyway?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Log Out',
+          text: 'Delete them',
           style: 'destructive',
-          onPress: async () => {
-            setLoggingOut(true);
-            try {
-              try {
-                // The lookup waits on APNs and an HTTPS call to Expo with no
-                // time limit; on a poor connection it must not block logout.
-                const pushToken = await withTimeout(getExpoPushToken(), PUSH_TOKEN_LOOKUP_MS);
-                if (pushToken) await notificationsApi.unregisterPushToken(pushToken);
-              } catch { /* non-fatal */ }
-
-              // Never throws; refreshes once if the access token has expired.
-              await authApi.logout();
-            } finally {
-              // Before clearAuth: clearQueue removes the current user's ops.
-              await clearQueue().catch(() => {});
-              await clearAuth();
-              router.replace('/login');
-              setLoggingOut(false);
-            }
-          },
+          onPress: () => Alert.alert(
+            'Delete unsynced entries?',
+            `${what} will be removed from this phone and never sent.`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Delete and log out', style: 'destructive', onPress: () => { void logOut(true); } },
+            ],
+          ),
         },
+        { text: 'Log Out', onPress: () => { void logOut(false); } },
       ],
     );
   }

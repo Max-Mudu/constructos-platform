@@ -13,8 +13,9 @@ import { useAuthStore } from '../../src/store/auth.store';
 import { attendanceApi } from '../../src/api/attendance';
 import { projectsApi } from '../../src/api/projects';
 import { workersApi } from '../../src/api/workers';
-import { enqueue, isNetworkError } from '../../src/utils/offlineQueue';
+import { offlineQueue, shouldQueueAfterError } from '../../src/utils/offlineQueue';
 import { useOfflineQueue } from '../../src/hooks/useOfflineQueue';
+import { OfflineSyncPanel } from '../../src/components/OfflineSyncPanel';
 import { AttendanceRecord, AttendanceStatus, Project, JobSite, Worker } from '../../src/types';
 import { useAppBarInset, useModalTopInset } from '../../src/hooks/useAppBarInset';
 
@@ -49,6 +50,7 @@ function WorkerAttendance({
 }) {
   const appBarInset = useAppBarInset();
   const { pendingCount, isFlushing, flush } = useOfflineQueue();
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   const hasDefaults = !!(defProjId && defSiteId);
 
   const [projects,    setProjects]    = useState<Project[]>([]);
@@ -91,6 +93,7 @@ function WorkerAttendance({
   async function handleCheckIn() {
     if (!selected) return;
     setSubmitting(true);
+    const savedBy = userId; // owner of a queued check-in, even if the session ends meanwhile
     try {
       await attendanceApi.selfAttendance(
         selected.project.id,
@@ -99,13 +102,17 @@ function WorkerAttendance({
       );
       setDone(true);
     } catch (err: unknown) {
-      if (isNetworkError(err)) {
-        await enqueue('attendance_self', {
-          projectId:   selected.project.id,
-          siteId:      selected.site.id,
-          checkInTime: checkInTime || null,
-        });
-        setDoneOffline(true);
+      if (shouldQueueAfterError(err)) {
+        try {
+          await offlineQueue.enqueue('attendance_self', {
+            projectId:   selected.project.id,
+            siteId:      selected.site.id,
+            checkInTime: checkInTime || null,
+          }, { userId: savedBy, label: `Check-in · ${new Date().toLocaleDateString('en-GB')}${checkInTime ? ` · ${checkInTime}` : ''}` });
+          setDoneOffline(true);
+        } catch {
+          Alert.alert('Not saved', 'The server could not be reached and the check-in could not be saved on this phone. Try again.');
+        }
       } else {
         const msg =
           (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -167,7 +174,7 @@ function WorkerAttendance({
             <Text style={W.doneTitle}>Attendance Recorded</Text>
             <Text style={W.doneSub}>You have been marked as present today.</Text>
             {pendingCount > 0 && (
-              <TouchableOpacity style={W.syncBtn} onPress={flush} disabled={isFlushing} activeOpacity={0.8}>
+              <TouchableOpacity style={W.syncBtn} onPress={() => { void flush(); }} disabled={isFlushing} activeOpacity={0.8}>
                 <Text style={W.syncBtnText}>
                   {isFlushing ? 'Syncing…' : `Sync ${pendingCount} pending`}
                 </Text>
@@ -198,6 +205,10 @@ function WorkerAttendance({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        <View style={{ marginHorizontal: -16, marginTop: 12 }}>
+          <OfflineSyncPanel />
+        </View>
+
         {/* Steps 1 & 2: project/site selection — hidden for users with defaults */}
         {!hasDefaults && (
           <>

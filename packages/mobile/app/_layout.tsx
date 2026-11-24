@@ -12,6 +12,7 @@ import { notificationsApi } from '../src/api/notifications';
 import { registerForPushNotifications } from '../src/utils/push';
 import { isFirstLaunchOfInstall } from '../src/utils/localData';
 import { SSEProvider } from '../src/providers/SSEProvider';
+import { OfflineSyncRunner } from '../src/components/OfflineSyncRunner';
 
 // Display notifications while the app is in the foreground.
 // Must be called before any navigator renders; module-level placement guarantees that.
@@ -143,6 +144,7 @@ export default function RootLayout() {
         <SSEProvider>
           <AuthGuard>
             <NotificationDeepLink />
+            <OfflineSyncRunner />
             <StatusBar style="light" />
             <Stack screenOptions={{ headerShown: false }} />
           </AuthGuard>

@@ -29,7 +29,8 @@ import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { LoadingSpinner } from '../../src/components/LoadingSpinner';
 import { EmptyState } from '../../src/components/EmptyState';
-import { enqueue, isNetworkError } from '../../src/utils/offlineQueue';
+import { offlineQueue, shouldQueueAfterError } from '../../src/utils/offlineQueue';
+import { OfflineSyncPanel } from '../../src/components/OfflineSyncPanel';
 import { formatLabourCost, labourCostTotals } from '../../src/utils/labourCost';
 import { useOfflineQueue } from '../../src/hooks/useOfflineQueue';
 import {
@@ -186,17 +187,17 @@ function CreateLabourModal({
       ...(canSetRate && { dailyRate }),
       notes: notes || undefined,
     };
+    // Captured before the request: if the session ends during it, the entry
+    // still belongs to the person who saved it.
+    const savedBy = authUser?.id ?? null;
 
     try {
       await labourApi.create(data);
       onSaved();
       onClose();
     } catch (err) {
-      if (isNetworkError(err)) {
-        await enqueue('labour_create', { data });
-        Alert.alert('Saved Offline', 'Labour entry queued — will sync when back online.');
-        onSaved();
-        onClose();
+      if (shouldQueueAfterError(err)) {
+        await keepOffline(data, savedBy);
       } else {
         const msg =
           (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -205,6 +206,29 @@ function CreateLabourModal({
       }
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function keepOffline(data: Record<string, unknown>, savedBy: string | null) {
+    const worker = workers.find((w) => w.id === data['workerId']);
+    const label = `${worker ? `${worker.firstName} ${worker.lastName}` : 'Labour entry'} · ${String(data['date'])} · ${String(data['hoursWorked'])}h`;
+    try {
+      const result = await offlineQueue.enqueue('labour_create', { data }, { userId: savedBy, label });
+      if (result.status === 'blocked') {
+        Alert.alert('Not saved', result.message);
+        return; // the form stays open with what was entered
+      }
+      Alert.alert(
+        'Saved Offline',
+        result.status === 'already_queued'
+          ? 'Labour entry queued already — this entry is waiting to sync.'
+          : 'Labour entry queued — saved on this phone and sent automatically when the connection returns.',
+      );
+      onSaved();
+      onClose();
+    } catch {
+      // Nothing was stored: say so and keep the form.
+      Alert.alert('Not saved', 'The server could not be reached and the entry could not be saved on this phone. Try again.');
     }
   }
 
@@ -520,7 +544,7 @@ export default function LabourScreen() {
         <View style={styles.headerRight}>
           {pendingCount > 0 && (
             <TouchableOpacity
-              onPress={flush}
+              onPress={() => { void flush(); }}
               style={styles.pendingBadge}
               disabled={isFlushing}
             >
@@ -540,6 +564,8 @@ export default function LabourScreen() {
           />
         </View>
       </View>
+
+      <OfflineSyncPanel onSynced={() => { setOffset(0); void load({ reset: true }); }} />
 
       <View style={styles.searchRow}>
         <TextInput

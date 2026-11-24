@@ -6,7 +6,8 @@
     "start": "expo start",
     "android": "expo start --android",
     "ios": "expo start --ios",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "test": "tsc --noEmit -p tests && tsx --test --test-reporter=spec tests/offlineQueue.test.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",

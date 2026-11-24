@@ -1,128 +1,112 @@
 /**
- * Offline queue — persists pending write operations to device storage.
- * Uses expo-file-system so no extra packages are needed.
+ * Offline queue on the device: binds the rules in ./offlineQueueCore (see the
+ * comment there) to expo-file-system, the API and the signed-in user.
  *
- * Operations are retried automatically when the app comes to the foreground.
- * Only network failures are queued — HTTP 4xx/5xx errors are NOT queued
- * because they represent real validation errors the user must fix.
+ * Queued: a labour entry, a supervisor's attendance record and a worker's own
+ * check-in whose save could not reach the server. Sent automatically at app
+ * start once the session is restored, when the app returns to the
+ * foreground, every RETRY_INTERVAL_MS while something is waiting, and on a
+ * tap (src/components/OfflineSyncRunner.tsx, OfflineSyncPanel.tsx).
  */
 import * as FileSystem from 'expo-file-system/legacy';
+import axios, { AxiosError } from 'axios';
 import { useAuthStore } from '../store/auth.store';
+import { apiClient } from '../api/client';
+import { labourApi } from '../api/labour';
+import { attendanceApi } from '../api/attendance';
+import { API_ORIGIN } from '../constants/api';
+import { AttendanceRecord, LabourEntry } from '../types';
+import {
+  OfflineQueue, QueueEntry, QueueTransport, ServerRecord, createFileStorage,
+} from './offlineQueueCore';
 
+export type { OfflineOpType, QueueEntry, EnqueueResult, FlushReport } from './offlineQueueCore';
+export { shouldQueueAfterError, describeEntry } from './offlineQueueCore';
+
+/** Same file as earlier app versions, so their entries are migrated, not lost. */
 const QUEUE_FILE = (FileSystem.documentDirectory ?? '') + 'offline_queue.json';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+/** How often an automatic sync runs while something is waiting and the app is open. */
+export const RETRY_INTERVAL_MS = 30_000;
 
-export type OfflineOpType =
-  | 'attendance_self'
-  | 'attendance_create'
-  | 'labour_create';
+const HEALTH_TIMEOUT_MS = 5000;
 
-export interface OfflineOp {
-  id:         string;
-  type:       OfflineOpType;
-  payload:    Record<string, unknown>;
-  createdAt:  string;
-  retryCount: number;
-  /**
-   * Who queued it. Ops are replayed only for the same signed-in user, so a
-   * self check-in queued by one person is never submitted as another user's
-   * on a shared device. Absent on ops queued by older app versions.
-   */
-  userId?:    string;
+function str(v: unknown): string {
+  return typeof v === 'string' ? v : String(v ?? '');
 }
 
-function currentUserId(): string | null {
-  return useAuthStore.getState().user?.id ?? null;
-}
+const transport: QueueTransport = {
+  async send(entry: QueueEntry) {
+    const p = entry.payload;
+    switch (entry.type) {
+      case 'labour_create': {
+        const created = await labourApi.create(p['data'] as Parameters<typeof labourApi.create>[0]);
+        return { serverId: created?.id };
+      }
+      case 'attendance_create': {
+        const created = await attendanceApi.create(
+          str(p['projectId']), str(p['siteId']),
+          p['data'] as Parameters<typeof attendanceApi.create>[2],
+        );
+        return { serverId: created?.id };
+      }
+      case 'attendance_self': {
+        const created = await attendanceApi.selfAttendance(
+          str(p['projectId']), str(p['siteId']),
+          p['checkInTime'] ? { checkInTime: str(p['checkInTime']) } : undefined,
+        );
+        return { serverId: created?.id };
+      }
+    }
+  },
 
-/** Ops the current user may replay (their own, plus legacy untagged ones). */
-export function isOwnOp(op: OfflineOp, userId: string | null): boolean {
-  return !!userId && (op.userId === undefined || op.userId === userId);
-}
+  // The site's list filtered by date and worker: the same data the Labour and
+  // Attendance screens show, under the same access rules.
+  async findExisting(entry: QueueEntry): Promise<ServerRecord | null> {
+    const p = entry.payload;
+    const d = (p['data'] ?? {}) as Record<string, unknown>;
+    if (entry.type === 'labour_create') {
+      const res = await apiClient.get<{ entries: LabourEntry[] }>(
+        `/projects/${str(d['projectId'])}/sites/${str(d['siteId'])}/labour`,
+        { params: { date: d['date'], workerId: d['workerId'] } },
+      );
+      const e = res.data.entries.find((x) => x.workerId === d['workerId'] && str(x.date).slice(0, 10) === d['date']);
+      return e
+        ? { id: e.id, recordedById: e.registeredById ?? null, fields: { ...e } as Record<string, unknown> }
+        : null;
+    }
+    if (entry.type === 'attendance_create') {
+      const records: AttendanceRecord[] = await attendanceApi.list(str(p['projectId']), str(p['siteId']), {
+        date: str(d['date']), workerId: str(d['workerId']),
+      });
+      const r = records.find((x) => x.workerId === d['workerId'] && str(x.date).slice(0, 10) === d['date']);
+      return r
+        ? { id: r.id, recordedById: r.recordedById ?? null, fields: { ...r } as Record<string, unknown> }
+        : null;
+    }
+    return null;
+  },
 
-// ─── Storage helpers ──────────────────────────────────────────────────────────
+  // Any HTTP answer (even 503) means the server is reachable.
+  async isServerReachable() {
+    try {
+      await axios.get(`${API_ORIGIN}/health`, { timeout: HEALTH_TIMEOUT_MS });
+      return true;
+    } catch (err) {
+      return (err as AxiosError).response !== undefined;
+    }
+  },
+};
 
-async function readQueue(): Promise<OfflineOp[]> {
-  try {
-    const info = await FileSystem.getInfoAsync(QUEUE_FILE);
-    if (!info.exists) return [];
-    const raw = await FileSystem.readAsStringAsync(QUEUE_FILE);
-    return JSON.parse(raw) as OfflineOp[];
-  } catch {
-    return [];
-  }
-}
-
-async function writeQueue(queue: OfflineOp[]): Promise<void> {
-  await FileSystem.writeAsStringAsync(QUEUE_FILE, JSON.stringify(queue));
-}
-
-// ─── Public API ───────────────────────────────────────────────────────────────
-
-/** Returns the signed-in user's pending operations (none when signed out). */
-export async function getQueue(): Promise<OfflineOp[]> {
-  const userId = currentUserId();
-  return (await readQueue()).filter((op) => isOwnOp(op, userId));
-}
-
-/** Adds an operation to the queue. */
-export async function enqueue(
-  type: OfflineOpType,
-  payload: Record<string, unknown>,
-): Promise<OfflineOp> {
-  const queue = await readQueue();
-  const op: OfflineOp = {
-    id:         Math.random().toString(36).slice(2),
-    type,
-    payload,
-    createdAt:  new Date().toISOString(),
-    retryCount: 0,
-    userId:     currentUserId() ?? undefined,
-  };
-  queue.push(op);
-  await writeQueue(queue);
-  return op;
-}
-
-/** Removes a completed operation from the queue. */
-export async function dequeue(id: string): Promise<void> {
-  const queue = await readQueue();
-  await writeQueue(queue.filter((op) => op.id !== id));
-}
-
-/** Increments retry count for a failed-but-retryable operation. */
-export async function incrementRetry(id: string): Promise<void> {
-  const queue = await readQueue();
-  await writeQueue(
-    queue.map((op) =>
-      op.id === id ? { ...op, retryCount: op.retryCount + 1 } : op,
-    ),
-  );
-}
-
-/** Clears the signed-in user's pending operations (e.g. on explicit logout). */
-export async function clearQueue(): Promise<void> {
-  const userId = currentUserId();
-  await writeQueue((await readQueue()).filter((op) => !isOwnOp(op, userId)));
-}
-
-/**
- * Returns true if the error is a network connectivity failure (no internet),
- * as opposed to a server-side validation or auth error.
- * Only network errors should be queued.
- */
-export function isNetworkError(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false;
-  const e = err as Record<string, unknown>;
-  // Axios network error: no response object
-  if (e['response'] !== undefined) return false;
-  // Axios error codes for no-connectivity
-  const code = e['code'] as string | undefined;
-  if (code && ['ECONNABORTED', 'ENOTFOUND', 'ECONNREFUSED', 'ERR_NETWORK', 'ETIMEDOUT'].includes(code)) {
-    return true;
-  }
-  // Generic "Network Error" message from axios
-  const msg = (e['message'] as string | undefined) ?? '';
-  return msg.toLowerCase().includes('network') || msg.toLowerCase().includes('timeout');
-}
+export const offlineQueue = new OfflineQueue({
+  storage: createFileStorage({
+    exists: async (path) => (await FileSystem.getInfoAsync(path)).exists,
+    read:   (path) => FileSystem.readAsStringAsync(path),
+    write:  (path, contents) => FileSystem.writeAsStringAsync(path, contents),
+    move:   (from, to) => FileSystem.moveAsync({ from, to }),
+  }, QUEUE_FILE, Date.now),
+  transport,
+  now: Date.now,
+  currentUserId: () => useAuthStore.getState().user?.id ?? null,
+  warn: (message) => console.warn(message),
+});

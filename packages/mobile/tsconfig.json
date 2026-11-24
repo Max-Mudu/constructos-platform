@@ -15,5 +15,16 @@
     ".expo/types/**/*.d.ts",
     "expo-env.d.ts",
     ".expo/types/**/*.ts"
+  ],
+  // The base config's list, plus tests/ (type-checked with Node's types by
+  // tests/tsconfig.json, so the app is not checked against Node globals).
+  "exclude": [
+    "node_modules",
+    "babel.config.js",
+    "metro.config.js",
+    "jest.config.js",
+    "android",
+    "ios",
+    "tests"
   ]
 }
