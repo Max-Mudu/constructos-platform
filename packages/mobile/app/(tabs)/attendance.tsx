@@ -328,24 +328,54 @@ function MarkAttendanceModal({
       return;
     }
     setSaving(true);
+    const today = new Date().toISOString().split('T')[0]!;
+    const data = {
+      workerId,
+      date:       today,
+      status,
+      checkInTime:  checkInTime || undefined,
+      notes:        notes       || undefined,
+    };
+    // Captured before the request: a queued record belongs to the person who
+    // saved it, even if the session ends while the request runs.
+    const savedBy = useAuthStore.getState().user?.id ?? null;
     try {
-      const today = new Date().toISOString().split('T')[0]!;
-      await attendanceApi.create(projectId, siteId, {
-        workerId,
-        date:       today,
-        status,
-        checkInTime:  checkInTime || undefined,
-        notes:        notes       || undefined,
-      });
+      await attendanceApi.create(projectId, siteId, data);
       onSaved();
       onClose();
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-        'Failed to save attendance';
-      Alert.alert('Error', msg);
+      if (shouldQueueAfterError(err)) {
+        await keepOffline(data, savedBy);
+      } else {
+        const msg =
+          (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+          'Failed to save attendance';
+        Alert.alert('Error', msg);
+      }
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function keepOffline(data: Record<string, unknown>, savedBy: string | null) {
+    const worker = workers.find((w) => w.id === data['workerId']);
+    const label = `${worker ? `${worker.firstName} ${worker.lastName}` : 'Attendance'} · ${STATUS_LABELS[status]} · ${String(data['date'])}`;
+    try {
+      const result = await offlineQueue.enqueue('attendance_create', { projectId, siteId, data }, { userId: savedBy, label });
+      if (result.status === 'blocked') {
+        Alert.alert('Not saved', result.message);
+        return; // the form stays open with what was entered
+      }
+      Alert.alert(
+        'Saved Offline',
+        result.status === 'already_queued'
+          ? 'Attendance queued already — this record is waiting to sync.'
+          : 'Attendance queued — saved on this phone and sent automatically when the connection returns.',
+      );
+      onSaved();
+      onClose();
+    } catch {
+      Alert.alert('Not saved', 'The server could not be reached and the record could not be saved on this phone. Try again.');
     }
   }
 
@@ -686,6 +716,11 @@ function SupervisorAttendance({
                 {selSite  ? <View style={S.contextPill}><Text style={S.contextPillText}>{selSite.name}</Text></View>  : null}
               </View>
             )}
+
+            {/* Records saved on this phone while offline */}
+            <View style={{ marginHorizontal: -16 }}>
+              <OfflineSyncPanel onSynced={() => { if (selProj && selSite) void loadRecords(selProj.id, selSite.id); }} />
+            </View>
 
             {/* Mark Attendance button */}
             {selProj && selSite ? (
