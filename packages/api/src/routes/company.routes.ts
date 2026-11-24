@@ -10,6 +10,7 @@ import {
   LIST_USERS_MAX_LIMIT,
 } from '../services/user.service';
 import { AppError } from '../utils/errors';
+import { BY_ADDRESS } from '../utils/rate-limit';
 
 // companyId, canViewFinance, password and isActive are intentionally absent:
 // Zod strips unknown keys, so a client cannot supply them. The company comes
@@ -158,11 +159,12 @@ export async function companyRoutes(fastify: FastifyInstance): Promise<void> {
 
   // POST /api/v1/companies/me/users/:id/setup-link — company_admin only.
   // Re-issues a one-time setup link for a member who has never signed in.
+  // Its own limit is counted per client address (BY_ADDRESS).
   fastify.post(
     '/me/users/:id/setup-link',
     {
       preHandler: [authenticate, requireRole('company_admin')],
-      config: { rateLimit: { max: 10, timeWindow: 15 * 60 * 1000 } },
+      config: { ...BY_ADDRESS, rateLimit: { max: 10, timeWindow: 15 * 60 * 1000 } },
     },
     async (request, reply) => {
       const params = userIdParamsSchema.safeParse(request.params);
