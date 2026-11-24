@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { authApi, ApiError } from '@/lib/api';
 import { useAuthStore } from '@/store/auth.store';
+import { safeNextPath } from '@/lib/safe-next-path';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
@@ -31,7 +32,7 @@ function LoginContent() {
     try {
       const data = await authApi.login(email, password);
       setAuth(data.user, data.accessToken);
-      router.push(nextPath && nextPath.startsWith('/') ? nextPath : '/dashboard');
+      router.push(safeNextPath(nextPath));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong.');
     } finally {
