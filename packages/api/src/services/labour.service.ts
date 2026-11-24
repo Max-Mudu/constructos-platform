@@ -109,6 +109,21 @@ export class WorkerWageMissingError extends AppError {
   }
 }
 
+/**
+ * One labour entry per worker, site and day (unique index). A second create
+ * for the same day, including a replay of a create whose answer was lost, is
+ * a conflict the caller can act on, not a server error.
+ */
+export class LabourEntryExistsError extends AppError {
+  constructor() {
+    super(409, 'A labour entry already exists for this worker on this date', 'LABOUR_ENTRY_EXISTS');
+  }
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function checkSiteAccess(
@@ -226,21 +241,27 @@ export async function createLabourEntry(
   const worker = await validateWorkerOnSite(input.workerId, siteId, projectId, actor.companyId);
   const { dailyRate, currency } = resolveCreateRate(input, worker, actor);
 
-  const entry = await prisma.labourEntry.create({
-    data: {
-      companyId:      actor.companyId,
-      projectId,
-      siteId,
-      workerId:       input.workerId,
-      registeredById: actor.id,
-      date:           new Date(input.date),
-      hoursWorked:    input.hoursWorked,
-      dailyRate,
-      currency,
-      notes:          input.notes,
-    },
-    select: ENTRY_SELECT,
-  });
+  let entry: LabourEntryRecord;
+  try {
+    entry = await prisma.labourEntry.create({
+      data: {
+        companyId:      actor.companyId,
+        projectId,
+        siteId,
+        workerId:       input.workerId,
+        registeredById: actor.id,
+        date:           new Date(input.date),
+        hoursWorked:    input.hoursWorked,
+        dailyRate,
+        currency,
+        notes:          input.notes,
+      },
+      select: ENTRY_SELECT,
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) throw new LabourEntryExistsError();
+    throw err;
+  }
 
   await prisma.auditLog.create({
     data: {

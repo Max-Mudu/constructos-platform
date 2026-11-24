@@ -1,8 +1,24 @@
 import { AttendanceStatus, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { NotFoundError, ForbiddenError, ValidationError } from '../utils/errors';
+import { AppError, NotFoundError, ForbiddenError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
+
+/**
+ * One attendance record per worker, site and day (unique index). A second
+ * create for the same day, including a replay of a create whose answer was
+ * lost, is a conflict the caller can act on: not a permission error and not a
+ * server error.
+ */
+export class AttendanceExistsError extends AppError {
+  constructor() {
+    super(409, 'Attendance record already exists for this worker on this date', 'ATTENDANCE_EXISTS');
+  }
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -192,25 +208,31 @@ export async function createAttendanceRecord(
       date: new Date(input.date),
     },
   });
-  if (existing) {
-    throw new ForbiddenError('Attendance record already exists for this worker on this date');
-  }
+  if (existing) throw new AttendanceExistsError();
 
-  const record = await prisma.attendanceRecord.create({
-    data: {
-      companyId:    actor.companyId,
-      projectId,
-      siteId,
-      workerId:     input.workerId,
-      recordedById: actor.id,
-      date:         new Date(input.date),
-      status:       input.status,
-      checkInTime:  input.checkInTime  ?? null,
-      checkOutTime: input.checkOutTime ?? null,
-      notes:        input.notes        ?? null,
-    },
-    select: RECORD_SELECT,
-  });
+  // The check above misses a create that commits in between; the unique
+  // index catches it.
+  let record: Prisma.AttendanceRecordGetPayload<{ select: typeof RECORD_SELECT }>;
+  try {
+    record = await prisma.attendanceRecord.create({
+      data: {
+        companyId:    actor.companyId,
+        projectId,
+        siteId,
+        workerId:     input.workerId,
+        recordedById: actor.id,
+        date:         new Date(input.date),
+        status:       input.status,
+        checkInTime:  input.checkInTime  ?? null,
+        checkOutTime: input.checkOutTime ?? null,
+        notes:        input.notes        ?? null,
+      },
+      select: RECORD_SELECT,
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) throw new AttendanceExistsError();
+    throw err;
+  }
 
   await prisma.auditLog.create({
     data: {
@@ -409,20 +431,27 @@ export async function selfAttendance(
     });
   }
 
-  const record = await prisma.attendanceRecord.create({
-    data: {
-      companyId:    actor.companyId,
-      projectId,
-      siteId,
-      workerId:     worker.id,
-      recordedById: actor.id,
-      date:         today,
-      status:       'present',
-      checkInTime:  input.checkInTime ?? null,
-      notes:        input.notes       ?? null,
-    },
-    select: RECORD_SELECT,
-  });
+  // A simultaneous check-in for the same day may commit first: 409, not 500.
+  let record: Prisma.AttendanceRecordGetPayload<{ select: typeof RECORD_SELECT }>;
+  try {
+    record = await prisma.attendanceRecord.create({
+      data: {
+        companyId:    actor.companyId,
+        projectId,
+        siteId,
+        workerId:     worker.id,
+        recordedById: actor.id,
+        date:         today,
+        status:       'present',
+        checkInTime:  input.checkInTime ?? null,
+        notes:        input.notes       ?? null,
+      },
+      select: RECORD_SELECT,
+    });
+  } catch (err) {
+    if (isUniqueViolation(err)) throw new AttendanceExistsError();
+    throw err;
+  }
 
   await prisma.auditLog.create({
     data: {
