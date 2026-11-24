@@ -274,7 +274,9 @@ describe('GET /reports/invoices', () => {
     const summaryMap: Record<string, string> = {};
     for (const s of report.summary) summaryMap[s.label] = s.value;
     expect(summaryMap['Total Invoices']).toBe('3');
-    expect(summaryMap['Total Value']).toBe('80000.00');
+    // One figure per currency (all three invoices are USD).
+    expect(summaryMap['Total Value']).toBe('80000.00 USD');
+    expect(summaryMap['Outstanding']).toBe('80000.00 USD');
     expect(summaryMap['Overdue']).toBe('1');
   });
 

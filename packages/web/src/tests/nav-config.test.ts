@@ -39,8 +39,10 @@ describe('getVisibleNavItems — company_admin', () => {
     expect(labels('company_admin', false)).not.toContain('Client Finance');
   });
 
-  it('DOES see Client Finance when canViewFinance=true', () => {
-    expect(labels('company_admin', true)).toContain('Client Finance');
+  // The Client Finance page is a placeholder (inflows are not recorded yet),
+  // so its link is hidden for every role until that page has real figures.
+  it('does NOT see Client Finance even when canViewFinance=true (page not built yet)', () => {
+    expect(labels('company_admin', true)).not.toContain('Client Finance');
   });
 });
 
@@ -59,8 +61,8 @@ describe('getVisibleNavItems — finance_officer', () => {
     expect(labels('finance_officer', false)).not.toContain('Client Finance');
   });
 
-  it('sees Client Finance with canViewFinance=true', () => {
-    expect(labels('finance_officer', true)).toContain('Client Finance');
+  it('does NOT see Client Finance even with canViewFinance=true (page not built yet)', () => {
+    expect(labels('finance_officer', true)).not.toContain('Client Finance');
   });
 
   it('does NOT see Labour (site operations)', () => {
@@ -268,12 +270,22 @@ describe('Client Finance gate — requiresFinance enforcement', () => {
     'consultant', 'worker', 'viewer',
   ];
 
+  // Hidden for everyone while the page is a placeholder; the item keeps its
+  // role-and-flag gate (see the structural invariants) for when it returns.
   it.each(financeRoles)(
-    '%s with canViewFinance=true sees Client Finance',
+    '%s with canViewFinance=true does NOT see Client Finance while it is hidden',
     (role) => {
-      expect(labels(role, true)).toContain('Client Finance');
+      expect(labels(role, true)).not.toContain('Client Finance');
     },
   );
+
+  it('the hidden Client Finance item keeps its CA/FO + flag gate', () => {
+    const item = NAV_ITEMS.find((i) => i.label === 'Client Finance');
+    expect(item).toBeDefined();
+    expect(item!.hidden).toBe(true);
+    expect(item!.requiresFinance).toBe(true);
+    expect(item!.roles).toEqual(['company_admin', 'finance_officer']);
+  });
 
   it.each(financeRoles)(
     '%s with canViewFinance=false does NOT see Client Finance',
@@ -374,8 +386,8 @@ describe('Invoices and Budget — financial permission gate', () => {
     }
   });
 
-  it('Client Finance keeps its existing gate (CA/FO + flag only; PM never)', () => {
-    expect(labels('company_admin', true)).toContain('Client Finance');
+  it('Client Finance is hidden for every role (placeholder page) and PM never had it', () => {
+    expect(labels('company_admin', true)).not.toContain('Client Finance');
     expect(labels('finance_officer', false)).not.toContain('Client Finance');
     expect(labels('project_manager', true)).not.toContain('Client Finance');
   });

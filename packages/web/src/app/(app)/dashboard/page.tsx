@@ -14,11 +14,12 @@ import { useSSEEvent } from '@/hooks/useSSEEvent';
 import {
   Building2, AlertCircle, ChevronRight, HardHat, Receipt,
   AlertTriangle, CheckCircle2, Clock, TrendingDown, TrendingUp,
-  Truck, ClipboardList, DollarSign, BarChart3, Users,
+  Truck, ClipboardList, BarChart3, Users,
   Bell, ClipboardCheck, PieChart, Ban, Activity,
 } from 'lucide-react';
 import { cn, formatMoney } from '@/lib/utils';
 import { formatMonthLabourCost } from '@/lib/workflows-labour';
+import { dashboardInvoiceTotals, formatPerCurrency } from '@/lib/invoice-figures';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -249,7 +250,6 @@ export default function DashboardPage() {
   const statsDebounceRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const role            = user?.role ?? '';
-  const canViewFinance  = user?.canViewFinance && (role === 'company_admin' || role === 'finance_officer');
   const canManage       = ['company_admin', 'finance_officer', 'project_manager'].includes(role);
   const canSiteOps      = ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer'].includes(role);
   const canSeeContracts = ['company_admin', 'project_manager', 'contractor', 'consultant', 'site_supervisor'].includes(role);
@@ -346,6 +346,12 @@ export default function DashboardPage() {
 
   // ── Financial blocks (null when the API withholds them) ───────────────────
   const invoiceStats  = allPresent(stats.invoices) ? stats.invoices : null;
+  // One figure per currency, never a sum across currencies.
+  const invTotals     = invoiceStats ? dashboardInvoiceTotals(invoiceStats, user.currency) : [];
+  const perCurrency   = (pick: Parameters<typeof formatPerCurrency>[1]) =>
+    formatPerCurrency(invTotals, pick, (v, c) => formatMoney(v, c, MONEY_COMPACT), user.currency);
+  // A collection rate is only meaningful within one currency.
+  const singleInv     = invTotals.length === 1 ? invTotals[0] : null;
   const budgetStats   = allPresent(stats.budget)   ? stats.budget   : null;
   const thisMonthCost = stats.labour.thisMonthCost;
 
@@ -523,28 +529,27 @@ export default function DashboardPage() {
         {canManage && invoiceStats && (
           <Widget title="Invoices" href="/invoices">
             <div className="grid grid-cols-3 gap-2 mb-4">
-              <MiniStat label="Total"       value={formatMoney(invoiceStats.totalValue, user.currency, MONEY_COMPACT)}  />
-              <MiniStat label="Paid"        value={formatMoney(invoiceStats.totalPaid, user.currency, MONEY_COMPACT)}   valueClass="text-emerald-600" />
+              <MiniStat label="Total"       value={perCurrency((t) => t.totalValue)} />
+              <MiniStat label="Paid"        value={perCurrency((t) => t.totalPaid)}  valueClass="text-emerald-600" />
+              {/* Unpaid balance of owed invoices: draft and cancelled are not owed */}
               <MiniStat
                 label="Outstanding"
-                value={formatMoney(invoiceStats.outstanding, user.currency, MONEY_COMPACT)}
-                valueClass={invoiceStats.outstanding > 0 ? 'text-amber-600' : undefined}
+                value={perCurrency((t) => t.outstanding)}
+                valueClass={invTotals.some((t) => t.outstanding > 0) ? 'text-amber-600' : undefined}
               />
             </div>
 
-            {(invoiceStats.totalValue > 0) && (
+            {singleInv && singleInv.totalValue > 0 && (
               <div className="mb-4">
                 <div className="flex justify-between text-xs text-muted-foreground mb-1">
                   <span>Collection rate</span>
                   <span>
-                    {invoiceStats.totalValue > 0
-                      ? Math.round((invoiceStats.totalPaid / invoiceStats.totalValue) * 100)
-                      : 0}%
+                    {Math.round((singleInv.totalPaid / singleInv.totalValue) * 100)}%
                   </span>
                 </div>
                 <ProgressBar
-                  value={invoiceStats.totalPaid}
-                  max={invoiceStats.totalValue}
+                  value={singleInv.totalPaid}
+                  max={singleInv.totalValue}
                   color="bg-emerald-500"
                 />
               </div>
@@ -741,24 +746,8 @@ export default function DashboardPage() {
           </Widget>
         )}
 
-        {/* Finance widget (admin + canViewFinance) */}
-        {canViewFinance && stats.finance && (
-          <Widget title="Client Finance" href="/finance">
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              <MiniStat label="Total Inflows"    value={formatMoney(stats.finance.totalInflows, user.currency, MONEY_COMPACT)}     valueClass="text-emerald-600" />
-              <MiniStat label="This Month"       value={formatMoney(stats.finance.inflowsThisMonth, user.currency, MONEY_COMPACT)} />
-              <MiniStat
-                label="Net Position"
-                value={formatMoney(Math.abs(stats.finance.netPosition), user.currency, MONEY_COMPACT)}
-                valueClass={stats.finance.netPosition >= 0 ? 'text-emerald-600' : 'text-red-500'}
-              />
-            </div>
-            <div className="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-              <DollarSign className="h-3.5 w-3.5 flex-shrink-0 text-emerald-500" />
-              Net = total inflows minus outstanding invoice balance
-            </div>
-          </Widget>
-        )}
+        {/* No inflow / net position widget: inflows are not recorded in the
+            product yet, so such a figure would be wrong. */}
 
         {/* Notifications widget */}
         <Widget title="Notifications" href="/notifications">

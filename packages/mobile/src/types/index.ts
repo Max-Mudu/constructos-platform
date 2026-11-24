@@ -218,7 +218,6 @@ export interface DashboardStats {
       siteName:          string;
     }>;
   };
-  finance?:    { totalInflows: number; inflowsThisMonth: number; netPosition: number };
 }
 
 // ─── Invoices ─────────────────────────────────────────────────────────────────

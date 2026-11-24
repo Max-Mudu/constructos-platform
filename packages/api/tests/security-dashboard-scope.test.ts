@@ -328,7 +328,7 @@ describe('response shape and financial gating are unchanged', () => {
   it.each(['pm', 'viewer', 'consultant', 'sup', 'contractor', 'worker'])('%s without finance access still gets null money fields', async (key) => {
     const { stats } = await dash(key);
     expect(stats.labour.thisMonthCost).toBeNull();
-    expect(stats.invoices).toEqual({ total: null, totalValue: null, totalPaid: null, outstanding: null, overdueCount: null, pendingApproval: null });
+    expect(stats.invoices).toEqual({ total: null, totalValue: null, totalPaid: null, outstanding: null, overdueCount: null, pendingApproval: null, byCurrency: null });
     expect(stats.budget).toEqual({ totalBudgeted: null, totalSpent: null, totalRemaining: null, budgetsCount: null, overspendCount: null });
     expect(stats.finance).toBeUndefined();
   });

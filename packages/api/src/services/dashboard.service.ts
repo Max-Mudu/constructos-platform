@@ -6,6 +6,7 @@ import { resolveReadScope, scopeWhere, instructionScopeWhere, ReadScope } from '
 import { workerReadScopeWhere } from './worker.service';
 import { env } from '../utils/env';
 import { labourCostByCurrency, toCents } from '../utils/labour-cost';
+import { invoiceTotalsByCurrency, totalsForCurrency } from '../utils/invoice-balance';
 
 // ─── Return type ──────────────────────────────────────────────────────────────
 
@@ -46,6 +47,11 @@ export interface DashboardStats {
     thisMonthCost: number | null;
     thisMonthCostByCurrency: Array<{ currency: string; total: number }> | null;
   };
+  // Invoice figures (utils/invoice-balance). Counts cover every invoice in
+  // scope. Money is never summed across currencies: byCurrency holds one
+  // entry per currency; totalValue / totalPaid / outstanding are the company
+  // currency's entry only (kept for older clients). outstanding = unpaid
+  // balance of owed invoices (not draft, not cancelled).
   invoices: {
     total:           number | null;
     totalValue:      number | null;
@@ -53,6 +59,7 @@ export interface DashboardStats {
     outstanding:     number | null;
     overdueCount:    number | null;
     pendingApproval: number | null;
+    byCurrency: Array<{ currency: string; totalValue: number; totalPaid: number; outstanding: number }> | null;
   };
   budget: {
     totalBudgeted:  number | null;
@@ -115,12 +122,9 @@ export interface DashboardStats {
       siteName:          string;
     }>;
   };
-  /** Only present for company_admin / finance_officer with canViewFinance */
-  finance?: {
-    totalInflows:     number;
-    inflowsThisMonth: number;
-    netPosition:      number;
-  };
+  // There is no `finance` block (inflows / net position) any more: no screen
+  // or route records inflows, so a net position computed from them would be
+  // wrong. Clients treat a missing block as "nothing to show".
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -335,7 +339,6 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
     labour:   { thisMonthCost: number; thisMonthCostByCurrency: Array<{ currency: string; total: number }> };
     invoices: DashboardStats['invoices'];
     budget:   DashboardStats['budget'];
-    invOutstanding: number;
   };
   let fin: FinancialBlocks | null = null;
 
@@ -345,20 +348,18 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
       ? { companyId, projectId: projectFilter }
       : { companyId };
 
-    const [monthLabour, company, invAgg, invByStatus, budgetLineAgg, budgetsCount, overspendBudgetData] = await Promise.all([
+    const [monthLabour, company, invByCurrencyStatus, budgetLineAgg, budgetsCount, overspendBudgetData] = await Promise.all([
       prisma.labourEntry.findMany({
         where:  { ...scoped, date: { gte: monthStart } },
         select: { hoursWorked: true, dailyRate: true, currency: true },
       }),
       prisma.company.findUnique({ where: { id: companyId }, select: { currency: true } }),
-      prisma.invoice.aggregate({
+      // One row per (currency, status): exact sums from the database, split
+      // so that no amount is ever added to one in another currency.
+      prisma.invoice.groupBy({
+        by:     ['currency', 'status'],
         where:  scoped,
         _sum:   { totalAmount: true, paidAmount: true },
-        _count: { _all: true },
-      }),
-      prisma.invoice.groupBy({
-        by:    ['status'],
-        where: scoped,
         _count: { _all: true },
       }),
       prisma.budgetLineItem.aggregate({
@@ -372,9 +373,16 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
       }),
     ]);
 
-    const invValue       = Number(invAgg._sum.totalAmount ?? 0);
-    const invPaid        = Number(invAgg._sum.paidAmount  ?? 0);
-    const invOutstanding = invValue - invPaid;
+    const invTotals = invoiceTotalsByCurrency(invByCurrencyStatus.map((r) => ({
+      status:      r.status,
+      currency:    r.currency,
+      totalAmount: r._sum.totalAmount ?? 0,
+      paidAmount:  r._sum.paidAmount  ?? 0,
+    })));
+    const invCompany = totalsForCurrency(invTotals, company?.currency ?? '');
+    const countWhere = (status?: string) => invByCurrencyStatus
+      .filter((r) => status === undefined || r.status === status)
+      .reduce((n, r) => n + r._count._all, 0);
     const budgetTotal    = Number(budgetLineAgg._sum.budgetedAmount ?? 0);
     const budgetSpent    = Number(budgetLineAgg._sum.actualSpend    ?? 0);
 
@@ -387,12 +395,18 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
         thisMonthCostByCurrency: labourByCurrency,
       },
       invoices: {
-        total:           invAgg._count._all,
-        totalValue:      invValue,
-        totalPaid:       invPaid,
-        outstanding:     invOutstanding,
-        overdueCount:    invByStatus.find((r) => r.status === 'overdue')?._count._all   ?? 0,
-        pendingApproval: invByStatus.find((r) => r.status === 'submitted')?._count._all ?? 0,
+        total:           countWhere(),
+        totalValue:      toCents(invCompany.totalValue),
+        totalPaid:       toCents(invCompany.totalPaid),
+        outstanding:     toCents(invCompany.outstanding),
+        overdueCount:    countWhere('overdue'),
+        pendingApproval: countWhere('submitted'),
+        byCurrency:      invTotals.map((t) => ({
+          currency:    t.currency,
+          totalValue:  toCents(t.totalValue),
+          totalPaid:   toCents(t.totalPaid),
+          outstanding: toCents(t.outstanding),
+        })),
       },
       budget: {
         totalBudgeted:  budgetTotal,
@@ -403,7 +417,6 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
           b.lineItems.some((li) => Number(li.actualSpend) > Number(li.budgetedAmount)),
         ).length,
       },
-      invOutstanding,
     };
   }
 
@@ -534,34 +547,6 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
   const attendanceRateToday = todayRate;
   const zeroWorkforceToday  = todayPresent === 0 && todayTotal > 0;
 
-  // ── Finance (gated) ───────────────────────────────────────────────────────
-  let finance: DashboardStats['finance'];
-  // Unchanged gate. company_admin / finance_officer always have a company-wide
-  // finance scope, so `fin` is populated (company-wide) whenever this runs.
-  if (
-    fin &&
-    actor.canViewFinance &&
-    (actor.role === 'company_admin' || actor.role === 'finance_officer')
-  ) {
-    const [totalInflowsAgg, monthInflowsAgg] = await Promise.all([
-      prisma.financeInflow.aggregate({
-        where: { companyId },
-        _sum:  { amount: true },
-      }),
-      prisma.financeInflow.aggregate({
-        where: { companyId, transactionDate: { gte: monthStart } },
-        _sum:  { amount: true },
-      }),
-    ]);
-    const totalInflows    = Number(totalInflowsAgg._sum.amount ?? 0);
-    const inflowsThisMonth = Number(monthInflowsAgg._sum.amount ?? 0);
-    finance = {
-      totalInflows,
-      inflowsThisMonth,
-      netPosition: totalInflows - fin.invOutstanding,
-    };
-  }
-
   return {
     projects: {
       total:     projectTotal,
@@ -602,6 +587,7 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
       outstanding:     null,
       overdueCount:    null,
       pendingApproval: null,
+      byCurrency:      null,
     },
     budget: fin ? fin.budget : {
       totalBudgeted:  null,
@@ -651,6 +637,5 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
       lowStockNoDeliveryCount,
       lowStockSeverityItems,
     },
-    finance,
   };
 }

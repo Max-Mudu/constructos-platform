@@ -15,14 +15,6 @@ import { useSSEEvent } from '../../src/hooks/useSSEEvent';
 import { DashboardStats } from '../../src/types';
 import { roleCanLoadTab } from '../../src/constants/roleTabs';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function fmt(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000)     return `${(n / 1_000).toFixed(0)}K`;
-  return String(Math.round(n));
-}
-
 // ─── AppBar ───────────────────────────────────────────────────────────────────
 
 function AppBar({
@@ -460,7 +452,6 @@ export default function DashboardScreen() {
   const activeSites        = stats.projects?.active                ?? 0;
   const totalProjects      = stats.projects?.total                 ?? 0;
   const recentProjects     = stats.projects?.recent                ?? [];
-  const budgetRemaining    = stats.budget?.totalRemaining          ?? 0;
 
   const hasCritical  = criticalCount      > 0;
   const hasPending   = pendingInspections > 0;
@@ -690,30 +681,10 @@ export default function DashboardScreen() {
           </>
         ) : null}
 
-        {/* ── FINANCE STRIP (role-gated) ────────────────────────────── */}
-        {canViewInvoices && stats.finance ? (
-          <>
-            <SectionHeader title="Finance" />
-            <View style={D.financeStrip}>
-              <View style={D.financeStat}>
-                <Text style={D.financeVal}>{fmt(stats.finance.netPosition ?? 0)}</Text>
-                <Text style={D.financeLbl}>Net Position</Text>
-              </View>
-              <View style={D.financeSep} />
-              <View style={D.financeStat}>
-                <Text style={D.financeVal}>{fmt(stats.finance.inflowsThisMonth ?? 0)}</Text>
-                <Text style={D.financeLbl}>This Month</Text>
-              </View>
-              <View style={D.financeSep} />
-              <View style={D.financeStat}>
-                <Text style={[D.financeVal, budgetRemaining < 0 ? D.financeValNeg : null]}>
-                  {fmt(budgetRemaining)}
-                </Text>
-                <Text style={D.financeLbl}>Remaining</Text>
-              </View>
-            </View>
-          </>
-        ) : null}
+        {/* No Finance strip: its inflow and net position figures cannot be
+            computed (inflows are not recorded in the product), and the API no
+            longer sends them. Installed builds hide the strip when the
+            figures are absent. */}
 
         <View style={D.bottomPad} />
       </ScrollView>
@@ -929,26 +900,6 @@ const D = StyleSheet.create({
   projectName:    { color: '#6a90b8', fontSize: 13, fontWeight: '600' },
   projectStatus:  { color: '#1e3655', fontSize: 10, marginTop: 2, textTransform: 'capitalize' },
   projectArrow:   { color: '#1a3050', fontSize: 20, fontWeight: '300' },
-
-  // ── Finance strip ─────────────────────────────────────────────────
-  financeStrip: {
-    flexDirection: 'row',
-    marginHorizontal: 18,
-    backgroundColor: '#07101f',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#112030',
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-  },
-  financeStat:   { flex: 1, alignItems: 'center' },
-  financeSep:    { width: 1, backgroundColor: '#0f1e35' },
-  financeVal:    { color: '#4a7ab5', fontSize: 16, fontWeight: '800', letterSpacing: -0.2 },
-  financeValNeg: { color: '#f87171' },
-  financeLbl: {
-    color: '#1e3655', fontSize: 9, fontWeight: '700',
-    textTransform: 'uppercase', letterSpacing: 0.8, marginTop: 4,
-  },
 
   // ── Error ─────────────────────────────────────────────────────────
   errorWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },

@@ -5,6 +5,8 @@ import { InvoiceStatus, InvoiceVendorType, Prisma } from '@prisma/client';
 import { createNotification } from './notification.service';
 import { emitToCompany } from './event-emitter.service';
 import { requireFinanceReadScope, financeProjectFilter, isProjectInFinanceScope } from './budget.service';
+import { invoiceTotalsByCurrency, totalsForCurrency } from '../utils/invoice-balance';
+import { toCents } from '../utils/labour-cost';
 
 // ─── RBAC helpers ─────────────────────────────────────────────────────────────
 
@@ -717,14 +719,31 @@ export async function deletePayment(invoiceId: string, paymentId: string, actor:
 }
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
+//
+// Money follows utils/invoice-balance (the same rule as the dashboard and the
+// invoice report): totalOutstanding / overdueValue are the unpaid balance of
+// owed invoices (not draft, not cancelled), and amounts in different
+// currencies are never added together. byCurrency has one entry per currency;
+// the top-level money figures and the byStatus / byVendorType values are the
+// company currency's (named in `currency`). Counts cover every invoice in scope.
+
+export interface InvoiceCurrencySummary {
+  currency:         string;
+  totalValue:       number;
+  totalPaid:        number;
+  outstanding:      number;
+  overdueValue:     number;
+}
 
 export interface InvoiceSummary {
+  currency:         string;
   totalCount:       number;
   totalValue:       number;
   totalPaid:        number;
   totalOutstanding: number;
   overdueCount:     number;
   overdueValue:     number;
+  byCurrency:       InvoiceCurrencySummary[];
   byStatus:         Record<string, { count: number; value: number }>;
   byVendorType:     Record<string, { count: number; value: number }>;
 }
@@ -736,47 +755,50 @@ export async function getInvoiceSummary(actor: RequestUser, projectId?: string):
   const projectFilter = financeProjectFilter(scope, projectId);
   if (projectFilter !== undefined) where.projectId = projectFilter;
 
-  const invoices = await prisma.invoice.findMany({
-    where,
-    select: { status: true, totalAmount: true, paidAmount: true, vendorType: true, dueDate: true },
-  });
+  const [invoices, company] = await Promise.all([
+    prisma.invoice.findMany({
+      where,
+      select: { status: true, totalAmount: true, paidAmount: true, currency: true, vendorType: true },
+    }),
+    prisma.company.findUnique({ where: { id: actor.companyId }, select: { currency: true } }),
+  ]);
+  const currency = company?.currency ?? '';
 
-  const summary: InvoiceSummary = {
-    totalCount:       0,
-    totalValue:       0,
-    totalPaid:        0,
-    totalOutstanding: 0,
-    overdueCount:     0,
-    overdueValue:     0,
-    byStatus:         {},
-    byVendorType:     {},
+  const totals = invoiceTotalsByCurrency(invoices);
+  const own    = totalsForCurrency(totals, currency);
+
+  // Count every invoice; add values only for invoices in the company currency.
+  const tally = (map: Map<string, { count: number; value: Prisma.Decimal }>, key: string, inv: typeof invoices[number]) => {
+    const t = map.get(key) ?? { count: 0, value: new Prisma.Decimal(0) };
+    t.count++;
+    if (inv.currency === currency) t.value = t.value.add(inv.totalAmount);
+    map.set(key, t);
   };
-
+  const byStatus     = new Map<string, { count: number; value: Prisma.Decimal }>();
+  const byVendorType = new Map<string, { count: number; value: Prisma.Decimal }>();
   for (const inv of invoices) {
-    const total = Number(inv.totalAmount);
-    const paid  = Number(inv.paidAmount);
-    const outstanding = total - paid;
-
-    summary.totalCount++;
-    summary.totalValue       += total;
-    summary.totalPaid        += paid;
-    summary.totalOutstanding += outstanding;
-
-    if (inv.status === 'overdue') {
-      summary.overdueCount++;
-      summary.overdueValue += outstanding;
-    }
-
-    // By status
-    if (!summary.byStatus[inv.status]) summary.byStatus[inv.status] = { count: 0, value: 0 };
-    summary.byStatus[inv.status].count++;
-    summary.byStatus[inv.status].value += total;
-
-    // By vendor type
-    if (!summary.byVendorType[inv.vendorType]) summary.byVendorType[inv.vendorType] = { count: 0, value: 0 };
-    summary.byVendorType[inv.vendorType].count++;
-    summary.byVendorType[inv.vendorType].value += total;
+    tally(byStatus, inv.status, inv);
+    tally(byVendorType, inv.vendorType, inv);
   }
+  const plain = (map: Map<string, { count: number; value: Prisma.Decimal }>) =>
+    Object.fromEntries(Array.from(map, ([k, v]) => [k, { count: v.count, value: toCents(v.value) }]));
 
-  return summary;
+  return {
+    currency,
+    totalCount:       invoices.length,
+    totalValue:       toCents(own.totalValue),
+    totalPaid:        toCents(own.totalPaid),
+    totalOutstanding: toCents(own.outstanding),
+    overdueCount:     invoices.filter((i) => i.status === 'overdue').length,
+    overdueValue:     toCents(own.overdueValue),
+    byCurrency:       totals.map((t) => ({
+      currency:     t.currency,
+      totalValue:   toCents(t.totalValue),
+      totalPaid:    toCents(t.totalPaid),
+      outstanding:  toCents(t.outstanding),
+      overdueValue: toCents(t.overdueValue),
+    })),
+    byStatus:         plain(byStatus),
+    byVendorType:     plain(byVendorType),
+  };
 }
