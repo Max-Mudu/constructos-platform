@@ -31,6 +31,7 @@ import { LoadingSpinner } from '../../src/components/LoadingSpinner';
 import { EmptyState } from '../../src/components/EmptyState';
 import { enqueue, isNetworkError } from '../../src/utils/offlineQueue';
 import { formatLabourCost, labourCostTotals } from '../../src/utils/labourCost';
+import { bookableWorkers } from '../../src/utils/workers';
 import { useOfflineQueue } from '../../src/hooks/useOfflineQueue';
 import {
   LabourEntry,
@@ -140,13 +141,14 @@ function CreateLabourModal({
   useEffect(() => {
     if (!visible) return;
     setDate(new Date().toISOString().split('T')[0] ?? '');
+    // Labour cannot be recorded for an inactive worker, so only active ones are offered.
     if (hasDefaultContext) {
-      workersApi.list().then(setWorkers).catch(() => {});
+      workersApi.list().then((w) => setWorkers(bookableWorkers(w))).catch(() => {});
     } else {
       Promise.all([projectsApi.list(), workersApi.list()])
         .then(([p, w]) => {
           setProjects(p);
-          setWorkers(w);
+          setWorkers(bookableWorkers(w));
         })
         .catch(() => {});
     }
