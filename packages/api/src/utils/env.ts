@@ -1,4 +1,5 @@
 import { isIP } from 'net';
+import { productionStartupErrors, productionStartupWarnings } from './production-checks';
 
 /**
  * Parses a strict boolean env flag. Unset/empty → defaultValue; otherwise only
@@ -266,6 +267,25 @@ if (env.isProduction) {
     appUrl:     process.env['APP_URL'],
     smtpHost:   env.SMTP_HOST,
     trustProxy: env.TRUST_PROXY,
+  })) {
+    console.warn(`[WARN] ${warning}`);
+  }
+}
+
+// Example, placeholder or identical token secrets stop a production start;
+// live updates, public registration and a malformed CORS origin are flagged.
+if (env.isProduction) {
+  const errors = productionStartupErrors({
+    jwtSecret:        env.JWT_SECRET,
+    jwtRefreshSecret: env.JWT_REFRESH_SECRET,
+  });
+  if (errors.length > 0) {
+    throw new Error(`Refusing to start in production: ${errors.join(' ')}`);
+  }
+  for (const warning of productionStartupWarnings({
+    sseEnabled:         env.SSE_ENABLED,
+    publicRegistration: env.ALLOW_PUBLIC_REGISTRATION,
+    corsOrigin:         env.CORS_ORIGIN,
   })) {
     console.warn(`[WARN] ${warning}`);
   }
