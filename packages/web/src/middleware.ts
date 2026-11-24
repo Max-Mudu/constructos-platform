@@ -4,13 +4,22 @@ import { NextRequest, NextResponse } from 'next/server';
 const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/reset-password'];
 
 // Routes that are always accessible regardless of auth state
-const ALWAYS_ALLOWED = ['/_next', '/favicon.ico', '/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/refresh', '/api/v1/auth/forgot-password', '/api/v1/auth/reset-password'];
+const ALWAYS_ALLOWED = ['/_next', '/favicon.ico'];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Allow Next.js internals and public API routes
+  // Allow Next.js internals
   if (ALWAYS_ALLOWED.some((p) => pathname.startsWith(p))) {
+    return NextResponse.next();
+  }
+
+  // API calls go through the /api/v1 proxy to the API, which authenticates
+  // every request itself. Without a refresh cookie (signed out in another tab,
+  // or a refused refresh cleared it) the API answers 401 and the page sends
+  // the user to the sign-in page. Redirecting the call to /login instead would
+  // make it fail outright, and the page would keep showing an ended session.
+  if (pathname.startsWith('/api/')) {
     return NextResponse.next();
   }
 
