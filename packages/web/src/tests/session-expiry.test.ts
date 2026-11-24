@@ -75,16 +75,14 @@ function authGuardRenderState(
  * Returns what the middleware should do for a given request.
  */
 const PUBLIC_PATHS = ['/login', '/register'];
-const ALWAYS_ALLOWED = [
-  '/_next', '/favicon.ico',
-  '/api/v1/auth/login', '/api/v1/auth/register', '/api/v1/auth/refresh',
-];
+const ALWAYS_ALLOWED = ['/_next', '/favicon.ico'];
 
 function middlewareDecision(
   pathname: string,
   hasRefreshToken: boolean,
 ): 'allow' | 'redirect-to-login' {
   if (ALWAYS_ALLOWED.some((p) => pathname.startsWith(p))) return 'allow';
+  if (pathname.startsWith('/api/'))                         return 'allow'; // the API answers 401 itself
   if (PUBLIC_PATHS.includes(pathname))                      return 'allow';
   if (!hasRefreshToken) return 'redirect-to-login';
   return 'allow';
@@ -286,6 +284,11 @@ describe('Middleware — routing decisions', () => {
 
     it('always allows /favicon.ico', () => {
       expect(middlewareDecision('/favicon.ico', false)).toBe('allow');
+    });
+
+    it('lets every other API call through without a cookie (the API answers 401)', () => {
+      expect(middlewareDecision('/api/v1/auth/me', false)).toBe('allow');
+      expect(middlewareDecision('/api/v1/dashboard', false)).toBe('allow');
     });
   });
 });
