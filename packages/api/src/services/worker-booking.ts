@@ -69,9 +69,11 @@ export function assertWorkerActive(worker: BookingWorker, message?: string): voi
 
 /**
  * The checks before a supervisor, manager or admin records work for a worker
- * on a site, in this order: the worker exists in the company (404), is active
- * (422 WORKER_INACTIVE) and is assigned to the site (403). Leaves the worker
- * row locked until the transaction ends and returns it.
+ * on a site, in this order: the worker exists in the company (404), is
+ * assigned to the site (403) and is active (422 WORKER_INACTIVE). The status
+ * is checked last, so it is only reported for a worker on a site the caller
+ * can reach. Leaves the worker row locked until the transaction ends and
+ * returns it.
  */
 export async function lockBookableWorkerOnSite(
   tx: Prisma.TransactionClient,
@@ -79,12 +81,12 @@ export async function lockBookableWorkerOnSite(
 ): Promise<BookingWorker> {
   const worker = await lockWorkerForBooking(tx, { workerId: where.workerId, companyId: where.companyId });
   if (!worker) throw new NotFoundError('Worker');
-  assertWorkerActive(worker);
 
   const assignment = await tx.workerAssignment.findFirst({
     where: { workerId: where.workerId, siteId: where.siteId, projectId: where.projectId, removedAt: null },
     select: { id: true },
   });
   if (!assignment) throw new ForbiddenError('Worker is not assigned to this site');
+  assertWorkerActive(worker);
   return worker;
 }

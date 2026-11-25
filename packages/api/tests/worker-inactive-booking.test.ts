@@ -203,6 +203,40 @@ describe('POST labour: only an active worker', () => {
   });
 });
 
+// ─── A worker not on the site: 403 whatever its status ────────────────────────
+
+describe('a worker not assigned to the site gets 403, active or not', () => {
+  /** A worker of the company assigned only to another site, then made not active. */
+  async function elsewhere(how: 'deactivated' | 'suspended'): Promise<string> {
+    const otherSite = await createTestSite(w.companyId, w.projectId, `Other ${how}`);
+    const worker = await createTestWorker(w.companyId, { firstName: `Elsewhere ${how}` });
+    await assignWorkerToSite(w.companyId, w.projectId, otherSite.id, worker.id, w.admin.id);
+    if (how === 'deactivated') await deactivate(worker.id);
+    else expect((await req(w.admin, 'PATCH', `/workers/${worker.id}`, { employmentStatus: 'suspended' })).statusCode).toBe(200);
+    return worker.id;
+  }
+
+  it.each([
+    ['attendance', 'deactivated'], ['attendance', 'suspended'],
+    ['labour', 'deactivated'], ['labour', 'suspended'],
+  ] as const)('%s for a %s worker on another site: 403, not 422', async (kind, how) => {
+    const id = await elsewhere(how);
+    const body = kind === 'attendance' ? attendanceBody(id) : labourBody(id);
+    for (const who of WRITERS) {
+      const res = await req(w[who], 'POST', `${site()}/${kind}`, body);
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).not.toBe('WORKER_INACTIVE');
+    }
+  });
+
+  it('an inactive worker with no assignment at all: 403, not 422', async () => {
+    const loose = await createTestWorker(w.companyId, { firstName: 'Unplaced', isActive: false });
+    await prisma.worker.update({ where: { id: loose.id }, data: { employmentStatus: 'inactive' } });
+    expect((await req(w.sup, 'POST', `${site()}/attendance`, attendanceBody(loose.id))).statusCode).toBe(403);
+    expect((await req(w.sup, 'POST', `${site()}/labour`, labourBody(loose.id))).statusCode).toBe(403);
+  });
+});
+
 // ─── Worker self check-in ─────────────────────────────────────────────────────
 
 describe('POST attendance/self: only an active worker', () => {
