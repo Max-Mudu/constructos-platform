@@ -194,6 +194,7 @@ export default function InvoicesPage() {
   const perCurrency      = (pick: Parameters<typeof formatPerCurrency>[1]) =>
     formatPerCurrency(totals, pick, (v, c) => formatMoney(v, c, KPI_MONEY), companyCurrency);
   const hasOutstanding   = totals.some((t) => t.outstanding > 0);
+  const hasInDispute     = totals.some((t) => t.inDispute > 0);
   const overdueCount     = invoices.filter(isOverdue).length;
 
   if (loading) {
@@ -233,7 +234,7 @@ export default function InvoicesPage() {
 
       {/* Global KPI strip */}
       {invoices.length > 0 && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
           <StatCard
             label="Total Value"
             value={perCurrency((t) => t.totalValue)}
@@ -250,6 +251,12 @@ export default function InvoicesPage() {
             value={perCurrency((t) => t.outstanding)}
             icon={<TrendingUp className="h-5 w-5" />}
             valueClassName={hasOutstanding ? 'text-amber-600' : undefined}
+          />
+          <StatCard
+            label="In Dispute"
+            value={perCurrency((t) => t.inDispute)}
+            icon={<AlertCircle className="h-5 w-5" />}
+            valueClassName={hasInDispute ? 'text-red-500' : undefined}
           />
           <StatCard
             label="Overdue"

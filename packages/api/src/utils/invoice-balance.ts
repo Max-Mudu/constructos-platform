@@ -6,7 +6,8 @@ import { InvoiceStatus, Prisma } from '@prisma/client';
  * same rule in packages/web/src/lib/invoice-figures.ts).
  *
  * "Outstanding" is the unpaid balance (totalAmount - paidAmount) of the
- * invoices the company owes. Taken from the invoice lifecycle in
+ * invoices the company owes; "In dispute" is the unpaid balance of disputed
+ * invoices, shown separately. Taken from the invoice lifecycle in
  * invoice.service.ts:
  *   - draft:      not yet submitted; can still be edited or deleted. Not owed.
  *   - cancelled:  withdrawn; no payment can be recorded. Not owed.
@@ -16,10 +17,8 @@ import { InvoiceStatus, Prisma } from '@prisma/client';
  *                 date. Owed.
  *   - approved, partially_paid, overdue: the states a payment can be recorded
  *                 against. Owed.
- *   - disputed:   counted as owed, as before. No payment can be recorded
- *                 against it and it can be cancelled; whether a disputed
- *                 balance belongs in "Outstanding" is a business-policy
- *                 decision still open, so the existing behaviour is kept.
+ *   - disputed:   not in Outstanding; its balance is reported separately as
+ *                 "In dispute" (no payment can be recorded against it).
  *
  * Amounts in different currencies are never added together: every total is
  * per currency, sorted by currency code.
@@ -29,7 +28,6 @@ export const OUTSTANDING_INVOICE_STATUSES: readonly InvoiceStatus[] = [
   'approved',
   'partially_paid',
   'overdue',
-  'disputed',
 ];
 
 export function isOwedInvoiceStatus(status: InvoiceStatus): boolean {
@@ -53,6 +51,8 @@ export interface InvoiceCurrencyTotals {
   totalPaid:   Prisma.Decimal;
   /** Unpaid balance of the owed invoices (OUTSTANDING_INVOICE_STATUSES). */
   outstanding: Prisma.Decimal;
+  /** Unpaid balance of the disputed invoices (not part of outstanding). */
+  inDispute:   Prisma.Decimal;
   /** Unpaid balance of the overdue invoices. */
   overdueValue: Prisma.Decimal;
 }
@@ -64,7 +64,7 @@ export function invoiceTotalsByCurrency(rows: ReadonlyArray<InvoiceAmountRow>): 
   const totals = new Map<string, InvoiceCurrencyTotals>();
   for (const row of rows) {
     const t = totals.get(row.currency) ?? {
-      currency: row.currency, totalValue: ZERO, totalPaid: ZERO, outstanding: ZERO, overdueValue: ZERO,
+      currency: row.currency, totalValue: ZERO, totalPaid: ZERO, outstanding: ZERO, inDispute: ZERO, overdueValue: ZERO,
     };
     const total   = new Prisma.Decimal(row.totalAmount);
     const paid    = new Prisma.Decimal(row.paidAmount);
@@ -72,6 +72,7 @@ export function invoiceTotalsByCurrency(rows: ReadonlyArray<InvoiceAmountRow>): 
     t.totalValue = t.totalValue.add(total);
     t.totalPaid  = t.totalPaid.add(paid);
     if (isOwedInvoiceStatus(row.status)) t.outstanding  = t.outstanding.add(balance);
+    if (row.status === 'disputed')       t.inDispute    = t.inDispute.add(balance);
     if (row.status === 'overdue')        t.overdueValue = t.overdueValue.add(balance);
     totals.set(row.currency, t);
   }
@@ -82,5 +83,5 @@ export function invoiceTotalsByCurrency(rows: ReadonlyArray<InvoiceAmountRow>): 
 /** The totals for one currency, or zeros when there are none in it. */
 export function totalsForCurrency(totals: ReadonlyArray<InvoiceCurrencyTotals>, currency: string): InvoiceCurrencyTotals {
   return totals.find((t) => t.currency === currency)
-    ?? { currency, totalValue: ZERO, totalPaid: ZERO, outstanding: ZERO, overdueValue: ZERO };
+    ?? { currency, totalValue: ZERO, totalPaid: ZERO, outstanding: ZERO, inDispute: ZERO, overdueValue: ZERO };
 }

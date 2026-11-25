@@ -3,7 +3,10 @@
  * add up amounts in different currencies.
  *
  *  - "Outstanding" is the unpaid balance (total - paid) of invoices the
- *    company owes: submitted, approved, partially paid, overdue and disputed.
+ *    company owes: submitted, approved, partially paid and overdue.
+ *    Draft and cancelled invoices are not owed; a paid invoice has no balance.
+ *  - Disputed invoices are shown separately as "In dispute" (their unpaid
+ *    balance, per currency) and are not part of Outstanding.
  *    Draft and cancelled invoices are not owed; a paid invoice has no balance.
  *  - Every money figure is given per currency (`byCurrency`); the single
  *    number kept for older clients is the company currency's figure only.
@@ -53,13 +56,13 @@ let w: World;
 //   approved         8000       0     8000
 //   partially_paid  16000    6000    10000
 //   overdue         32000    2000    30000
-//   disputed        64000       0    64000
+//   disputed        64000       0    - (In dispute: 64000)
 //   paid           128000  128000        0
-//   KES           255000  136500   116000
+//   KES           255000  136500    52000   in dispute 64000
 //
 //   USD (P2): approved 300 (owed 300), draft 50 (not owed)
-const KES = { currency: 'KES', totalValue: 255000, totalPaid: 136500, outstanding: 116000 };
-const USD = { currency: 'USD', totalValue: 350,    totalPaid: 0,      outstanding: 300 };
+const KES = { currency: 'KES', totalValue: 255000, totalPaid: 136500, outstanding: 52000, inDispute: 64000 };
+const USD = { currency: 'USD', totalValue: 350,    totalPaid: 0,      outstanding: 300,   inDispute: 0 };
 
 beforeAll(async () => {
   app = await buildApp();
@@ -137,6 +140,7 @@ describe('dashboard invoice figures', () => {
     expect(res.statusCode).toBe(200);
     const { invoices } = res.json().stats;
     expect(invoices.outstanding).toBe(KES.outstanding);
+    expect(invoices.inDispute).toBe(KES.inDispute);
     expect(invoices.totalValue).toBe(KES.totalValue);
     expect(invoices.totalPaid).toBe(KES.totalPaid);
     // Counts are not money and still cover every invoice in scope.
@@ -148,9 +152,9 @@ describe('dashboard invoice figures', () => {
   it('gives one figure per currency and never a mixed sum', async () => {
     const { invoices } = (await get('/api/v1/dashboard', w.admin)).json().stats;
     expect(invoices.byCurrency).toEqual([KES, USD]);
-    // 116000 KES + 300 USD must never appear as 116300 (or 118850, the old
+    // 52000 KES + 300 USD must never appear as 52300 (nor 116000 / 118850,
     // all-status, all-currency balance).
-    expect(JSON.stringify(invoices)).not.toMatch(/116300|118850/);
+    expect(JSON.stringify(invoices)).not.toMatch(/52300|116000|116300|118850/);
   });
 
   it('finance_officer gets the same figures as company_admin', async () => {
@@ -172,7 +176,7 @@ describe('dashboard invoice figures', () => {
     const { invoices } = (await get('/api/v1/dashboard', w.otherAdmin)).json().stats;
     // Company B works in USD (fixture default).
     expect(invoices.outstanding).toBe(777);
-    expect(invoices.byCurrency).toEqual([{ currency: 'USD', totalValue: 777, totalPaid: 0, outstanding: 777 }]);
+    expect(invoices.byCurrency).toEqual([{ currency: 'USD', totalValue: 777, totalPaid: 0, outstanding: 777, inDispute: 0 }]);
   });
 });
 
@@ -189,11 +193,11 @@ describe('financial gating is unchanged', () => {
     expect(res.statusCode).toBe(200);
     const { stats } = res.json();
     expect(stats.invoices).toEqual({
-      total: null, totalValue: null, totalPaid: null, outstanding: null,
+      total: null, totalValue: null, totalPaid: null, outstanding: null, inDispute: null,
       overdueCount: null, pendingApproval: null, byCurrency: null,
     });
     expect(stats.finance).toBeUndefined();
-    expect(res.payload).not.toContain('116000');
+    expect(res.payload).not.toMatch(/52000|64000/);
   });
 
   it.each([
@@ -232,6 +236,7 @@ describe('GET /invoices/summary', () => {
     const { summary } = res.json();
     expect(summary.currency).toBe('KES');
     expect(summary.totalOutstanding).toBe(KES.outstanding);
+    expect(summary.totalInDispute).toBe(KES.inDispute);
     expect(summary.totalValue).toBe(KES.totalValue);
     expect(summary.totalPaid).toBe(KES.totalPaid);
     expect(summary.overdueValue).toBe(30000);
@@ -247,6 +252,7 @@ describe('GET /invoices/summary', () => {
     const dash = (await get('/api/v1/dashboard', w.pmFin)).json().stats.invoices;
     const { summary } = (await get('/api/v1/invoices/summary', w.pmFin)).json();
     expect(summary.totalOutstanding).toBe(dash.outstanding);
+    expect(summary.totalInDispute).toBe(dash.inDispute);
     expect(summary.byCurrency.map(({ overdueValue: _o, ...rest }: { overdueValue: number }) => rest))
       .toEqual(dash.byCurrency);
   });
@@ -261,7 +267,8 @@ describe('GET /reports/invoices summary', () => {
     expect(summaryValue(summary, 'Total Invoices')).toBe('10');
     expect(summaryValue(summary, 'Total Value')).toBe('255000.00 KES + 350.00 USD');
     expect(summaryValue(summary, 'Total Paid')).toBe('136500.00 KES + 0.00 USD');
-    expect(summaryValue(summary, 'Outstanding')).toBe('116000.00 KES + 300.00 USD');
+    expect(summaryValue(summary, 'Outstanding')).toBe('52000.00 KES + 300.00 USD');
+    expect(summaryValue(summary, 'In Dispute')).toBe('64000.00 KES + 0.00 USD');
     expect(summaryValue(summary, 'Overdue')).toBe('1');
   });
 });

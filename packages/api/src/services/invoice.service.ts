@@ -722,7 +722,8 @@ export async function deletePayment(invoiceId: string, paymentId: string, actor:
 //
 // Money follows utils/invoice-balance (the same rule as the dashboard and the
 // invoice report): totalOutstanding / overdueValue are the unpaid balance of
-// owed invoices (not draft, not cancelled), and amounts in different
+// owed invoices (not draft, cancelled or disputed), totalInDispute is the
+// unpaid balance of disputed invoices (separate), and amounts in different
 // currencies are never added together. byCurrency has one entry per currency;
 // the top-level money figures and the byStatus / byVendorType values are the
 // company currency's (named in `currency`). Counts cover every invoice in scope.
@@ -732,6 +733,7 @@ export interface InvoiceCurrencySummary {
   totalValue:       number;
   totalPaid:        number;
   outstanding:      number;
+  inDispute:        number;
   overdueValue:     number;
 }
 
@@ -741,6 +743,7 @@ export interface InvoiceSummary {
   totalValue:       number;
   totalPaid:        number;
   totalOutstanding: number;
+  totalInDispute:   number;
   overdueCount:     number;
   overdueValue:     number;
   byCurrency:       InvoiceCurrencySummary[];
@@ -789,6 +792,7 @@ export async function getInvoiceSummary(actor: RequestUser, projectId?: string):
     totalValue:       toCents(own.totalValue),
     totalPaid:        toCents(own.totalPaid),
     totalOutstanding: toCents(own.outstanding),
+    totalInDispute:   toCents(own.inDispute),
     overdueCount:     invoices.filter((i) => i.status === 'overdue').length,
     overdueValue:     toCents(own.overdueValue),
     byCurrency:       totals.map((t) => ({
@@ -796,6 +800,7 @@ export async function getInvoiceSummary(actor: RequestUser, projectId?: string):
       totalValue:   toCents(t.totalValue),
       totalPaid:    toCents(t.totalPaid),
       outstanding:  toCents(t.outstanding),
+      inDispute:    toCents(t.inDispute),
       overdueValue: toCents(t.overdueValue),
     })),
     byStatus:         plain(byStatus),

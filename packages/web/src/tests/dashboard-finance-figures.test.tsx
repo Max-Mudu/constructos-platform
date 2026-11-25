@@ -3,7 +3,8 @@
  *  - no inflow / Net Position figure is shown (inflows are not recorded in the
  *    product), even if an older API build still sends one;
  *  - "Outstanding" counts only invoices that are owed (not draft, not
- *    cancelled) and every money figure is shown per currency, never one sum
+ *    cancelled, not disputed); disputed balances are shown separately as
+ *    "In Dispute"; every money figure is shown per currency, never one sum
  *    across currencies or in a hard-coded "$".
  */
 import { render, screen } from '@testing-library/react';
@@ -67,10 +68,10 @@ function dashboardStats(): DashboardStats & { finance?: unknown } {
     attendance: { todayTotal: 0, todayPresent: 0, todayRate: 0 },
     labour:     { thisWeekHours: 0, thisMonthCost: 0, thisMonthCostByCurrency: [] },
     invoices: {
-      total: 10, totalValue: 255000, totalPaid: 136500, outstanding: 116000, overdueCount: 1, pendingApproval: 1,
+      total: 10, totalValue: 255000, totalPaid: 136500, outstanding: 52000, inDispute: 64000, overdueCount: 1, pendingApproval: 1,
       byCurrency: [
-        { currency: 'KES', totalValue: 255000, totalPaid: 136500, outstanding: 116000 },
-        { currency: 'USD', totalValue: 350,    totalPaid: 0,      outstanding: 300 },
+        { currency: 'KES', totalValue: 255000, totalPaid: 136500, outstanding: 52000, inDispute: 64000 },
+        { currency: 'USD', totalValue: 350,    totalPaid: 0,      outstanding: 300,   inDispute: 0 },
       ],
     },
     budget:        { totalBudgeted: 0, totalSpent: 0, totalRemaining: 0, budgetsCount: 0, overspendCount: 0 },
@@ -101,7 +102,8 @@ describe('Dashboard', () => {
     render(<DashboardPage />);
     await screen.findByText('Invoices');
 
-    expect(valueAbove(screen.getByText('Outstanding'))).toBe(`${money(116000, 'KES')} + ${money(300, 'USD')}`);
+    expect(valueAbove(screen.getByText('Outstanding'))).toBe(`${money(52000, 'KES')} + ${money(300, 'USD')}`);
+    expect(valueAbove(screen.getByText('In Dispute'))).toBe(`${money(64000, 'KES')} + ${money(0, 'USD')}`);
     expect(valueAbove(screen.getByText('Paid'))).toBe(`${money(136500, 'KES')} + ${money(0, 'USD')}`);
     // A collection rate across two currencies would mix them: not shown.
     expect(screen.queryByText('Collection rate')).not.toBeInTheDocument();
@@ -114,7 +116,8 @@ describe('Dashboard', () => {
     render(<DashboardPage />);
     await screen.findByText('Invoices');
 
-    expect(valueAbove(screen.getByText('Outstanding'))).toBe(money(116000, 'KES'));
+    expect(valueAbove(screen.getByText('Outstanding'))).toBe(money(52000, 'KES'));
+    expect(valueAbove(screen.getByText('In Dispute'))).toBe(money(64000, 'KES'));
     expect(screen.getByText('Collection rate')).toBeInTheDocument();
   });
 
@@ -122,7 +125,7 @@ describe('Dashboard', () => {
     signIn('project_manager');
     const stats = dashboardStats();
     stats.invoices = {
-      total: null, totalValue: null, totalPaid: null, outstanding: null,
+      total: null, totalValue: null, totalPaid: null, outstanding: null, inDispute: null,
       overdueCount: null, pendingApproval: null, byCurrency: null,
     } as unknown as DashboardStats['invoices'];
     delete (stats as { finance?: unknown }).finance;
@@ -131,6 +134,7 @@ describe('Dashboard', () => {
     await screen.findByText('Projects');
 
     expect(screen.queryByText('Outstanding')).not.toBeInTheDocument();
+    expect(screen.queryByText('In Dispute')).not.toBeInTheDocument();
     expect(screen.queryByText('Invoices')).not.toBeInTheDocument();
   });
 });
@@ -163,13 +167,14 @@ describe('Invoices page KPIs', () => {
     invoice('draft',              50,      0, 'USD'),
   ];
 
-  it('Outstanding counts owed invoices only, one figure per currency', async () => {
+  it('Outstanding counts owed invoices only and In Dispute is separate, one figure per currency', async () => {
     api.invoiceList.mockResolvedValue({ invoices });
     render(<InvoicesPage />);
     await screen.findByText('INV-1');
 
     const kpi = (label: string) => valueAbove(screen.getAllByText(label)[0]);
-    expect(kpi('Outstanding')).toBe(`${money(116000, 'KES')} + ${money(300, 'USD')}`);
+    expect(kpi('Outstanding')).toBe(`${money(52000, 'KES')} + ${money(300, 'USD')}`);
+    expect(kpi('In Dispute')).toBe(`${money(64000, 'KES')} + ${money(0, 'USD')}`);
     expect(kpi('Total Value')).toBe(`${money(255000, 'KES')} + ${money(350, 'USD')}`);
     expect(kpi('Total Paid')).toBe(`${money(136500, 'KES')} + ${money(0, 'USD')}`);
     expect(document.body.textContent).not.toMatch(/\$0\.\dM/);

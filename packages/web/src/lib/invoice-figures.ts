@@ -5,15 +5,15 @@ import type { InvoiceStatus } from '@/lib/types';
  *
  * "Outstanding" is the unpaid balance (total - paid) of the invoices the
  * company owes. Draft invoices (not yet submitted) and cancelled ones are not
- * owed; a paid invoice has no balance left. Amounts in different currencies
- * are never added together.
+ * owed; a paid invoice has no balance left. Disputed invoices are not in
+ * Outstanding: their balance is shown separately as "In Dispute". Amounts in
+ * different currencies are never added together.
  */
 export const OUTSTANDING_INVOICE_STATUSES: readonly InvoiceStatus[] = [
   'submitted',
   'approved',
   'partially_paid',
   'overdue',
-  'disputed',
 ];
 
 export function isOwedInvoiceStatus(status: InvoiceStatus): boolean {
@@ -25,6 +25,7 @@ export interface InvoiceCurrencyTotals {
   totalValue:  number;
   totalPaid:   number;
   outstanding: number;
+  inDispute:   number;
 }
 
 const cents = (n: number) => Math.round(n * 100) / 100;
@@ -38,14 +39,19 @@ export function invoiceTotalsByCurrency(
     const total = Number(inv.totalAmount);
     const paid  = Number(inv.paidAmount);
     if (!Number.isFinite(total) || !Number.isFinite(paid)) continue;
-    const t = totals.get(inv.currency) ?? { currency: inv.currency, totalValue: 0, totalPaid: 0, outstanding: 0 };
+    const t = totals.get(inv.currency) ?? { currency: inv.currency, totalValue: 0, totalPaid: 0, outstanding: 0, inDispute: 0 };
     t.totalValue += total;
     t.totalPaid  += paid;
     if (isOwedInvoiceStatus(inv.status)) t.outstanding += total - paid;
+    if (inv.status === 'disputed')       t.inDispute   += total - paid;
     totals.set(inv.currency, t);
   }
   return Array.from(totals.values())
-    .map((t) => ({ ...t, totalValue: cents(t.totalValue), totalPaid: cents(t.totalPaid), outstanding: cents(t.outstanding) }))
+    .map((t) => ({
+      ...t,
+      totalValue: cents(t.totalValue), totalPaid: cents(t.totalPaid),
+      outstanding: cents(t.outstanding), inDispute: cents(t.inDispute),
+    }))
     .sort((a, b) => (a.currency < b.currency ? -1 : a.currency > b.currency ? 1 : 0));
 }
 
@@ -56,17 +62,20 @@ export function invoiceTotalsByCurrency(
  */
 export function dashboardInvoiceTotals(
   invoices: {
-    totalValue: number; totalPaid: number; outstanding: number;
-    byCurrency?: InvoiceCurrencyTotals[] | null;
+    totalValue: number; totalPaid: number; outstanding: number; inDispute?: number | null;
+    byCurrency?: Array<Omit<InvoiceCurrencyTotals, 'inDispute'> & { inDispute?: number }> | null;
   },
   companyCurrency: string,
 ): InvoiceCurrencyTotals[] {
-  if (invoices.byCurrency && invoices.byCurrency.length > 0) return invoices.byCurrency;
+  if (invoices.byCurrency && invoices.byCurrency.length > 0) {
+    return invoices.byCurrency.map((t) => ({ ...t, inDispute: t.inDispute ?? 0 }));
+  }
   return [{
     currency:    companyCurrency,
     totalValue:  invoices.totalValue,
     totalPaid:   invoices.totalPaid,
     outstanding: invoices.outstanding,
+    inDispute:   invoices.inDispute ?? 0,
   }];
 }
 

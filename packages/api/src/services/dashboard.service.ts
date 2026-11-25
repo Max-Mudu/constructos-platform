@@ -51,15 +51,17 @@ export interface DashboardStats {
   // scope. Money is never summed across currencies: byCurrency holds one
   // entry per currency; totalValue / totalPaid / outstanding are the company
   // currency's entry only (kept for older clients). outstanding = unpaid
-  // balance of owed invoices (not draft, not cancelled).
+  // balance of owed invoices (not draft, cancelled or disputed); inDispute =
+  // unpaid balance of disputed invoices, reported separately.
   invoices: {
     total:           number | null;
     totalValue:      number | null;
     totalPaid:       number | null;
     outstanding:     number | null;
+    inDispute:       number | null;
     overdueCount:    number | null;
     pendingApproval: number | null;
-    byCurrency: Array<{ currency: string; totalValue: number; totalPaid: number; outstanding: number }> | null;
+    byCurrency: Array<{ currency: string; totalValue: number; totalPaid: number; outstanding: number; inDispute: number }> | null;
   };
   budget: {
     totalBudgeted:  number | null;
@@ -399,6 +401,7 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
         totalValue:      toCents(invCompany.totalValue),
         totalPaid:       toCents(invCompany.totalPaid),
         outstanding:     toCents(invCompany.outstanding),
+        inDispute:       toCents(invCompany.inDispute),
         overdueCount:    countWhere('overdue'),
         pendingApproval: countWhere('submitted'),
         byCurrency:      invTotals.map((t) => ({
@@ -406,6 +409,7 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
           totalValue:  toCents(t.totalValue),
           totalPaid:   toCents(t.totalPaid),
           outstanding: toCents(t.outstanding),
+          inDispute:   toCents(t.inDispute),
         })),
       },
       budget: {
@@ -585,6 +589,7 @@ export async function getDashboardStats(actor: RequestUser): Promise<DashboardSt
       totalValue:      null,
       totalPaid:       null,
       outstanding:     null,
+      inDispute:       null,
       overdueCount:    null,
       pendingApproval: null,
       byCurrency:      null,

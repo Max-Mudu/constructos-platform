@@ -528,7 +528,7 @@ export default function DashboardPage() {
         {/* Invoice widget (canManage) */}
         {canManage && invoiceStats && (
           <Widget title="Invoices" href="/invoices">
-            <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="grid grid-cols-2 gap-2 mb-4 sm:grid-cols-4">
               <MiniStat label="Total"       value={perCurrency((t) => t.totalValue)} />
               <MiniStat label="Paid"        value={perCurrency((t) => t.totalPaid)}  valueClass="text-emerald-600" />
               {/* Unpaid balance of owed invoices: draft and cancelled are not owed */}
@@ -536,6 +536,12 @@ export default function DashboardPage() {
                 label="Outstanding"
                 value={perCurrency((t) => t.outstanding)}
                 valueClass={invTotals.some((t) => t.outstanding > 0) ? 'text-amber-600' : undefined}
+              />
+              {/* Disputed invoices: shown separately, not part of Outstanding */}
+              <MiniStat
+                label="In Dispute"
+                value={perCurrency((t) => t.inDispute)}
+                valueClass={invTotals.some((t) => t.inDispute > 0) ? 'text-red-500' : undefined}
               />
             </div>
 
