@@ -25,11 +25,25 @@ const API_ROUTES = path.resolve(__dirname, '..', '..', '..', 'api', 'src', 'rout
 
 // ── Role lists stay in sync with the API's requireRole() lists ──────────────
 
+function rolesIn(src: string, constName: string): string[] | null {
+  const m = src.match(new RegExp(`const ${constName}\\s*=\\s*\\[([^\\]]*)\\]`));
+  return m ? [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]).sort() : null;
+}
+
 function apiRoles(file: string, constName: string): string[] {
   const src = fs.readFileSync(path.join(API_ROUTES, file), 'utf8');
-  const m = src.match(new RegExp(`const ${constName}\\s*=\\s*\\[([^\\]]*)\\]`));
-  if (!m) throw new Error(`${constName} not found in ${file}`);
-  return [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]).sort();
+  const literal = rolesIn(src, constName);
+  if (literal) return literal;
+  // `const VIEW_ROLES = someService.SOME_ROLES;` together with
+  // `import * as someService from '../services/some.service';`: read it there.
+  const ref = src.match(new RegExp(`const ${constName}\\s*=\\s*(\\w+)\\.(\\w+);`));
+  const imp = ref && src.match(new RegExp(`import \\* as ${ref[1]} from '\\.\\./services/([\\w.-]+)'`));
+  if (ref && imp) {
+    const service = fs.readFileSync(path.join(API_ROUTES, '..', 'services', `${imp[1]}.ts`), 'utf8');
+    const roles = rolesIn(service, ref[2]);
+    if (roles) return roles;
+  }
+  throw new Error(`${constName} not found in ${file}`);
 }
 
 const sorted = (r: readonly string[]) => [...r].sort();
