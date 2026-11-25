@@ -4,6 +4,7 @@ import * as authService from '../services/auth.service';
 import { authenticate } from '../middleware/authenticate';
 import { AppError } from '../utils/errors';
 import { env } from '../utils/env';
+import { BY_ADDRESS } from '../utils/rate-limit';
 
 const registerSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -57,7 +58,9 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   // production). Checked first so a disabled endpoint reveals nothing about
   // validation rules or existing accounts. env is read per request so the
   // flag is a single source of truth that tests can toggle.
-  fastify.post('/register', async (request, reply) => {
+  // Sign-in, refresh, registration and password reset are always rate limited
+  // per client address (BY_ADDRESS), whatever token the request carries.
+  fastify.post('/register', { config: BY_ADDRESS }, async (request, reply) => {
     if (!env.ALLOW_PUBLIC_REGISTRATION) {
       return reply.status(403).send({
         error: 'Public registration is disabled. Ask your company administrator for an account.',
@@ -98,7 +101,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   // POST /api/v1/auth/login
-  fastify.post('/login', async (request, reply) => {
+  fastify.post('/login', { config: BY_ADDRESS }, async (request, reply) => {
     const parsed = loginSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({
@@ -137,7 +140,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
 
   // POST /api/v1/auth/refresh
   // Accepts token from httpOnly cookie OR from body (for mobile clients)
-  fastify.post('/refresh', async (request, reply) => {
+  fastify.post('/refresh', { config: BY_ADDRESS }, async (request, reply) => {
     const cookieToken = request.cookies?.['refreshToken'];
     const bodyParsed = refreshSchema.safeParse(request.body);
     const rawRefreshToken = cookieToken ?? (bodyParsed.success ? bodyParsed.data.refreshToken : null);
@@ -211,6 +214,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   // POST /api/v1/auth/forgot-password
   fastify.post('/forgot-password', {
     config: {
+      ...BY_ADDRESS,
       rateLimit: { max: 5, timeWindow: 15 * 60 * 1000 },
     },
   }, async (request, reply) => {
@@ -233,7 +237,7 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
   });
 
   // POST /api/v1/auth/reset-password
-  fastify.post('/reset-password', async (request, reply) => {
+  fastify.post('/reset-password', { config: BY_ADDRESS }, async (request, reply) => {
     const parsed = resetPasswordSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.status(422).send({

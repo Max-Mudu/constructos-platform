@@ -5,9 +5,9 @@ import fastifyJwt from '@fastify/jwt';
 import fastifyCookie from '@fastify/cookie';
 import fastifyCors from '@fastify/cors';
 import fastifyHelmet from '@fastify/helmet';
-import fastifyRateLimit from '@fastify/rate-limit';
 import fastifyMultipart from '@fastify/multipart';
 import { env } from './utils/env';
+import { registerRateLimits } from './utils/rate-limit';
 import { authenticate } from './middleware/authenticate';
 import { authRoutes } from './routes/auth.routes';
 import { companyRoutes } from './routes/company.routes';
@@ -127,6 +127,8 @@ export interface BuildAppOptions {
   reportExtractor?: ReportExtractor;
   /** Test hook: daily report PDF renderer (default: renderDailyReportPdf). */
   renderPdf?: RenderDailyReportPdf;
+  /** Test hook: register rate limiting under NODE_ENV=test too (default: skipped in test). */
+  rateLimit?: boolean;
 }
 
 export async function buildApp(options: BuildAppOptions = {}) {
@@ -155,13 +157,14 @@ export async function buildApp(options: BuildAppOptions = {}) {
   });
 
   // ── Rate limiting ─────────────────────────────────────────────────────────
-  // Skipped in test: all inject() calls share the same IP so the in-memory
-  // counter is never reset between tests, causing spurious 429s.
-  if (!env.isTest) {
-    await app.register(fastifyRateLimit, {
-      max: 100,
-      timeWindow: '1 minute',
-      keyGenerator: (req) => req.ip,
+  // 100 requests per minute per key (see utils/rate-limit.ts for the key and
+  // the RATE_LIMIT_* settings). Skipped in test unless a test asks for it: all
+  // inject() calls share the same IP so the in-memory counter is never reset
+  // between tests, causing spurious 429s.
+  if (!env.isTest || options.rateLimit === true) {
+    await registerRateLimits(app, {
+      perUser:    env.RATE_LIMIT_PER_USER,
+      addressMax: env.RATE_LIMIT_ADDRESS_MAX,
     });
   }
 
@@ -306,7 +309,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
 async function start() {
   const app = await buildApp();
   try {
-    await app.listen({ port: env.PORT, host: '0.0.0.0' });
+    await app.listen({ port: env.PORT, host: env.LISTEN_HOST });
     console.log(`API server running on port ${env.PORT}`);
   } catch (err) {
     app.log.error(err);

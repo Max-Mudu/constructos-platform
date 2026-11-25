@@ -76,12 +76,30 @@ export function parseTrustProxy(raw: string | undefined): TrustProxySetting {
   const entries = value.split(',').map((e) => e.trim()).filter((e) => e !== '');
   const invalid = entries.filter((e) => !isValidProxyEntry(e));
   if (entries.length === 0 || invalid.length > 0) {
+    // A proxy address is configuration, not a secret: naming the bad entries
+    // makes the boot failure actionable.
+    const shown = invalid.slice(0, 5).map((e) => JSON.stringify(e.slice(0, 60))).join(', ');
     throw new Error(
       'TRUST_PROXY must be false, a positive hop count, or a comma-separated list of IPs/CIDRs ' +
-      `(invalid entries: ${invalid.length})`,
+      '(or loopback, linklocal, uniquelocal); ' +
+      (entries.length === 0 ? 'the list is empty' : `invalid entries: ${shown}`),
     );
   }
   return entries;
+}
+
+/**
+ * LISTEN_HOST → the address the API server binds (default 0.0.0.0, every IPv4
+ * interface, as before). `::` binds every IPv6 and IPv4 interface, which a
+ * private network that only routes IPv6 needs. Only an IP literal is accepted.
+ */
+export function parseListenHost(raw: string | undefined): string {
+  const value = (raw ?? '').trim();
+  if (value === '') return '0.0.0.0';
+  if (isIP(value) === 0) {
+    throw new Error('LISTEN_HOST must be an IP address such as 0.0.0.0 or ::');
+  }
+  return value;
 }
 
 // Development-only behaviour (returning reset/setup links, logging them, open
@@ -143,6 +161,7 @@ export const env = {
   JWT_EXPIRES_IN:         process.env['JWT_EXPIRES_IN']         ?? '15m',
   JWT_REFRESH_EXPIRES_IN: process.env['JWT_REFRESH_EXPIRES_IN'] ?? '7d',
   PORT:                   parseInt(process.env['PORT'] ?? '3001', 10),
+  LISTEN_HOST:            parseListenHost(process.env['LISTEN_HOST']),
   NODE_ENV,
   CORS_ORIGIN:            process.env['CORS_ORIGIN'] ?? 'http://localhost:3000',
   AWS_ACCESS_KEY_ID:      process.env['AWS_ACCESS_KEY_ID']     ?? '',
@@ -161,6 +180,12 @@ export const env = {
   isCI:         isCiEnvironment(process.env['CI']),
   // Proxy trust for request.ip / rate limiting. Default: trust nothing.
   TRUST_PROXY: parseTrustProxy(process.env['TRUST_PROXY']) as TrustProxySetting,
+  // General rate limit key (see utils/rate-limit.ts). Default false: every
+  // request is counted per client address, as before. true: a request with a
+  // valid access token is counted per user, and every client address is capped
+  // at RATE_LIMIT_ADDRESS_MAX requests per minute, all users together.
+  RATE_LIMIT_PER_USER: parseEnvFlag('RATE_LIMIT_PER_USER', process.env['RATE_LIMIT_PER_USER'], false),
+  RATE_LIMIT_ADDRESS_MAX: parsePositiveIntEnv('RATE_LIMIT_ADDRESS_MAX', 1000),
   // POST /auth/register. Default: on outside production, off in production.
   ALLOW_PUBLIC_REGISTRATION: flagDefaultOffInProduction(
     'ALLOW_PUBLIC_REGISTRATION', process.env['ALLOW_PUBLIC_REGISTRATION'], IS_PRODUCTION,

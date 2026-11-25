@@ -1,3 +1,5 @@
+const { apiProxyTarget } = require('./api-proxy-target');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // The app never uses next/image. Disabling the optimizer removes the
@@ -11,11 +13,12 @@ const nextConfig = {
   // Proxy all /api/v1/* requests to the backend API.
   // This means cookies (refreshToken) are set on localhost:3000 and
   // are readable by Next.js middleware for route protection.
+  // Target: API_INTERNAL_URL when set, else NEXT_PUBLIC_API_URL (api-proxy-target.js).
   async rewrites() {
     return [
       {
         source: '/api/v1/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'}/api/v1/:path*`,
+        destination: `${apiProxyTarget()}/api/v1/:path*`,
       },
     ];
   },
