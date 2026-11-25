@@ -12,6 +12,9 @@
  * Rewrites are fixed when the web app is built, so API_INTERNAL_URL must be set
  * at build time. A malformed value fails the build instead of sending API
  * traffic somewhere unexpected.
+ *
+ * @param {Record<string, string | undefined>} [env]
+ * @returns {string}
  */
 function apiProxyTarget(env = process.env) {
   const internal = (env.API_INTERNAL_URL || '').trim();
