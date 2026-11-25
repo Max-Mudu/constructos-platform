@@ -103,7 +103,7 @@ function stockRow(material: string) {
 describe('creating a delivery that is already accepted', () => {
   it('saves the delivery, one audit row, the stock credit and its transaction', async () => {
     const material = newMaterial();
-    const emit = jest.spyOn(eventEmitter, 'emitToCompany');
+    const emit = jest.spyOn(eventEmitter, 'emitToReaders');
 
     const res = await create(supervisor, material, { acceptanceStatus: 'accepted' });
 
@@ -116,13 +116,13 @@ describe('creating a delivery that is already accepted', () => {
     expect(credits).toHaveLength(1);
     expect(credits[0].type).toBe('delivery_in');
     expect(Number(credits[0].quantity)).toBe(12);
-    expect(emit).toHaveBeenCalledWith(companyId, expect.objectContaining({ type: 'delivery_created' }));
+    expect(emit).toHaveBeenCalledWith(companyId, expect.objectContaining({ type: 'delivery_created' }), expect.anything());
   });
 
   it('keeps nothing when the stock credit fails', async () => {
     const material = newMaterial();
     const auditBefore = (await createAuditRows()).length;
-    const emit = jest.spyOn(eventEmitter, 'emitToCompany');
+    const emit = jest.spyOn(eventEmitter, 'emitToReaders');
     const credit = jest
       .spyOn(inventoryService, 'creditFromDelivery')
       .mockRejectedValueOnce(new Error('simulated failure while crediting stock'));
@@ -135,7 +135,7 @@ describe('creating a delivery that is already accepted', () => {
     expect(await deliveriesOf(material)).toHaveLength(0);
     expect((await createAuditRows()).length).toBe(auditBefore);
     expect(await stockRow(material)).toBeNull();
-    expect(emit).not.toHaveBeenCalledWith(companyId, expect.objectContaining({ type: 'delivery_created' }));
+    expect(emit).not.toHaveBeenCalledWith(companyId, expect.objectContaining({ type: 'delivery_created' }), expect.anything());
     errorLog.mockRestore();
   });
 

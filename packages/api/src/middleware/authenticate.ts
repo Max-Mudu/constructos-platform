@@ -1,7 +1,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { UnauthorizedError } from '../utils/errors';
 import { prisma } from '../utils/prisma';
-import { JwtPayload } from '../types';
+import { JwtPayload, RequestUser } from '../types';
 
 function sendUnauthorized(reply: FastifyReply): void {
   const error = new UnauthorizedError('Invalid or expired token');
@@ -34,6 +34,21 @@ export async function isSessionCurrent(payload: JwtPayload): Promise<boolean> {
   return active !== null;
 }
 
+/**
+ * The request user for a verified access-token payload (sub → id). Shared by
+ * this middleware and the live-updates stream, so both act as the same user.
+ */
+export function requestUserFromPayload(payload: JwtPayload): RequestUser {
+  return {
+    id: payload.sub,
+    email: payload.email,
+    role: payload.role,
+    companyId: payload.companyId,
+    canViewFinance: payload.canViewFinance,
+    sessionVersion: payload.sv === undefined ? 0 : payload.sv,
+  };
+}
+
 export async function authenticate(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -56,12 +71,5 @@ export async function authenticate(
   }
 
   // @fastify/jwt sets request.user to the raw payload; we remap sub → id
-  (request as FastifyRequest & { user: unknown }).user = {
-    id: payload.sub,
-    email: payload.email,
-    role: payload.role,
-    companyId: payload.companyId,
-    canViewFinance: payload.canViewFinance,
-    sessionVersion: payload.sv === undefined ? 0 : payload.sv,
-  };
+  (request as FastifyRequest & { user: unknown }).user = requestUserFromPayload(payload);
 }

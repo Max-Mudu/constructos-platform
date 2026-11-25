@@ -1,35 +1,56 @@
 /**
  * In-process SSE client registry.
  *
- * Each connected browser tab registers a writer function here.
- * When a mutation happens, the service calls emitToCompany() or emitToUser()
- * to push a JSON event to all matching connected clients.
+ * Each connected browser tab or phone registers a writer function here, with
+ * the verified access-token payload it connected with.
+ *  - emitToReaders() sends an event about one record only to the connected
+ *    users who could read that record through the API right now: the same
+ *    session check as every request, then the record's own read rule
+ *    (role, project membership, site scope, contractor link, finance scope).
+ *  - emitToUser() sends to one user's own connections (their notifications).
+ * There is no company-wide broadcast.
  *
  * This is intentionally simple — no Redis, no clustering.
  * Suitable for a single-server deployment; can be swapped for a proper
  * pub/sub adapter later without changing the call sites.
  */
+import { JwtPayload, RequestUser } from '../types';
+import { isSessionCurrent, requestUserFromPayload } from '../middleware/authenticate';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 export interface SSEEvent {
   /** Matches the browser's EventSource `event:` type field */
   type: string;
-  /** Arbitrary JSON payload */
+  /** JSON payload: record ids only */
   payload?: Record<string, unknown>;
 }
 
-interface Client {
+export interface Client {
   id:        string;
   userId:    string;
   companyId: string;
+  /**
+   * The verified access-token payload the stream was opened with. A client
+   * without one never receives a record event.
+   */
+  session?:  JwtPayload;
   write:     (data: string) => void;
 }
+
+/**
+ * True when `reader` may read the record the event is about, by the same rule
+ * as the record's GET route. Any error counts as false.
+ */
+export type ReaderCheck = (reader: RequestUser) => Promise<boolean>;
 
 // ─── Registry ──────────────────────────────────────────────────────────────────
 
 /** companyId → Set of connected clients */
 const registry = new Map<string, Set<Client>>();
+
+/** Deliveries still being checked (see liveUpdatesSettled). */
+const pending = new Set<Promise<void>>();
 
 // ─── API ───────────────────────────────────────────────────────────────────────
 
@@ -49,16 +70,62 @@ export function unregisterClient(client: Client): void {
   if (clients.size === 0) registry.delete(client.companyId);
 }
 
+async function deliverToReaders(
+  companyId: string,
+  snapshot: Client[],
+  line: string,
+  canRead: ReaderCheck,
+): Promise<void> {
+  // One check per token: a user with several tabs is checked once.
+  const decisions = new Map<string, Promise<boolean>>();
+  const decide = (session: JwtPayload): Promise<boolean> => {
+    const key = JSON.stringify([session.sub, session.sv ?? 0, session.companyId, session.role, session.canViewFinance]);
+    let decision = decisions.get(key);
+    if (!decision) {
+      decision = (async () => {
+        try {
+          // The registry groups by company; the token must agree.
+          if (session.companyId !== companyId) return false;
+          return (await isSessionCurrent(session)) && (await canRead(requestUserFromPayload(session)));
+        } catch {
+          return false;
+        }
+      })();
+      decisions.set(key, decision);
+    }
+    return decision;
+  };
+
+  await Promise.all(snapshot.map(async (client) => {
+    if (!client.session) return;
+    if (!(await decide(client.session))) return;
+    if (!registry.get(companyId)?.has(client)) return; // disconnected meanwhile
+    try { client.write(line); } catch { /* client already disconnected */ }
+  }));
+}
+
 /**
- * Broadcast an event to every connected client in the given company.
+ * Send an event about one record to the connected clients of `companyId`
+ * whose user passes `canRead`. Returns at once; the checks run in the
+ * background and never throw, so a write's response does not wait for them.
  */
-export function emitToCompany(companyId: string, event: SSEEvent): void {
+export function emitToReaders(companyId: string, event: SSEEvent, canRead: ReaderCheck): void {
   const clients = registry.get(companyId);
   if (!clients || clients.size === 0) return;
 
   const line = formatSSE(event.type, event.payload ?? {});
-  for (const client of clients) {
-    try { client.write(line); } catch { /* client already disconnected */ }
+  const task = deliverToReaders(companyId, [...clients], line, canRead).catch(() => undefined);
+  pending.add(task);
+  void task.finally(() => pending.delete(task));
+}
+
+/**
+ * Resolves once every emitToReaders() delivery started so far has finished.
+ * For tests, which must wait for the background checks.
+ */
+export async function liveUpdatesSettled(): Promise<void> {
+  while (pending.size > 0) {
+    await Promise.all([...pending]);
   }
 }
 

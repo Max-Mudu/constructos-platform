@@ -2,8 +2,8 @@ import { prisma } from '../utils/prisma';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { InstructionStatus, InstructionPriority, InstructionType, Prisma } from '@prisma/client';
-import { getDocumentSiteIds } from '../middleware/requireProjectAccess';
-import { emitToCompany } from './event-emitter.service';
+import { getDocumentSiteIds, passesProjectRouteGuards } from '../middleware/requireProjectAccess';
+import { emitToReaders } from './event-emitter.service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -109,8 +109,12 @@ function canIssue(role: string): boolean {
   return ['company_admin', 'project_manager', 'consultant'].includes(role);
 }
 
+/** Roles that can view instructions. */
+export const INSTRUCTION_VIEW_ROLES = ['company_admin', 'project_manager', 'site_supervisor',
+  'consultant', 'contractor', 'finance_officer', 'viewer'] as const;
+
 function canView(role: string): boolean {
-  return ['company_admin', 'project_manager', 'site_supervisor', 'consultant', 'contractor', 'finance_officer', 'viewer'].includes(role);
+  return (INSTRUCTION_VIEW_ROLES as readonly string[]).includes(role);
 }
 
 // ─── Site visibility (SITE_SCOPE_STRICT) ──────────────────────────────────────
@@ -261,6 +265,25 @@ export async function getInstruction(
   return instruction;
 }
 
+/**
+ * True when `reader` could GET this instruction: the route guards
+ * (INSTRUCTION_VIEW_ROLES, requireProjectAccess), then getInstruction's own
+ * rules (membership, site scope, contractor link).
+ */
+export async function canReadInstruction(
+  reader: RequestUser,
+  instructionId: string,
+  projectId: string,
+): Promise<boolean> {
+  if (!(await passesProjectRouteGuards(reader, INSTRUCTION_VIEW_ROLES, projectId))) return false;
+  try {
+    await getInstruction(instructionId, projectId, reader);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function createInstruction(
   projectId: string,
   input: CreateInstructionInput,
@@ -307,10 +330,10 @@ export async function createInstruction(
     },
   });
 
-  emitToCompany(actor.companyId, {
+  emitToReaders(actor.companyId, {
     type: 'instruction_updated',
-    payload: { instructionId: instruction.id, projectId, action: 'created', status: instruction.status },
-  });
+    payload: { instructionId: instruction.id, projectId, action: 'created' },
+  }, (reader) => canReadInstruction(reader, instruction.id, projectId));
 
   return instruction;
 }
@@ -399,10 +422,10 @@ export async function updateInstruction(
     },
   });
 
-  emitToCompany(actor.companyId, {
+  emitToReaders(actor.companyId, {
     type: 'instruction_updated',
-    payload: { instructionId, projectId, action: 'updated', status: updated.status },
-  });
+    payload: { instructionId, projectId, action: 'updated' },
+  }, (reader) => canReadInstruction(reader, instructionId, projectId));
 
   return updated;
 }

@@ -49,11 +49,14 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
    *  connected            — immediately on open
    *  heartbeat            — every 25 s
    *  notification         — when a new in-app notification is created for the user
-   *  dashboard            — when any significant company-wide data changes
    *  invoice_updated      — when an invoice status changes
    *  delivery_created     — when a new delivery is recorded
    *  labour_created       — when a new labour entry is recorded
    *  instruction_updated  — when an instruction is created or updated
+   *
+   * A record event reaches only users who can read that record through the
+   * API at that moment (services/event-emitter.service.ts emitToReaders), and
+   * carries record ids only; the client fetches the record itself.
    */
   fastify.get<{ Querystring: { token?: string } }>(
     '/',
@@ -106,6 +109,7 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
         id:       clientId,
         userId,
         companyId,
+        session:  payload,
         write: (data: string) => {
           try { reply.raw.write(data); } catch { /* stream gone */ }
         },

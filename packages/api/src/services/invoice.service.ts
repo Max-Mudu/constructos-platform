@@ -3,7 +3,7 @@ import { NotFoundError, ForbiddenError, ConflictError, ValidationError } from '.
 import { RequestUser } from '../types';
 import { InvoiceStatus, InvoiceVendorType, Prisma } from '@prisma/client';
 import { createNotification } from './notification.service';
-import { emitToCompany } from './event-emitter.service';
+import { emitToReaders } from './event-emitter.service';
 import { requireFinanceReadScope, financeProjectFilter, isProjectInFinanceScope } from './budget.service';
 
 // ─── RBAC helpers ─────────────────────────────────────────────────────────────
@@ -294,6 +294,22 @@ export async function getInvoice(invoiceId: string, actor: RequestUser) {
   return getInvoiceOrThrow(invoiceId, actor);
 }
 
+/** True when `reader` could GET this invoice (financial read scope). */
+export async function canReadInvoice(reader: RequestUser, invoiceId: string): Promise<boolean> {
+  try {
+    await getInvoiceOrThrow(invoiceId, reader);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** invoice_updated, only to users within the invoice's financial read scope. */
+function emitInvoiceUpdated(companyId: string, invoiceId: string): void {
+  emitToReaders(companyId, { type: 'invoice_updated', payload: { invoiceId } },
+    (reader) => canReadInvoice(reader, invoiceId));
+}
+
 // ─── Create ───────────────────────────────────────────────────────────────────
 
 export async function createInvoice(input: CreateInvoiceInput, actor: RequestUser) {
@@ -451,7 +467,7 @@ export async function submitInvoice(invoiceId: string, actor: RequestUser) {
       entityId:   invoiceId,
     });
   }
-  emitToCompany(actor.companyId, { type: 'invoice_updated', payload: { invoiceId, status: 'submitted' } });
+  emitInvoiceUpdated(actor.companyId, invoiceId);
 
   return updated;
 }
@@ -480,7 +496,7 @@ export async function approveInvoice(invoiceId: string, actor: RequestUser) {
       entityId:   invoiceId,
     });
   }
-  emitToCompany(actor.companyId, { type: 'invoice_updated', payload: { invoiceId, status: 'approved' } });
+  emitInvoiceUpdated(actor.companyId, invoiceId);
 
   return updated;
 }
@@ -509,7 +525,7 @@ export async function disputeInvoice(invoiceId: string, notes: string | undefine
       entityId:   invoiceId,
     });
   }
-  emitToCompany(actor.companyId, { type: 'invoice_updated', payload: { invoiceId, status: 'disputed' } });
+  emitInvoiceUpdated(actor.companyId, invoiceId);
 
   return updated;
 }
@@ -538,7 +554,7 @@ export async function cancelInvoice(invoiceId: string, actor: RequestUser) {
       entityId:   invoiceId,
     });
   }
-  emitToCompany(actor.companyId, { type: 'invoice_updated', payload: { invoiceId, status: 'cancelled' } });
+  emitInvoiceUpdated(actor.companyId, invoiceId);
 
   return updated;
 }
