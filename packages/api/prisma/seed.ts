@@ -2,6 +2,14 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { createHash } from 'crypto';
 
+// Demo data is for development and test databases only. A hosted environment
+// runs with NODE_ENV=production; its first company is created with the
+// operator command described in docs/DEPLOYMENT.md.
+if (process.env['NODE_ENV'] === 'production') {
+  console.error('Refusing to seed: NODE_ENV is production. The demo seed is for development and test databases only.');
+  process.exit(1);
+}
+
 const prisma = new PrismaClient();
 
 // Demo records have fixed ids so the seed can be run again without duplicating
