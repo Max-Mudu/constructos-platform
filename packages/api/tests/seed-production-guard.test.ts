@@ -8,7 +8,7 @@ import { spawnSync } from 'child_process';
 import path from 'path';
 
 const API_DIR = path.resolve(__dirname, '..');
-const NO_DATABASE = 'postgresql://nobody:nothing@127.0.0.1:9/no_database_here';
+const NO_DATABASE = 'postgresql://127.0.0.1:9/no_database_here';
 
 function runSeed(nodeEnv: string) {
   const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: nodeEnv, DATABASE_URL: NO_DATABASE };
