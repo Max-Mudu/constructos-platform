@@ -216,7 +216,10 @@ describe('GET /dashboard', () => {
     expect(instructions.critical).toBe(1); // only unresolved critical
   });
 
-  it('includes finance stats for company_admin with canViewFinance', async () => {
+  // Inflows are not recorded by any screen or route, so the dashboard reports
+  // no inflow total or net position, even for finance users and even when an
+  // inflow row exists (dashboard-finance-figures.test.ts covers every role).
+  it('reports no inflow / net position block for company_admin with canViewFinance', async () => {
     const { company, admin } = await createTestCompany(app, 'dash-finance');
     const project = await createTestProject(company.id);
     await prisma.financeInflow.create({
@@ -239,9 +242,9 @@ describe('GET /dashboard', () => {
     });
 
     const { stats } = res.json();
-    expect(stats.finance).toBeDefined();
-    expect(stats.finance.totalInflows).toBe(500000);
-    expect(stats.finance.inflowsThisMonth).toBe(500000);
+    expect(res.statusCode).toBe(200);
+    expect(stats.finance).toBeUndefined();
+    expect(res.payload).not.toMatch(/netPosition|totalInflows|inflowsThisMonth/);
   });
 
   it('does not include finance stats for non-finance user', async () => {

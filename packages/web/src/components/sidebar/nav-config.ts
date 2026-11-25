@@ -16,6 +16,11 @@ export interface NavItem {
   requiresFinancialPermission?: boolean;
   /** visual separator above this item */
   group?: string;
+  /**
+   * if true, the item is not shown to anyone (its page is not ready). The
+   * other fields keep the gate the item gets back when this is removed.
+   */
+  hidden?: boolean;
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -162,13 +167,16 @@ export const NAV_ITEMS: NavItem[] = [
   },
 
   {
-    // PRIVATE — only company_admin and finance_officer with canViewFinance flag
+    // PRIVATE — only company_admin and finance_officer with canViewFinance flag.
+    // Hidden for now: the page is a placeholder and inflows are not recorded
+    // yet, so it has no real figures to show.
     label: 'Client Finance',
     href: '/finance',
     icon: 'Lock',
     roles: ['company_admin', 'finance_officer'],
     requiresFinance: true,
     group: 'Private',
+    hidden: true,
   },
 
   // ── Admin ─────────────────────────────────────────────────────────────────
@@ -242,6 +250,8 @@ export function getVisibleNavItems(
   canViewFinance: boolean,
 ): NavItem[] {
   return NAV_ITEMS.filter((item) => {
+    if (item.hidden) return false;
+
     // Finance-gated items: role must be allowed AND canViewFinance must be true
     if (item.requiresFinance && !canViewFinance) return false;
 

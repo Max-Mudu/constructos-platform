@@ -4,6 +4,7 @@ import { AppError, ForbiddenError, NotFoundError, ValidationError } from '../uti
 import { getAccessibleProjectIds, getAccessibleSiteIds } from '../middleware/requireProjectAccess';
 import { RequestUser } from '../types';
 import { labourCostByCurrency } from '../utils/labour-cost';
+import { invoiceTotalsByCurrency, InvoiceCurrencyTotals } from '../utils/invoice-balance';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -454,15 +455,11 @@ export async function invoiceReport(
     orderBy: { issueDate: 'desc' },
   });
 
-  let totalValue = 0;
-  let totalPaid  = 0;
-  let overdue    = 0;
+  let overdue = 0;
 
   const rows = invoices.map((inv) => {
     const total = Number(inv.totalAmount);
     const paid  = Number(inv.paidAmount);
-    totalValue += total;
-    totalPaid  += paid;
     if (inv.status === 'overdue') overdue++;
     return [
       inv.invoiceNumber,
@@ -479,6 +476,16 @@ export async function invoiceReport(
     ];
   });
 
+  // Value, paid and outstanding per currency (utils/invoice-balance, the
+  // dashboard's rule): "255000.00 KES + 350.00 USD", never one mixed sum.
+  // Outstanding is the unpaid balance of owed invoices (not draft, cancelled
+  // or disputed); In Dispute is the disputed invoices' unpaid balance. The
+  // per-row Outstanding column stays each invoice's own balance.
+  const totals = invoiceTotalsByCurrency(invoices);
+  const perCurrency = (pick: (t: InvoiceCurrencyTotals) => Prisma.Decimal) => totals.length === 0
+    ? fmt(0)
+    : totals.map((t) => `${pick(t).toFixed(2, Prisma.Decimal.ROUND_HALF_UP)} ${t.currency}`).join(' + ');
+
   return {
     title:       'Invoice Report',
     subtitle:    'Invoice status and payment summary',
@@ -486,9 +493,10 @@ export async function invoiceReport(
     filters:     buildActiveFilters(filters),
     summary: [
       { label: 'Total Invoices',  value: String(invoices.length) },
-      { label: 'Total Value',     value: fmt(totalValue) },
-      { label: 'Total Paid',      value: fmt(totalPaid) },
-      { label: 'Outstanding',     value: fmt(totalValue - totalPaid) },
+      { label: 'Total Value',     value: perCurrency((t) => t.totalValue) },
+      { label: 'Total Paid',      value: perCurrency((t) => t.totalPaid) },
+      { label: 'Outstanding',     value: perCurrency((t) => t.outstanding) },
+      { label: 'In Dispute',      value: perCurrency((t) => t.inDispute) },
       { label: 'Overdue',         value: String(overdue) },
     ],
     columns: [

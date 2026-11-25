@@ -350,7 +350,8 @@ describe('GET /dashboard — money fields', () => {
       expect(res.statusCode).toBe(200);
       const { stats } = res.json();
       expect(stats.invoices.totalValue).toBe(3000);
-      expect(stats.invoices.outstanding).toBe(3000);
+      // Both fixture invoices are drafts, which are not owed.
+      expect(stats.invoices.outstanding).toBe(0);
       expect(stats.invoices.total).toBe(2);
       expect(stats.budget.totalBudgeted).toBe(12000);
       expect(stats.budget.totalSpent).toBe(1500);
@@ -365,7 +366,7 @@ describe('GET /dashboard — money fields', () => {
     const { stats } = res.json();
     expect(stats.invoices.totalValue).toBe(1000);
     expect(stats.invoices.totalPaid).toBe(0);
-    expect(stats.invoices.outstanding).toBe(1000);
+    expect(stats.invoices.outstanding).toBe(0); // FA-INV-1 is a draft: not owed
     expect(stats.invoices.total).toBe(1);
     expect(stats.budget.totalBudgeted).toBe(5000);
     expect(stats.budget.totalSpent).toBe(1000);
@@ -392,6 +393,7 @@ describe('GET /dashboard — money fields', () => {
     expect(stats.invoices.totalValue).toBeNull();
     expect(stats.invoices.totalPaid).toBeNull();
     expect(stats.invoices.outstanding).toBeNull();
+    expect(stats.invoices.byCurrency).toBeNull();
     expect(stats.budget.totalBudgeted).toBeNull();
     expect(stats.budget.totalSpent).toBeNull();
     expect(stats.budget.totalRemaining).toBeNull();

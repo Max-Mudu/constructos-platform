@@ -13,6 +13,8 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { SearchFilterBar } from '@/components/ui/SearchFilterBar';
+import { formatMoney } from '@/lib/utils';
+import { invoiceTotalsByCurrency, formatPerCurrency } from '@/lib/invoice-figures';
 import {
   Receipt, Plus, AlertCircle, CheckCircle2, Lock,
   Clock, AlertTriangle, Ban, DollarSign, TrendingUp,
@@ -55,6 +57,9 @@ const VENDOR_TYPE_LABEL: Record<InvoiceVendorType, string> = {
 function fmt(val: string | number, currency = 'USD') {
   return Number(val).toLocaleString('en-US', { style: 'currency', currency, maximumFractionDigits: 0 });
 }
+
+// KPI cards are dense, so money is shown compactly ("KES 2.5M").
+const KPI_MONEY: Intl.NumberFormatOptions = { notation: 'compact', maximumFractionDigits: 1 };
 
 function isOverdue(inv: InvoiceListItem): boolean {
   return inv.status === 'overdue' ||
@@ -181,10 +186,15 @@ export default function InvoicesPage() {
     );
   }, [invoices, search]);
 
-  // KPIs
-  const totalValue       = invoices.reduce((s, i) => s + Number(i.totalAmount), 0);
-  const totalPaid        = invoices.reduce((s, i) => s + Number(i.paidAmount), 0);
-  const totalOutstanding = totalValue - totalPaid;
+  // KPIs over the loaded list: one figure per currency, never a sum across
+  // currencies. Outstanding counts owed invoices only (not draft, not
+  // cancelled), the API's rule (lib/invoice-figures.ts).
+  const totals           = invoiceTotalsByCurrency(invoices);
+  const companyCurrency  = user?.currency ?? totals[0]?.currency ?? 'USD';
+  const perCurrency      = (pick: Parameters<typeof formatPerCurrency>[1]) =>
+    formatPerCurrency(totals, pick, (v, c) => formatMoney(v, c, KPI_MONEY), companyCurrency);
+  const hasOutstanding   = totals.some((t) => t.outstanding > 0);
+  const hasInDispute     = totals.some((t) => t.inDispute > 0);
   const overdueCount     = invoices.filter(isOverdue).length;
 
   if (loading) {
@@ -224,23 +234,29 @@ export default function InvoicesPage() {
 
       {/* Global KPI strip */}
       {invoices.length > 0 && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-5">
           <StatCard
             label="Total Value"
-            value={`$${(totalValue / 1_000_000).toFixed(1)}M`}
+            value={perCurrency((t) => t.totalValue)}
             icon={<Receipt className="h-5 w-5" />}
           />
           <StatCard
             label="Total Paid"
-            value={`$${(totalPaid / 1_000_000).toFixed(1)}M`}
+            value={perCurrency((t) => t.totalPaid)}
             icon={<TrendingDown className="h-5 w-5" />}
             valueClassName="text-emerald-600"
           />
           <StatCard
             label="Outstanding"
-            value={`$${(totalOutstanding / 1_000_000).toFixed(1)}M`}
+            value={perCurrency((t) => t.outstanding)}
             icon={<TrendingUp className="h-5 w-5" />}
-            valueClassName={totalOutstanding > 0 ? 'text-amber-600' : undefined}
+            valueClassName={hasOutstanding ? 'text-amber-600' : undefined}
+          />
+          <StatCard
+            label="In Dispute"
+            value={perCurrency((t) => t.inDispute)}
+            icon={<AlertCircle className="h-5 w-5" />}
+            valueClassName={hasInDispute ? 'text-red-500' : undefined}
           />
           <StatCard
             label="Overdue"

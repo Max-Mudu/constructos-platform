@@ -730,13 +730,20 @@ export interface InvoiceListItem {
   _count:        { lineItems: number };
 }
 
+// Money: company currency only (named in `currency`); byCurrency has one
+// entry per currency. Outstanding = unpaid balance of owed invoices (not
+// draft, cancelled or disputed); totalInDispute = disputed invoices' unpaid
+// balance; see lib/invoice-figures.ts.
 export interface InvoiceSummary {
+  currency:         string;
   totalCount:       number;
   totalValue:       number;
   totalPaid:        number;
   totalOutstanding: number;
+  totalInDispute:   number;
   overdueCount:     number;
   overdueValue:     number;
+  byCurrency:       Array<{ currency: string; totalValue: number; totalPaid: number; outstanding: number; inDispute: number; overdueValue: number }>;
   byStatus:         Record<string, { count: number; value: number }>;
   byVendorType:     Record<string, { count: number; value: number }>;
 }
@@ -819,6 +826,11 @@ export interface DashboardStats {
     outstanding:     number | null;
     overdueCount:    number | null;
     pendingApproval: number | null;
+    // Unpaid balance of disputed invoices (not part of outstanding).
+    inDispute?:      number | null;
+    // One entry per currency (outstanding = owed invoices only). The single
+    // figures above are the company currency's. Absent from older API builds.
+    byCurrency?: Array<{ currency: string; totalValue: number; totalPaid: number; outstanding: number; inDispute: number }> | null;
   };
   budget: {
     totalBudgeted:  number | null;
@@ -842,11 +854,6 @@ export interface DashboardStats {
   };
   notifications: {
     unread: number;
-  };
-  finance?: {
-    totalInflows:     number;
-    inflowsThisMonth: number;
-    netPosition:      number;
   };
   lowStockInventory?: {
     count: number;
