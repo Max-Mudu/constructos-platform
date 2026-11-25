@@ -9,7 +9,8 @@
  * server (once, with what was entered) or still on the phone. Never neither.
  */
 import assert from 'node:assert/strict';
-import { Harness, OpKind, QUEUE_PATH, attendancePayload, labourPayload } from './offlineQueue.harness';
+import { QUEUE_PATH, attendancePayload, labourPayload } from './offlineQueue.harness.ts';
+import type { Harness, OpKind } from './offlineQueue.harness.ts';
 
 export interface DriverEntry {
   type: string;

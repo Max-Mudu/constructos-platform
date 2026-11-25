@@ -1,6 +1,7 @@
 /**
  * Offline queue (src/utils/offlineQueueCore.ts) — run with `npm test` in
- * packages/mobile (Node's test runner through tsx; no React Native needed).
+ * packages/mobile: Node 24's test runner runs these .ts files directly (its
+ * built-in type stripping), so no React Native and no extra package is needed.
  *
  * Test names carry a [category] tag; CI-independent checks look for one
  * passing test per category.
@@ -8,14 +9,15 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  OfflineQueue, QueueEntry, QueueFile, QueueTransport, ServerRecord, OfflineOpType,
-  MAX_TRANSIENT_FAILURES, SYNCED_RETENTION_MS,
+  OfflineQueue, MAX_TRANSIENT_FAILURES, SYNCED_RETENTION_MS,
   classifyError, createFileStorage, matchesQueuedEntry, shouldQueueAfterError, parseQueueFile,
-} from '../src/utils/offlineQueueCore';
+} from '../src/utils/offlineQueueCore.ts';
+import type { QueueEntry, QueueFile, QueueTransport, ServerRecord } from '../src/utils/offlineQueueCore.ts';
 import {
   Harness, QUEUE_PATH, attendancePayload, httpError, labourPayload, networkError, timeoutError,
-} from './offlineQueue.harness';
-import { Driver, scenarios } from './offlineQueue.scenarios';
+} from './offlineQueue.harness.ts';
+import { scenarios } from './offlineQueue.scenarios.ts';
+import type { Driver } from './offlineQueue.scenarios.ts';
 
 // ─── Wiring the queue to the fake world ───────────────────────────────────────
 
@@ -750,6 +752,3 @@ describe('classification', () => {
     assert.ok(c.kind === 'rejected' && /hoursWorked: Number must be less/.test(c.message));
   });
 });
-
-// Type-only use so the import list stays honest under `tsc`.
-export type _Types = OfflineOpType;
