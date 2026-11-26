@@ -344,53 +344,98 @@ export async function createWorker(input: CreateWorkerInput, actor: RequestUser)
   return presentWorker(worker, actor);
 }
 
+// ─── Reactivation ─────────────────────────────────────────────────────────────
+//
+// A worker is active when isActive is true AND the employment status is
+// 'active'. Making a worker who is not active active again (PATCH
+// employmentStatus 'active') is reserved to the company admin; anyone else
+// gets 403 WORKER_REACTIVATION_DENIED. Every other change, including
+// suspending or deactivating a worker in scope, follows the rules above.
+// The status is checked with the worker row locked (FOR UPDATE) in the same
+// transaction as the change, so it cannot be overtaken by a concurrent
+// deactivation.
+
+const REACTIVATION_ROLES = new Set<string>(['company_admin']);
+
+export class WorkerReactivationDeniedError extends AppError {
+  constructor() {
+    super(403, 'Only a company admin can reactivate a worker', 'WORKER_REACTIVATION_DENIED');
+  }
+}
+
+function isActiveWorker(w: { isActive: boolean; employmentStatus: WorkerEmploymentStatus }): boolean {
+  return w.isActive && w.employmentStatus === 'active';
+}
+
+/** True when applying `input` makes a worker who is not active active. */
+function reactivates(before: WorkerRecord, input: UpdateWorkerInput): boolean {
+  if (isActiveWorker(before)) return false;
+  const status = input.employmentStatus ?? before.employmentStatus;
+  const isActive = input.isActive
+    ?? (input.employmentStatus !== undefined ? input.employmentStatus === 'active' : before.isActive);
+  return isActiveWorker({ isActive, employmentStatus: status });
+}
+
 export async function updateWorker(
   workerId: string,
   input: UpdateWorkerInput,
   actor: RequestUser,
 ) {
-  const before = await prisma.worker.findFirst({
-    where: { id: workerId, companyId: actor.companyId, AND: [await workerScopeWhere(actor)] },
-    select: WORKER_SELECT,
-  });
-  if (!before) throw new NotFoundError('Worker');
-  if (includesWageFields(input)) await assertMayWriteWage(actor, workerId);
+  const scope = await workerScopeWhere(actor);
 
-  const updated = await prisma.worker.update({
-    where: { id: workerId },
-    data: {
-      ...(input.firstName            !== undefined && { firstName: input.firstName }),
-      ...(input.lastName             !== undefined && { lastName: input.lastName }),
-      ...(input.email                !== undefined && { email: input.email }),
-      ...(input.phone                !== undefined && { phone: input.phone }),
-      ...(input.idNumber             !== undefined && { idNumber: input.idNumber }),
-      ...(input.trade                !== undefined && { trade: input.trade }),
-      ...(input.dailyWage            !== undefined && { dailyWage: input.dailyWage }),
-      ...(input.currency             !== undefined && { currency: input.currency }),
-      ...(input.employmentStatus     !== undefined && {
-        employmentStatus: input.employmentStatus,
-        isActive: input.employmentStatus === 'active',
-      }),
-      ...(input.isActive             !== undefined && { isActive: input.isActive }),
-      ...(input.emergencyContactName !== undefined && { emergencyContactName: input.emergencyContactName }),
-      ...(input.emergencyContactPhone !== undefined && { emergencyContactPhone: input.emergencyContactPhone }),
-      ...(input.notes                !== undefined && { notes: input.notes }),
-    },
-    select: WORKER_SELECT,
-  });
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`
+      SELECT "id" FROM "workers"
+      WHERE "id" = ${workerId} AND "companyId" = ${actor.companyId}
+      FOR UPDATE`;
+    const before = await tx.worker.findFirst({
+      where: { id: workerId, companyId: actor.companyId, AND: [scope] },
+      select: WORKER_SELECT,
+    });
+    if (!before) throw new NotFoundError('Worker');
+    if (includesWageFields(input)) await assertMayWriteWage(actor, workerId);
+    if (reactivates(before, input) && !REACTIVATION_ROLES.has(actor.role)) {
+      throw new WorkerReactivationDeniedError();
+    }
 
-  await prisma.auditLog.create({
-    data: {
-      companyId:    actor.companyId,
-      userId:       actor.id,
-      userEmail:    actor.email,
-      userRole:     actor.role,
-      action:       'update',
-      entityType:   'worker',
-      entityId:     workerId,
-      changesBefore: before as object,
-      changesAfter:  updated as object,
-    },
+    const after = await tx.worker.update({
+      where: { id: workerId },
+      data: {
+        ...(input.firstName            !== undefined && { firstName: input.firstName }),
+        ...(input.lastName             !== undefined && { lastName: input.lastName }),
+        ...(input.email                !== undefined && { email: input.email }),
+        ...(input.phone                !== undefined && { phone: input.phone }),
+        ...(input.idNumber             !== undefined && { idNumber: input.idNumber }),
+        ...(input.trade                !== undefined && { trade: input.trade }),
+        ...(input.dailyWage            !== undefined && { dailyWage: input.dailyWage }),
+        ...(input.currency             !== undefined && { currency: input.currency }),
+        ...(input.employmentStatus     !== undefined && {
+          employmentStatus: input.employmentStatus,
+          isActive: input.employmentStatus === 'active',
+        }),
+        ...(input.isActive             !== undefined && { isActive: input.isActive }),
+        ...(input.emergencyContactName !== undefined && { emergencyContactName: input.emergencyContactName }),
+        ...(input.emergencyContactPhone !== undefined && { emergencyContactPhone: input.emergencyContactPhone }),
+        ...(input.notes                !== undefined && { notes: input.notes }),
+      },
+      select: WORKER_SELECT,
+    });
+
+    await tx.auditLog.create({
+      data: {
+        companyId:    actor.companyId,
+        userId:       actor.id,
+        userEmail:    actor.email,
+        userRole:     actor.role,
+        action:       'update',
+        entityType:   'worker',
+        entityId:     workerId,
+        changesBefore: before as object,
+        changesAfter:  after as object,
+      },
+    });
+
+    return after;
   });
 
   return presentWorker(updated, actor);

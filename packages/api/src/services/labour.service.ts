@@ -1,10 +1,11 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { AppError, NotFoundError, ForbiddenError, ValidationError } from '../utils/errors';
+import { AppError, NotFoundError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { getAccessibleSiteIds, passesProjectRouteGuards } from '../middleware/requireProjectAccess';
 import { emitToReaders } from './event-emitter.service';
 import { canViewFinancialData } from './report.service';
+import { lockBookableWorkerOnSite } from './worker-booking';
 
 // ─── Read roles ───────────────────────────────────────────────────────────────
 
@@ -127,28 +128,6 @@ async function checkSiteAccess(
   }
 }
 
-async function validateWorkerOnSite(
-  workerId: string,
-  siteId: string,
-  projectId: string,
-  companyId: string,
-): Promise<{ dailyWage: Prisma.Decimal | null; currency: string }> {
-  const worker = await prisma.worker.findFirst({
-    where: { id: workerId, companyId },
-    select: { id: true, dailyWage: true, currency: true },
-  });
-  if (!worker) throw new NotFoundError('Worker');
-
-  // Worker must be assigned to the site
-  const assignment = await prisma.workerAssignment.findFirst({
-    where: { workerId, siteId, projectId, removedAt: null },
-  });
-  if (!assignment) {
-    throw new ForbiddenError('Worker is not assigned to this site');
-  }
-  return { dailyWage: worker.dailyWage, currency: worker.currency };
-}
-
 /**
  * Resolves the rate/currency to store on a new entry (see write policy above).
  * An explicit rate is honoured only for finance-authorised callers; it is
@@ -247,36 +226,45 @@ export async function createLabourEntry(
   actor: RequestUser,
 ) {
   await checkSiteAccess(siteId, projectId, actor);
-  const worker = await validateWorkerOnSite(input.workerId, siteId, projectId, actor.companyId);
-  const { dailyRate, currency } = resolveCreateRate(input, worker, actor);
 
-  const entry = await prisma.labourEntry.create({
-    data: {
-      companyId:      actor.companyId,
-      projectId,
-      siteId,
-      workerId:       input.workerId,
-      registeredById: actor.id,
-      date:           new Date(input.date),
-      hoursWorked:    input.hoursWorked,
-      dailyRate,
-      currency,
-      notes:          input.notes,
-    },
-    select: ENTRY_SELECT,
-  });
+  // The worker's status and wage are read with the worker row locked, in the
+  // same transaction as the new entry and its audit row (see worker-booking.ts).
+  const entry = await prisma.$transaction(async (tx) => {
+    const worker = await lockBookableWorkerOnSite(tx, {
+      workerId: input.workerId, siteId, projectId, companyId: actor.companyId,
+    });
+    const { dailyRate, currency } = resolveCreateRate(input, worker, actor);
 
-  await prisma.auditLog.create({
-    data: {
-      companyId:   actor.companyId,
-      userId:      actor.id,
-      userEmail:   actor.email,
-      userRole:    actor.role,
-      action:      'create',
-      entityType:  'labour_entry',
-      entityId:    entry.id,
-      changesAfter: entry as object,
-    },
+    const created = await tx.labourEntry.create({
+      data: {
+        companyId:      actor.companyId,
+        projectId,
+        siteId,
+        workerId:       input.workerId,
+        registeredById: actor.id,
+        date:           new Date(input.date),
+        hoursWorked:    input.hoursWorked,
+        dailyRate,
+        currency,
+        notes:          input.notes,
+      },
+      select: ENTRY_SELECT,
+    });
+
+    await tx.auditLog.create({
+      data: {
+        companyId:   actor.companyId,
+        userId:      actor.id,
+        userEmail:   actor.email,
+        userRole:    actor.role,
+        action:      'create',
+        entityType:  'labour_entry',
+        entityId:    created.id,
+        changesAfter: created as object,
+      },
+    });
+
+    return created;
   });
 
   emitToReaders(actor.companyId, {
