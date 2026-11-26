@@ -672,6 +672,8 @@ export async function recordPayment(invoiceId: string, input: RecordPaymentInput
   return payment;
 }
 
+const KEEP_STATUS_ON_PAYMENT_REMOVAL = new Set<InvoiceStatus>(['cancelled', 'disputed']);
+
 export async function deletePayment(invoiceId: string, paymentId: string, actor: RequestUser) {
   if (!canFinanceApprove(actor)) throw new ForbiddenError('Only finance staff can remove payments');
   await getInvoiceOrThrow(invoiceId, actor);
@@ -697,8 +699,13 @@ export async function deletePayment(invoiceId: string, paymentId: string, actor:
     const newPaid = Number(remaining._sum.amount ?? 0);
     const total   = Number(invoice.totalAmount);
 
+    // A cancelled or disputed invoice keeps its status: removing a payment
+    // corrects the paid amount, it does not reopen the invoice or end the
+    // dispute.
     let newStatus: InvoiceStatus;
-    if (newPaid >= total && total > 0) {
+    if (KEEP_STATUS_ON_PAYMENT_REMOVAL.has(invoice.status)) {
+      newStatus = invoice.status;
+    } else if (newPaid >= total && total > 0) {
       newStatus = 'paid';
     } else if (newPaid > 0) {
       newStatus = 'partially_paid';

@@ -5,6 +5,9 @@
  *    were approved, or partially paid, as overdue. A draft or submitted invoice
  *    past its due date keeps its status, so it does not become payable without
  *    an approval. An invoice already marked overdue is left as it is.
+ * 2. Removing a payment from a cancelled or disputed invoice corrects the paid
+ *    amount and keeps the status: a cancelled invoice stays cancelled and a
+ *    dispute is not ended. Other invoices behave as before.
  * Roles are unchanged: approving, recording and removing payments stay with
  * company_admin and finance_officer. Every change still writes its audit row.
  */
@@ -128,5 +131,70 @@ describe('overdue sweep', () => {
     const row = await prisma.invoice.findUniqueOrThrow({ where: { id } });
     expect(row.status).toBe('overdue');
     expect(row.approvedAt).toBeNull();
+  });
+});
+
+// ─── 2. Removing a payment ────────────────────────────────────────────────────
+
+describe('removing a payment', () => {
+  async function paidThen(action: 'cancel' | 'dispute' | null, amount = 400) {
+    const id = await invoice('approved', FUTURE);
+    const res = await pay(id, amount);
+    expect(res.statusCode).toBe(201);
+    const paymentId = res.json().payment.id as string;
+    if (action === 'cancel')  expect((await req(finance, 'POST', `/${id}/cancel`)).statusCode).toBe(200);
+    if (action === 'dispute') expect((await req(finance, 'POST', `/${id}/dispute`, { notes: 'Wrong quantity' })).statusCode).toBe(200);
+    return { id, paymentId };
+  }
+
+  it.each([['cancel', 'cancelled'], ['dispute', 'disputed']] as const)(
+    'after %s, removing the payment keeps the invoice %s and corrects the paid amount (audit row written)',
+    async (action, expected) => {
+      const { id, paymentId } = await paidThen(action);
+      const auditBefore = await prisma.auditLog.count({ where: { entityType: 'Invoice', entityId: id } });
+
+      const res = await req(finance, 'DELETE', `/${id}/payments/${paymentId}`);
+      expect(res.statusCode).toBe(204);
+
+      const row = await prisma.invoice.findUniqueOrThrow({ where: { id } });
+      expect(row.status).toBe(expected);
+      expect(Number(row.paidAmount)).toBe(0);
+      expect(await prisma.invoicePayment.count({ where: { invoiceId: id } })).toBe(0);
+      expect(await prisma.auditLog.count({ where: { entityType: 'Invoice', entityId: id } })).toBe(auditBefore + 1);
+    },
+  );
+
+  it('a cancelled invoice stays cancelled and cannot take a new payment afterwards', async () => {
+    const { id, paymentId } = await paidThen('cancel');
+    await req(admin, 'DELETE', `/${id}/payments/${paymentId}`);
+    expect(await statusOf(id)).toBe('cancelled');
+    expect((await pay(id, 100)).statusCode).toBe(422);
+  });
+
+  it('removing one of two payments on a cancelled invoice keeps it cancelled with the remaining amount', async () => {
+    const id = await invoice('approved', FUTURE);
+    const first = (await pay(id, 300)).json().payment.id as string;
+    expect((await pay(id, 200)).statusCode).toBe(201);
+    expect((await req(finance, 'POST', `/${id}/cancel`)).statusCode).toBe(200);
+    expect((await req(finance, 'DELETE', `/${id}/payments/${first}`)).statusCode).toBe(204);
+    const row = await prisma.invoice.findUniqueOrThrow({ where: { id } });
+    expect(row.status).toBe('cancelled');
+    expect(Number(row.paidAmount)).toBe(200);
+  });
+
+  it('on an approved invoice, removing the only payment returns it to approved (unchanged)', async () => {
+    const { id, paymentId } = await paidThen(null);
+    expect(await statusOf(id)).toBe('partially_paid');
+    expect((await req(finance, 'DELETE', `/${id}/payments/${paymentId}`)).statusCode).toBe(204);
+    expect(await statusOf(id)).toBe('approved');
+  });
+
+  it('on a paid invoice, removing a payment returns it to partially paid (unchanged)', async () => {
+    const id = await invoice('approved', FUTURE);
+    const a = (await pay(id, 600)).json().payment.id as string;
+    expect((await pay(id, 400)).statusCode).toBe(201);
+    expect(await statusOf(id)).toBe('paid');
+    expect((await req(finance, 'DELETE', `/${id}/payments/${a}`)).statusCode).toBe(204);
+    expect(await statusOf(id)).toBe('partially_paid');
   });
 });
