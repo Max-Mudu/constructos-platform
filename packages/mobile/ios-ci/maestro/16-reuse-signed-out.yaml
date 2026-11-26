@@ -1,0 +1,33 @@
+# Refresh-token reuse ends every session, the app's included. Before this
+# flow smoke.sh signed the site supervisor in through the API, rotated that
+# session's refresh token and presented the old one again (reuse-replay): the
+# API then ends every session of the user.
+# The app is still open on the Labour tab from flow 15. Opening a tab it has
+# not loaded yet makes a request with its access token, which is now refused;
+# its refresh is refused too, and the app must go back to the login screen.
+# The supervisor then signs in again (the password is unchanged) and reaches
+# the tabs. smoke.sh checks the API log for the refused refresh (refreshed
+# --refused yes).
+appId: com.constructos.app
+---
+- assertVisible: "Labour, tab.*"
+- tapOn: "Inventory, tab.*"
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 45000
+- assertNotVisible: "Home, tab.*"
+- takeScreenshot: reuse-01-signed-out
+- runFlow:
+    file: subflows/enter-credentials.yaml
+    env:
+      EMAIL: ${SUP_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+- tapOn: "Sign in"
+- runFlow:
+    file: subflows/after-sign-in.yaml
+    env:
+      TAB: "Home, tab.*"
+- extendedWaitUntil:
+    visible: "My Day"
+    timeout: 30000
+- takeScreenshot: reuse-02-signed-in-again

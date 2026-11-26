@@ -1,0 +1,32 @@
+# A refresh token from a session that was signed out on purpose is refused
+# without ending the user's other sessions. Before this flow smoke.sh signed
+# the site supervisor in twice more through the API (as two other phones
+# would), signed one of those sessions out, presented its refresh token again
+# (refused) and checked the other session still worked (ended-session-replay).
+# It then waited until the app's 2-minute access token had expired.
+# Here the app is restarted: it must open on the tabs, which needs its own
+# refresh token to still be accepted, and load data. smoke.sh then reads the
+# API log: a 401 for the expired token, then a refresh answered 200, and no
+# refresh refused (refreshed).
+#
+# Fails if: the app shows the login screen after the restart (its session was
+# ended by someone else's replay), or the Labour list does not load.
+appId: com.constructos.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "(Home, tab.*|Welcome back)"
+    timeout: 90000
+- assertVisible: "Home, tab.*"
+- assertNotVisible: "Welcome back"
+- takeScreenshot: ended-01-still-signed-in
+- extendedWaitUntil:
+    visible: "My Day"
+    timeout: 30000
+- waitForAnimationToEnd
+- tapOn: "Labour, tab.*"
+- extendedWaitUntil:
+    visible: ".*Wanjiru Kamau.*"
+    timeout: 30000
+- assertNotVisible: "Welcome back"
+- takeScreenshot: ended-02-data-loaded

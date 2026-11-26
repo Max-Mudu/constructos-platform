@@ -1,0 +1,84 @@
+# Partial acceptance of a delivery. Before this flow smoke.sh created,
+# through the API, an undecided delivery of 20 rolls of binding wire from
+# "Partial Check Supplies" (no acceptance decision yet).
+# The site supervisor signs in on a new install, opens the delivery, chooses
+# "Partial Accept", accepts 12 of the 20 rolls and saves. The detail view must
+# then show the accepted quantity, and the Inventory tab must list the
+# material. smoke.sh then checks through the API that the delivery is
+# partially accepted with 12 rolls and that the site stock was credited with
+# those 12 only (delivery-acceptance-check).
+#
+# The detail view is part of the Deliveries screen (not a sheet), so it can be
+# scrolled both ways.
+appId: com.constructos.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 90000
+- runFlow:
+    file: subflows/enter-credentials.yaml
+    env:
+      EMAIL: ${SUP_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+- tapOn: "Sign in"
+- runFlow:
+    file: subflows/after-sign-in.yaml
+    env:
+      TAB: "Home, tab.*"
+- tapOn: "Deliveries, tab.*"
+- extendedWaitUntil:
+    visible: ".*Partial Check Supplies.*"
+    timeout: 30000
+- takeScreenshot: partial-01-list
+- tapOn: ".*Partial Check Supplies.*"
+- extendedWaitUntil:
+    visible: "Awaiting Decision"
+    timeout: 15000
+- assertVisible: "20(\\.0+)? rolls"
+- scrollUntilVisible:
+    element:
+      text: "Partial Accept"
+    direction: DOWN
+- tapOn: "Partial Accept"
+# The quantity field appears for a partial acceptance; its placeholder names
+# the delivered quantity.
+- extendedWaitUntil:
+    visible: "of 20(\\.0+)? rolls"
+    timeout: 10000
+- tapOn: "of 20(\\.0+)? rolls"
+- inputText: "12"
+- runFlow:
+    when:
+      notVisible: "12"
+    commands:
+      - eraseText: 4
+      - inputText: "12"
+- assertVisible: "12"
+- takeScreenshot: partial-02-quantity
+- scrollUntilVisible:
+    element:
+      text: "Save Changes"
+    direction: DOWN
+- tapOn: "Save Changes"
+# Saved: the button goes away (nothing left to save) and the record shown is
+# the one the API returned.
+- extendedWaitUntil:
+    notVisible: "Save Changes"
+    timeout: 30000
+- assertNotVisible: "Error"
+- scrollUntilVisible:
+    element:
+      text: "Qty Accepted"
+    direction: UP
+- assertVisible: "12(\\.0+)? rolls"
+- assertNotVisible: "Awaiting Decision"
+- takeScreenshot: partial-03-saved
+
+# Only the accepted part reaches site stock (the amount is checked through
+# the API afterwards).
+- tapOn: "Inventory, tab.*"
+- extendedWaitUntil:
+    visible: ".*Binding wire rolls.*"
+    timeout: 20000
+- takeScreenshot: partial-04-inventory

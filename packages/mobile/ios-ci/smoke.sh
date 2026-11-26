@@ -14,6 +14,18 @@
 #                         (API stopped and started), 09 session persistence,
 #                         token refresh after expiry and logout (API restarted
 #                         with 2-minute access tokens), 10 simulated push
+#   SUITE=regression      also 11 labour entry and its cost per currency
+#                         (project manager) and 12 partial acceptance of a
+#                         delivery (site supervisor), both confirmed through
+#                         the API
+#   SUITE=sessions        01, then with 2-minute access tokens: 09a sign-in
+#                         and restart, 13 background and foreground with an
+#                         expired token, 14 weak network (an answer that
+#                         arrives after the app gave up), 15 a signed-out
+#                         session's token replayed (app stays signed in),
+#                         16 refresh-token reuse (app signed out), 17 password
+#                         reset (app signed out, old password refused, new one
+#                         works, logout survives a restart)
 #
 # Every flow runs even if an earlier one fails, so one run shows as much as
 # possible; the step fails if any flow or API check failed. Every sign-in is
@@ -38,6 +50,7 @@ cd "$OUT/screenshots" || exit 1
 
 failed=""
 not_shown=""
+known_issues=""
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -46,11 +59,14 @@ maestro_run() {
     --debug-output "$OUT/maestro/$1" --flatten-debug-output \
     -e SMOKE_EMAIL="$SMOKE_EMAIL" -e SMOKE_PASSWORD="$SMOKE_PASSWORD" \
     -e PM_EMAIL="${PM_EMAIL:-}" -e SUP_EMAIL="${SUP_EMAIL:-}" \
+    -e NEW_PASSWORD="${NEW_PASSWORD:-}" \
     "$HERE/maestro/$1.yaml"
 }
 
-# run_flow <flow> [explore]: a failed flow fails the step, unless "explore"
-# (used for what a simulator may not be able to show at all).
+# run_flow <flow> [explore|known]: a failed flow fails the step, unless
+# "explore" (used for what a simulator may not be able to show at all) or
+# "known" (an app behaviour already being fixed in a pull request that is not
+# merged yet; reported on its own line, see KNOWN_NOTE_<flow>).
 run_flow() {
   local flow="$1" rc=0
   echo "::group::Maestro flow $flow"
@@ -61,6 +77,9 @@ run_flow() {
     if [ "${2:-}" = explore ]; then
       echo "FLOW RESULT $flow: not passed (simulator-dependent, reported separately)"
       not_shown="$not_shown $flow"
+    elif [ "${2:-}" = known ]; then
+      echo "FLOW RESULT $flow: not passed (known app behaviour, reported separately)"
+      known_issues="$known_issues $flow"
     else
       echo "FLOW RESULT $flow: FAILED"
       failed="$failed $flow"
@@ -508,6 +527,143 @@ JSON
   echo "::endgroup::"
 }
 
+# ── Business flows in the regression suite (11, 12) ──────────────────────────
+
+# Finance visibility for the project manager, set in this runner's throwaway
+# database (the API deliberately has no route for it). Only then does the
+# Labour tab show rates and the cost.
+grant_pm_finance() {
+  local psql_bin out
+  psql_bin="$(brew --prefix postgresql@16)/bin/psql"
+  out="$(printf 'UPDATE users SET "canViewFinance" = true WHERE email = :%s AND role = %s;\n' "'pm_email'" "'project_manager'" \
+    | "$psql_bin" -h localhost -p 5432 -U postgres -d constructos_ios_ci -v ON_ERROR_STOP=1 -v pm_email="$PM_EMAIL" 2>&1)"
+  echo "Finance visibility for the project manager (runner database): $out"
+  [ "$out" = "UPDATE 1" ]
+}
+
+business_flows() {
+  if check pm-finance-visibility grant_pm_finance \
+     && check labour-usd-setup ci labour-usd-setup; then
+    fresh_install "11: the project manager signs in on a new install"
+    wait_for_fast_api 11-labour-cost || true
+    run_flow 11-labour-cost
+    api_probe "after 11-labour-cost"
+    check labour-cost ci labour-cost-check --worker-first Otieno --hours 6 --rate 2000 \
+      --currency KES --expect "KES=3000,USD=20"
+  else
+    skip_flow 11-labour-cost "the finance visibility or the USD worker could not be set up"
+  fi
+
+  if check partial-delivery-created ci create-delivery --supplier "Partial Check Supplies"; then
+    fresh_install "12: the site supervisor signs in on a new install"
+    wait_for_fast_api 12-partial-delivery || true
+    run_flow 12-partial-delivery
+    api_probe "after 12-partial-delivery"
+    check partial-acceptance ci delivery-acceptance-check --supplier "Partial Check Supplies" \
+      --accepted 12 --material "Binding wire rolls" --stock 12
+  else
+    skip_flow 12-partial-delivery "the delivery could not be created"
+  fi
+}
+
+# ── Sessions suite (flows 13 to 17) ──────────────────────────────────────────
+
+KNOWN_NOTE_14b="on main before PF-28 the app's retry of an entry the server already saved is refused (500) and the entry stays queued until it is dropped after 5 tries; PF-28 (PR 99) marks it synced"
+
+sessions_suite() {
+  local since pid_before pid_after rest
+  rest="13-background-resume 14a-weak-labour 14b-weak-queue-empty 15-ended-session-quiet 16-reuse-signed-out 17-reset-revoked"
+  echo "::group::Restart the API with 2-minute access tokens"
+  api_stop
+  if ! api_start JWT_EXPIRES_IN=120s; then
+    echo "::error::The API did not start with JWT_EXPIRES_IN=120s"
+    failed="$failed api-restart-short-tokens"
+  fi
+  echo "::endgroup::"
+  fresh_install "sessions: the site supervisor signs in on a new install"
+  wait_for_fast_api 09a-session-persist || true
+  if ! run_flow 09a-session-persist; then
+    for f in $rest; do skip_flow "$f" "the sign-in and restart before it failed"; done
+    return
+  fi
+
+  # 13: background with an expired token.
+  check bg-delivery-created ci create-delivery --supplier "After Background Supplies"
+  since="$(now_iso)"
+  pid_before="$(app_pid)"
+  xcrun simctl launch "$SIM_UDID" com.apple.Preferences >/dev/null 2>&1 \
+    || echo "::warning::Could not open Settings to send the app to the background"
+  echo "App sent to the background at $(now_iso); waiting 140 s (the 2-minute access token expires)"
+  sleep 140
+  echo "App brought back to the foreground at $(now_iso): $(xcrun simctl launch "$SIM_UDID" "$APP_BUNDLE_ID" 2>&1)"
+  sleep 3
+  run_flow 13-background-resume
+  pid_after="$(app_pid)"
+  echo "App process before the background: ${pid_before:-none}; after the flow: ${pid_after:-none}"
+  check bg-same-process test -n "$pid_before" -a "$pid_before" = "$pid_after"
+  check bg-token-refreshed ci refreshed --log "$TIMING" --since "$since"
+
+  # 14: weak network, an answer that arrives after the app gave up.
+  since="$(now_iso)"
+  printf '%s\n' '{"id":"labour-lost-answer","method":"POST","path":"/labour$","delayMs":20000,"count":1}' \
+    > "$RUNNER_TEMP/weak-network.json"
+  echo "Weak network on: the API holds back its next labour answer for 20 s"
+  wait_for_fast_api 14a-weak-labour || true
+  if run_flow 14a-weak-labour; then
+    check weak-saved-on-server ci labour-count --expect 1 --wait 30
+    rm -f "$RUNNER_TEMP/weak-network.json"
+    echo "Weak network off at $(now_iso)"
+    check weak-answer-held-back grep -q '"ev":"delayed"' "$TIMING"
+    background_and_foreground
+    background_and_foreground
+    check weak-no-duplicate ci labour-count --expect 1 --hold 20
+    ci served --log "$TIMING" --since "$since" --method POST --path '/labour$' --status any || true
+    run_flow 14b-weak-queue-empty known
+  else
+    rm -f "$RUNNER_TEMP/weak-network.json"
+    skip_flow 14b-weak-queue-empty "nothing was kept by the app"
+  fi
+
+  # 15: a signed-out session's refresh token presented again.
+  check ended-session-replay ci ended-session-replay
+  since="$(now_iso)"
+  echo "Waiting 135 s with the app open, so its access token expires"
+  sleep 135
+  run_flow 15-ended-session-quiet
+  check ended-app-refreshed ci refreshed --log "$TIMING" --since "$since"
+
+  # 16: refresh-token reuse ends every session.
+  since="$(now_iso)"
+  if check reuse-replay ci reuse-replay; then
+    run_flow 16-reuse-signed-out
+    check reuse-app-refused ci refreshed --log "$TIMING" --since "$since" --refused yes
+  else
+    skip_flow 16-reuse-signed-out "the reuse could not be made"
+  fi
+
+  # 17: password reset. The new password is generated here, masked, and
+  # written to the credentials file only so collect.sh can mask it too.
+  NEW_PASSWORD="Bb2$(openssl rand -hex 12)"
+  echo "::add-mask::$NEW_PASSWORD"
+  export NEW_PASSWORD
+  ( umask 077; echo "SUP_NEW_PASSWORD=$NEW_PASSWORD" >> "$RUNNER_TEMP/smoke-credentials" )
+  since="$(now_iso)"
+  if check password-reset ci reset-password; then
+    run_flow 17-reset-revoked
+    check reset-app-refused ci refreshed --log "$TIMING" --since "$since" --refused yes
+  else
+    skip_flow 17-reset-revoked "the password could not be reset"
+  fi
+
+  echo "::group::Restart the API with the default token lifetime"
+  api_stop
+  if ! api_start; then
+    echo "::error::The API did not restart"
+    failed="$failed api-restart-default"
+  fi
+  echo "::endgroup::"
+}
+
 # ── Run ───────────────────────────────────────────────────────────────────────
 
 echo "Suite: $SUITE (signing: ${SIGNING:-?}); runner clock $(now_iso), time zone offset $(date +%z), $(sysctl -n hw.ncpu) CPUs"
@@ -523,6 +679,10 @@ if [ "${SIGNING:-}" = "disabled" ]; then
   # unsigned build installs, launches and reaches the login screen.
   echo "::notice::Signing disabled: launch flow only. Sign-in needs the keychain entitlement an unsigned build does not have; the adhoc jobs cover it."
   regression_suite "01-launch"
+elif [ "$SUITE" = sessions ]; then
+  regression_suite "01-launch"
+  sessions_suite
+  latency_report
 elif [ "$SUITE" = operations ]; then
   regression_suite "01-launch"
   pdf_flows
@@ -541,6 +701,7 @@ else
     failed="$failed api-cross-check"
   fi
   echo "::endgroup::"
+  business_flows
   polling_control A "app log stream running"
   app_log_stream_stop
   polling_control B "app log stream stopped"
@@ -555,6 +716,11 @@ load_sampler_stop
 if [ -n "$not_shown" ]; then
   echo "::notice::Not shown on this simulator (does not fail the job):$not_shown"
 fi
+for flow in $known_issues; do
+  note_var="KNOWN_NOTE_${flow%%-*}"
+  echo "KNOWN ISSUE $flow: ${!note_var:-see the flow file}"
+  echo "::warning::Known app behaviour, not failing the job: $flow"
+done
 if [ -n "$failed" ]; then
   echo "::error::Smoke flows or checks failed:$failed"
   exit 1

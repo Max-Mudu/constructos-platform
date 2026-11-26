@@ -1,0 +1,96 @@
+# Labour entry and its cost. Before this flow smoke.sh gave the project
+# manager finance visibility (in this runner's throwaway database only: the
+# API has no route for it) and created, through the API, a worker paid in USD
+# with a 4-hour entry today. The fixture already has Wanjiru Kamau, 8 hours at
+# KES 1500 a day.
+# The project manager signs in on a new install, records 6 hours for Otieno
+# Offline at a daily rate of KES 2000, and the Labour tab must then show the
+# cost per currency, never added together (hours / 8 x daily rate):
+#   KES: 8/8 x 1500 + 6/8 x 2000 = 3000      USD: 4/8 x 40 = 20
+# smoke.sh then recomputes the same figures from the entries stored in the
+# API (labour-cost-check).
+#
+# Selectors: a single-line field is found by its placeholder (iOS reports it
+# separately from the label). The hours field already holds "8", which is
+# both its text and its placeholder; nothing else on the form reads exactly
+# "8". The form is a page sheet: scroll DOWN only (see flow 07b).
+appId: com.constructos.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 90000
+- runFlow:
+    file: subflows/enter-credentials.yaml
+    env:
+      EMAIL: ${PM_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+- tapOn: "Sign in"
+- runFlow:
+    file: subflows/after-sign-in.yaml
+    env:
+      TAB: "Dashboard, tab.*"
+- tapOn: "Labour, tab.*"
+- extendedWaitUntil:
+    visible: ".*Wanjiru Kamau.*"
+    timeout: 20000
+- extendedWaitUntil:
+    visible: ".*Juma Dollar.*"
+    timeout: 20000
+# Before the new entry: KES 1500 (Wanjiru) and USD 20 (Juma).
+- extendedWaitUntil:
+    visible: "KES 1500 \\+ USD 20"
+    timeout: 20000
+- assertVisible: "Est. Cost"
+- takeScreenshot: labour-01-before
+
+- tapOn: "\\+ Add"
+- extendedWaitUntil:
+    visible: "New Labour Entry"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: ".*Otieno Offline.*"
+    timeout: 20000
+- tapOn: ".*Otieno Offline.*"
+# Hours: replace the default 8 with 6.
+- tapOn: "8"
+- eraseText: 4
+- inputText: "6"
+- runFlow:
+    when:
+      notVisible: "6"
+    commands:
+      - eraseText: 4
+      - inputText: "6"
+- assertVisible: "6"
+# Daily rate (shown to finance users only): empty, placeholder "1500".
+- tapOn: "1500"
+- inputText: "2000"
+- runFlow:
+    when:
+      notVisible: "2000"
+    commands:
+      - eraseText: 6
+      - inputText: "2000"
+- assertVisible: "2000"
+- takeScreenshot: labour-02-form
+- scrollUntilVisible:
+    element:
+      text: "Create Entry"
+    direction: DOWN
+- tapOn: "Create Entry"
+# The sheet closes only after POST .../labour succeeded; a refusal keeps it
+# open behind an "Error" or "Validation" alert.
+- extendedWaitUntil:
+    notVisible: "New Labour Entry"
+    timeout: 30000
+- assertNotVisible: "Saved Offline"
+- assertNotVisible: "Error"
+- extendedWaitUntil:
+    visible: ".*Otieno Offline.*"
+    timeout: 20000
+- assertVisible: "Rate: 2000(\\.0+)? KES"
+- extendedWaitUntil:
+    visible: "KES 3000 \\+ USD 20"
+    timeout: 20000
+- takeScreenshot: labour-03-cost-per-currency

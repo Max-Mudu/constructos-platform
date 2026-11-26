@@ -48,7 +48,10 @@ api_start() {
     set +a
     for kv in "$@"; do export "${kv?}"; done
     export API_TIMING_LOG="$OUT/logs/api-timing.jsonl"
-    export NODE_OPTIONS="--require $API_CTL_DIR/api-timing.cjs"
+    export NODE_OPTIONS="--require $API_CTL_DIR/api-timing.cjs --require $API_CTL_DIR/weak-network.cjs"
+    # Slow answers are switched on only while smoke.sh has written this file
+    # (weak-network.cjs); it does not exist otherwise.
+    export CI_WEAK_NETWORK_FILE="$RUNNER_TEMP/weak-network.json"
     cd "$API_REPO_ROOT/packages/api" || exit 1
     nohup npx tsx src/server.ts >> "$OUT/logs/api.log" 2>&1 &
   )

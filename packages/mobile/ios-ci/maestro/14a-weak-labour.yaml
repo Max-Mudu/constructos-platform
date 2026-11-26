@@ -1,0 +1,48 @@
+# Weak network, part 1 of 2: an answer that arrives too late. smoke.sh has
+# told the API on this runner (weak-network.cjs) to hold back its answer to the
+# next labour entry for 20 s, longer than the app's 15-second request limit.
+# The API saves the entry; the app does not hear back in time, which on a site
+# is a request whose answer was lost.
+# The site supervisor records 8 hours for Otieno Offline. The app must keep
+# the entry for later ("Saved Offline") rather than show an error or lose it.
+# smoke.sh then checks that the API holds exactly one entry, lets the app
+# retry (background and foreground) and checks that there is still exactly
+# one: a retry must never create a second record.
+appId: com.constructos.app
+---
+- runFlow:
+    file: subflows/ensure-signed-in.yaml
+    env:
+      EMAIL: ${SUP_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+      TAB: "Home, tab.*"
+- tapOn: "Labour, tab.*"
+- extendedWaitUntil:
+    visible: ".*Wanjiru Kamau.*"
+    timeout: 30000
+- assertNotVisible: ".*Otieno Offline.*"
+- tapOn: "\\+ Add"
+- extendedWaitUntil:
+    visible: "New Labour Entry"
+    timeout: 15000
+- extendedWaitUntil:
+    visible: ".*Otieno Offline.*"
+    timeout: 20000
+- tapOn: ".*Otieno Offline.*"
+- scrollUntilVisible:
+    element:
+      text: "Create Entry"
+    direction: DOWN
+- takeScreenshot: weak-01-form-ready
+- tapOn: "Create Entry"
+# 15 s request limit, plus a loaded runner.
+- extendedWaitUntil:
+    visible: "(Saved Offline|Error|Validation)"
+    timeout: 60000
+- takeScreenshot: weak-02-answer-lost
+- assertVisible: "Saved Offline"
+- tapOn: "OK"
+- extendedWaitUntil:
+    notVisible: "New Labour Entry"
+    timeout: 15000
+- assertVisible: "Labour, tab.*"

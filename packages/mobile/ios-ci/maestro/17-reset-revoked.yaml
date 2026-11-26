@@ -1,0 +1,100 @@
+# A password reset ends the sessions issued under the old password, the
+# app's included. Before this flow smoke.sh reset the site supervisor's
+# password the way the web "Forgot password" page does (reset-password) to a
+# new generated one (NEW_PASSWORD, masked; never printed).
+# The app is open on Home from flow 16. Opening a tab it has not loaded yet
+# is refused and the app must return to the login screen. The old password is
+# then refused with the API's own message; the new one signs in. Last, the
+# supervisor logs out and the restarted app must stay on the login screen.
+# Also checked on the way: the login screen's "Forgot password?" link, which
+# in this build (no web address configured) explains whom to ask.
+appId: com.constructos.app
+---
+- assertVisible: "Home, tab.*"
+- tapOn: "Schedule, tab.*"
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 45000
+- assertNotVisible: "Home, tab.*"
+- takeScreenshot: reset-01-signed-out
+
+- tapOn: "Forgot password\\?"
+- extendedWaitUntil:
+    visible: "Reset Password"
+    timeout: 15000
+- assertVisible: "Contact your company administrator to reset your password.*"
+- takeScreenshot: reset-02-forgot-link
+- tapOn: "OK"
+- extendedWaitUntil:
+    notVisible: "Reset Password"
+    timeout: 15000
+
+# The old password no longer works.
+- runFlow:
+    file: subflows/enter-credentials.yaml
+    env:
+      EMAIL: ${SUP_EMAIL}
+      PASSWORD: ${SMOKE_PASSWORD}
+- tapOn: "Sign in"
+- runFlow:
+    file: subflows/retry-sign-in-if-unreachable.yaml
+    env:
+      WAIT_FOR: "(Cannot reach the server.*|Invalid email or password)"
+- extendedWaitUntil:
+    visible: "Login Failed"
+    timeout: 30000
+- assertVisible: "Invalid email or password"
+- takeScreenshot: reset-03-old-password-refused
+- tapOn: "OK"
+- extendedWaitUntil:
+    notVisible: "Invalid email or password"
+    timeout: 15000
+
+# The new one does. Restart the app for an empty form (the failed attempt
+# left both fields filled).
+- launchApp
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 90000
+- runFlow:
+    file: subflows/enter-credentials.yaml
+    env:
+      EMAIL: ${SUP_EMAIL}
+      PASSWORD: ${NEW_PASSWORD}
+- tapOn: "Sign in"
+- runFlow:
+    file: subflows/after-sign-in.yaml
+    env:
+      TAB: "Home, tab.*"
+- takeScreenshot: reset-04-new-password-works
+
+# Log out, restart: nothing brings the session back.
+- tapOn: "Profile, tab.*"
+- extendedWaitUntil:
+    visible: ${SUP_EMAIL}
+    timeout: 20000
+- scrollUntilVisible:
+    element:
+      text: "Log Out"
+    direction: DOWN
+- tapOn: "Log Out"
+- extendedWaitUntil:
+    visible: "(Are you sure you want to log out.|.*unsynced.*)"
+    timeout: 15000
+# With an entry still kept from flow 14 (main before PF-28) the dialog warns
+# about it; either dialog's own Log Out button ends the session.
+- tapOn:
+    text: "Log Out"
+    rightOf: "Cancel"
+    below: "(Are you sure you want to log out.|.*unsynced.*)"
+- extendedWaitUntil:
+    visible: "Welcome back"
+    timeout: 30000
+- takeScreenshot: reset-05-logged-out
+- launchApp
+- extendedWaitUntil:
+    visible: "(Welcome back|Home, tab.*)"
+    timeout: 90000
+- assertVisible: "Welcome back"
+- assertNotVisible: "Home, tab.*"
+- takeScreenshot: reset-06-restarted-still-logged-out

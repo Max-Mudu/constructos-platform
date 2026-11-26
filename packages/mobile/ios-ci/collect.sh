@@ -31,10 +31,14 @@ done
 if [ -f "${RUNNER_TEMP:-/nonexistent}/smoke-credentials" ]; then
   # shellcheck disable=SC1091
   . "$RUNNER_TEMP/smoke-credentials"
-  echo "::add-mask::$SMOKE_PASSWORD"
-  LC_ALL=C grep -rlF -- "$SMOKE_PASSWORD" "$OUT" 2>/dev/null | while IFS= read -r f; do
-    LC_ALL=C sed -i '' "s/$SMOKE_PASSWORD/[masked]/g" "$f"
-    echo "Removed the generated password from ${f#"$OUT"/}"
+  # The generated password, and the one flow 17 resets to (sessions suite).
+  for secret in "${SMOKE_PASSWORD:-}" "${SUP_NEW_PASSWORD:-}"; do
+    [ -n "$secret" ] || continue
+    echo "::add-mask::$secret"
+    LC_ALL=C grep -rlF -- "$secret" "$OUT" 2>/dev/null | while IFS= read -r f; do
+      LC_ALL=C sed -i '' "s/$secret/[masked]/g" "$f"
+      echo "Removed a generated password from ${f#"$OUT"/}"
+    done
   done
 fi
 

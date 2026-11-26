@@ -1,0 +1,42 @@
+# Weak network, part 2 of 2. Before this flow smoke.sh switched the slow
+# answers off, sent the app to the background and back twice (the app sends
+# what it kept when it returns to the foreground) and confirmed through the
+# API that Otieno Offline has exactly one entry today.
+# The entry the app kept must now count as delivered: the Labour list (loaded
+# from the API) shows it, and nothing is left waiting on the phone, so the
+# log-out dialog asks its plain question instead of warning about unsynced
+# entries. The dialog is cancelled; the supervisor stays signed in.
+#
+# On main before the durable offline queue (PF-28) the app's retry of an
+# entry that is already on the server is refused and the entry stays queued
+# until it is dropped after 5 tries: smoke.sh reports this flow separately
+# until that change is merged.
+appId: com.constructos.app
+---
+- assertVisible: "Labour, tab.*"
+- tapOn: "Labour, tab.*"
+- extendedWaitUntil:
+    visible: ".*Otieno Offline.*"
+    timeout: 30000
+- takeScreenshot: weak-03-entry-listed
+- tapOn: "Profile, tab.*"
+- scrollUntilVisible:
+    element:
+      text: "Log Out"
+    direction: DOWN
+- tapOn: "Log Out"
+- extendedWaitUntil:
+    visible: "(Are you sure you want to log out.|.*unsynced.*)"
+    timeout: 15000
+- takeScreenshot: weak-04-logout-dialog
+- runFlow:
+    when:
+      visible: ".*unsynced.*"
+    commands:
+      - tapOn: "Cancel"
+      - assertTrue: ${false}
+- assertVisible: "Are you sure you want to log out."
+- tapOn: "Cancel"
+- extendedWaitUntil:
+    notVisible: "Are you sure you want to log out."
+    timeout: 15000
