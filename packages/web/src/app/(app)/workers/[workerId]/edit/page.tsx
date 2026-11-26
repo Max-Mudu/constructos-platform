@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { workerApi, ApiError } from '@/lib/api';
 import { formErrorState, currencyOptions } from '@/lib/workflows-form-errors';
 import { WorkerEmploymentStatus } from '@/lib/types';
+import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
@@ -37,6 +38,14 @@ export default function EditWorkerPage() {
   // When omitted, hide the pay fields and never send them, so saving the form
   // cannot overwrite the stored wage/currency.
   const [wageVisible, setWageVisible] = useState(true);
+  // Only a company admin can make a worker who is not active active again
+  // (the API answers 403 WORKER_REACTIVATION_DENIED otherwise). The status is
+  // sent only when it was changed, so saving other fields never changes it.
+  const role = useAuthStore((s) => s.user?.role);
+  const [loadedStatus, setLoadedStatus] = useState<WorkerEmploymentStatus>('active');
+  const [loadedActive, setLoadedActive] = useState(true);
+  const canReactivate = role === 'company_admin';
+  const activeLocked  = !canReactivate && !(loadedActive && loadedStatus === 'active');
   const [loading,    setLoading]    = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error,      setError]      = useState('');
@@ -50,6 +59,8 @@ export default function EditWorkerPage() {
       .get(workerId)
       .then(({ worker }) => {
         setWageVisible(worker.dailyWage !== undefined);
+        setLoadedStatus(worker.employmentStatus);
+        setLoadedActive(worker.isActive);
         setForm({
           firstName:            worker.firstName,
           lastName:             worker.lastName,
@@ -87,7 +98,7 @@ export default function EditWorkerPage() {
           dailyWage:           form.dailyWage ? Number(form.dailyWage) : null,
           currency:            form.currency,
         }),
-        employmentStatus:      form.employmentStatus,
+        ...(form.employmentStatus !== loadedStatus && { employmentStatus: form.employmentStatus }),
         emergencyContactName:  form.emergencyContactName  || null,
         emergencyContactPhone: form.emergencyContactPhone || null,
         notes:                 form.notes || null,
@@ -205,9 +216,12 @@ export default function EditWorkerPage() {
                 onChange={(e) => set('employmentStatus', e.target.value)}
               >
                 {EMPLOYMENT_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
+                  <option key={o.value} value={o.value} disabled={o.value === 'active' && activeLocked}>{o.label}</option>
                 ))}
               </Select>
+              {activeLocked && (
+                <p className="mt-1 text-xs text-muted-foreground">Only a company admin can reactivate this worker.</p>
+              )}
             </div>
           </CardContent>
         </Card>
