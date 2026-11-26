@@ -8,6 +8,7 @@ import { formErrorState } from '@/lib/workflows-form-errors';
 import { useRevealError } from '@/hooks/useRevealError';
 import { localToday } from '@/lib/workflows-dates';
 import { entryWage, rateForWorker } from '@/lib/workflows-labour';
+import { bookableWorkers } from '@/lib/worker-filters';
 import { Worker } from '@/lib/types';
 import { useAuthStore } from '@/store/auth.store';
 import { Button } from '@/components/ui/Button';
@@ -31,6 +32,7 @@ export default function NewLabourEntryPage() {
     || (user.role === 'project_manager' && user.canViewFinance));
 
   const [siteWorkers, setSiteWorkers] = useState<Worker[]>([]);
+  const [onlyInactive, setOnlyInactive] = useState(false);
   const [form, setForm] = useState({
     workerId: '',
     date: localToday(),
@@ -46,16 +48,19 @@ export default function NewLabourEntryPage() {
 
   function set(k: string, v: string) { setForm((f) => ({ ...f, [k]: v })); }
 
-  // Load workers assigned to this site
+  // Load the active workers assigned to this site (labour cannot be recorded
+  // for an inactive worker).
   useEffect(() => {
     if (!projectId || !siteId) return;
     workerApi
       .listSiteWorkers(projectId, siteId)
       .then((d) => {
-        setSiteWorkers(d.workers);
+        const workers = bookableWorkers(d.workers);
+        setSiteWorkers(workers);
+        setOnlyInactive(d.workers.length > 0 && workers.length === 0);
         // Pre-select first worker if available
-        if (d.workers.length > 0) {
-          const w = d.workers[0];
+        if (workers.length > 0) {
+          const w = workers[0];
           setForm((f) => ({
             ...f,
             workerId:  w.id,
@@ -137,7 +142,9 @@ export default function NewLabourEntryPage() {
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            No workers are assigned to this site yet. Assign workers first from the site page.
+            {onlyInactive
+              ? 'No active workers are assigned to this site. Labour cannot be recorded for an inactive worker.'
+              : 'No workers are assigned to this site yet. Assign workers first from the site page.'}
           </AlertDescription>
         </Alert>
       )}

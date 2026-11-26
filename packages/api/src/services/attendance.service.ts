@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma';
 import { NotFoundError, ForbiddenError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
+import { assertWorkerActive, lockBookableWorkerOnSite, lockWorkerForBooking } from './worker-booking';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -64,26 +65,6 @@ async function checkSiteAccess(
   const accessibleSiteIds = await getAccessibleSiteIds(projectId, actor.id, actor.role);
   if (accessibleSiteIds !== null && !accessibleSiteIds.includes(siteId)) {
     throw new NotFoundError('Attendance record');
-  }
-}
-
-async function validateWorkerOnSite(
-  workerId: string,
-  siteId: string,
-  projectId: string,
-  companyId: string,
-): Promise<void> {
-  const worker = await prisma.worker.findFirst({
-    where: { id: workerId, companyId },
-    select: { id: true },
-  });
-  if (!worker) throw new NotFoundError('Worker');
-
-  const assignment = await prisma.workerAssignment.findFirst({
-    where: { workerId, siteId, projectId, removedAt: null },
-  });
-  if (!assignment) {
-    throw new ForbiddenError('Worker is not assigned to this site');
   }
 }
 
@@ -182,50 +163,57 @@ export async function createAttendanceRecord(
 ) {
   await checkSiteAccess(siteId, projectId, actor);
   assertTimeOrder(input.checkInTime ?? null, input.checkOutTime ?? null);
-  await validateWorkerOnSite(input.workerId, siteId, projectId, actor.companyId);
 
-  // Check for duplicate (one attendance per worker per site per day)
-  const existing = await prisma.attendanceRecord.findFirst({
-    where: {
-      siteId,
-      workerId: input.workerId,
-      date: new Date(input.date),
-    },
+  // The worker's status is checked with the worker row locked, in the same
+  // transaction as the new record and its audit row (see worker-booking.ts).
+  return prisma.$transaction(async (tx) => {
+    await lockBookableWorkerOnSite(tx, {
+      workerId: input.workerId, siteId, projectId, companyId: actor.companyId,
+    });
+
+    // Check for duplicate (one attendance per worker per site per day)
+    const existing = await tx.attendanceRecord.findFirst({
+      where: {
+        siteId,
+        workerId: input.workerId,
+        date: new Date(input.date),
+      },
+    });
+    if (existing) {
+      throw new ForbiddenError('Attendance record already exists for this worker on this date');
+    }
+
+    const record = await tx.attendanceRecord.create({
+      data: {
+        companyId:    actor.companyId,
+        projectId,
+        siteId,
+        workerId:     input.workerId,
+        recordedById: actor.id,
+        date:         new Date(input.date),
+        status:       input.status,
+        checkInTime:  input.checkInTime  ?? null,
+        checkOutTime: input.checkOutTime ?? null,
+        notes:        input.notes        ?? null,
+      },
+      select: RECORD_SELECT,
+    });
+
+    await tx.auditLog.create({
+      data: {
+        companyId:    actor.companyId,
+        userId:       actor.id,
+        userEmail:    actor.email,
+        userRole:     actor.role,
+        action:       'create',
+        entityType:   'attendance_record',
+        entityId:     record.id,
+        changesAfter: record as object,
+      },
+    });
+
+    return record;
   });
-  if (existing) {
-    throw new ForbiddenError('Attendance record already exists for this worker on this date');
-  }
-
-  const record = await prisma.attendanceRecord.create({
-    data: {
-      companyId:    actor.companyId,
-      projectId,
-      siteId,
-      workerId:     input.workerId,
-      recordedById: actor.id,
-      date:         new Date(input.date),
-      status:       input.status,
-      checkInTime:  input.checkInTime  ?? null,
-      checkOutTime: input.checkOutTime ?? null,
-      notes:        input.notes        ?? null,
-    },
-    select: RECORD_SELECT,
-  });
-
-  await prisma.auditLog.create({
-    data: {
-      companyId:    actor.companyId,
-      userId:       actor.id,
-      userEmail:    actor.email,
-      userRole:     actor.role,
-      action:       'create',
-      entityType:   'attendance_record',
-      entityId:     record.id,
-      changesAfter: record as object,
-    },
-  });
-
-  return record;
 }
 
 export async function updateAttendanceRecord(
@@ -327,6 +315,8 @@ export async function deleteAttendanceRecord(
  * A worker submits their own attendance for today.
  * - Actor must have role 'worker'
  * - Derives the Worker record via actor.id → worker.userId
+ * - The worker must be active (422 WORKER_INACTIVE otherwise, also for a
+ *   re-submission of today's record)
  * - Validates WorkerAssignment for this site
  * - Upserts today's AttendanceRecord (idempotent check-in)
  */
@@ -336,43 +326,41 @@ export async function selfAttendance(
   input: { checkInTime?: string; notes?: string },
   actor: RequestUser,
 ) {
-  // Find the worker record linked to this user account
-  const worker = await prisma.worker.findFirst({
-    where: { userId: actor.id, companyId: actor.companyId },
-    select: { id: true },
-  });
-  if (!worker) {
-    throw new ForbiddenError('No worker profile linked to this account');
-  }
-
-  // Validate assignment
-  const assignment = await prisma.workerAssignment.findFirst({
-    where: { workerId: worker.id, siteId, projectId, removedAt: null },
-  });
-  if (!assignment) {
-    throw new ForbiddenError('Worker is not assigned to this site');
-  }
-
   // Date: today (server date)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
 
-  // Upsert — idempotent: worker can re-submit if they need to update check-in time
-  const existing = await prisma.attendanceRecord.findFirst({
-    where: { siteId, workerId: worker.id, date: { gte: today, lt: tomorrow } },
-    select: RECORD_SELECT,
-  });
+  // The worker row is locked while its status is checked and today's record
+  // is written; the write and its audit row commit together.
+  return prisma.$transaction(async (tx) => {
+    // Find the worker record linked to this user account
+    const worker = await lockWorkerForBooking(tx, { userId: actor.id, companyId: actor.companyId });
+    if (!worker) {
+      throw new ForbiddenError('No worker profile linked to this account');
+    }
+    assertWorkerActive(worker, 'Your worker profile is inactive, so attendance cannot be recorded');
 
-  if (existing) {
-    // Update check-in time / notes if provided. A check-out may have been
-    // recorded by a supervisor since; the new check-in is checked against it
-    // under the row lock, and the update and its audit row commit together.
-    return prisma.$transaction(async (tx) => {
-      const found = await lockAttendanceRecord(tx, {
-        id: existing.id, projectId: existing.projectId, siteId: existing.siteId, companyId: existing.companyId,
-      });
+    // Validate assignment
+    const assignment = await tx.workerAssignment.findFirst({
+      where: { workerId: worker.id, siteId, projectId, removedAt: null },
+    });
+    if (!assignment) {
+      throw new ForbiddenError('Worker is not assigned to this site');
+    }
+
+    // Upsert — idempotent: worker can re-submit if they need to update check-in time
+    const existing = await tx.attendanceRecord.findFirst({
+      where: { siteId, workerId: worker.id, date: { gte: today, lt: tomorrow } },
+      select: { id: true, projectId: true, siteId: true, companyId: true },
+    });
+
+    if (existing) {
+      // Update check-in time / notes if provided. A check-out may have been
+      // recorded by a supervisor since; the new check-in is checked against it
+      // under the row lock.
+      const found = await lockAttendanceRecord(tx, existing);
       if (!found) throw new NotFoundError('Attendance record');
 
       if (input.checkInTime !== undefined) {
@@ -406,38 +394,38 @@ export async function selfAttendance(
       });
 
       return updated;
+    }
+
+    const record = await tx.attendanceRecord.create({
+      data: {
+        companyId:    actor.companyId,
+        projectId,
+        siteId,
+        workerId:     worker.id,
+        recordedById: actor.id,
+        date:         today,
+        status:       'present',
+        checkInTime:  input.checkInTime ?? null,
+        notes:        input.notes       ?? null,
+      },
+      select: RECORD_SELECT,
     });
-  }
 
-  const record = await prisma.attendanceRecord.create({
-    data: {
-      companyId:    actor.companyId,
-      projectId,
-      siteId,
-      workerId:     worker.id,
-      recordedById: actor.id,
-      date:         today,
-      status:       'present',
-      checkInTime:  input.checkInTime ?? null,
-      notes:        input.notes       ?? null,
-    },
-    select: RECORD_SELECT,
+    await tx.auditLog.create({
+      data: {
+        companyId:    actor.companyId,
+        userId:       actor.id,
+        userEmail:    actor.email,
+        userRole:     actor.role,
+        action:       'create',
+        entityType:   'attendance_record',
+        entityId:     record.id,
+        changesAfter: record as object,
+      },
+    });
+
+    return record;
   });
-
-  await prisma.auditLog.create({
-    data: {
-      companyId:    actor.companyId,
-      userId:       actor.id,
-      userEmail:    actor.email,
-      userRole:     actor.role,
-      action:       'create',
-      entityType:   'attendance_record',
-      entityId:     record.id,
-      changesAfter: record as object,
-    },
-  });
-
-  return record;
 }
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
