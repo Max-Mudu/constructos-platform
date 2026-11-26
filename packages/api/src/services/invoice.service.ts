@@ -211,9 +211,10 @@ function computeStatusFromPayments(
   if (paid > 0 && paid < total) {
     return { status: 'partially_paid', paidAt: null };
   }
-  // No payments — if overdue and currently approved/submitted, mark overdue
+  // No payments — past due and approved (or partially paid before): overdue.
+  // An invoice that was never approved never becomes overdue (payable).
   if (paid === 0 && dueDate < now &&
-      (currentStatus === 'approved' || currentStatus === 'submitted' || currentStatus === 'partially_paid')) {
+      (currentStatus === 'approved' || currentStatus === 'partially_paid')) {
     return { status: 'overdue', paidAt: null };
   }
   return { status: currentStatus, paidAt: null };
@@ -235,13 +236,15 @@ export async function listInvoices(actor: RequestUser, filter: ListInvoicesFilte
   // Authorise before any side effect. Throws 403 for roles without financial reads.
   const scope = await requireFinanceReadScope(actor);
 
-  // First, mark overdue invoices (company-wide maintenance, unchanged)
+  // First, mark overdue invoices (company-wide maintenance). Only an approved
+  // or partially paid invoice can become overdue: 'overdue' accepts payments,
+  // so a draft or submitted invoice (not yet approved) is never swept.
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   await prisma.invoice.updateMany({
     where: {
       companyId: actor.companyId,
-      status:    { in: ['approved', 'submitted', 'partially_paid'] },
+      status:    { in: ['approved', 'partially_paid'] },
       dueDate:   { lt: today },
     },
     data: { status: 'overdue' },
