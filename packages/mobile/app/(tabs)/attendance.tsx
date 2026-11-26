@@ -14,6 +14,7 @@ import { attendanceApi } from '../../src/api/attendance';
 import { projectsApi } from '../../src/api/projects';
 import { workersApi } from '../../src/api/workers';
 import { enqueue, isNetworkError } from '../../src/utils/offlineQueue';
+import { bookableWorkers } from '../../src/utils/workers';
 import { useOfflineQueue } from '../../src/hooks/useOfflineQueue';
 import { AttendanceRecord, AttendanceStatus, Project, JobSite, Worker } from '../../src/types';
 import { useAppBarInset, useModalTopInset } from '../../src/hooks/useAppBarInset';
@@ -305,8 +306,9 @@ function MarkAttendanceModal({
     setCheckInTime('');
     setNotes('');
     setLoadingWorkers(true);
+    // Attendance cannot be recorded for an inactive worker, so only active ones are offered.
     workersApi.listBySite(projectId, siteId)
-      .then(setWorkers)
+      .then((w) => setWorkers(bookableWorkers(w)))
       .catch(() => {})
       .finally(() => setLoadingWorkers(false));
   }, [visible, projectId, siteId]);
