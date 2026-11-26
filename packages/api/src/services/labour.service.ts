@@ -5,6 +5,7 @@ import { RequestUser } from '../types';
 import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
 import { emitToCompany } from './event-emitter.service';
 import { canViewFinancialData } from './report.service';
+import { assertPayPeriodOpen, withPayPeriodOpen } from './pay-period-lock.service';
 import { lockBookableWorkerOnSite } from './worker-booking';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -206,6 +207,8 @@ export async function createLabourEntry(
   // The worker's status and wage are read with the worker row locked, in the
   // same transaction as the new entry and its audit row (see worker-booking.ts).
   const entry = await prisma.$transaction(async (tx) => {
+    // Refused when the entry's date is in a closed pay period.
+    await assertPayPeriodOpen(tx, actor.companyId, [new Date(input.date)]);
     const worker = await lockBookableWorkerOnSite(tx, {
       workerId: input.workerId, siteId, projectId, companyId: actor.companyId,
     });
@@ -277,7 +280,8 @@ export async function updateLabourEntry(
     throw new ValidationError('The currency of an existing labour entry cannot be changed');
   }
 
-  const updated = await prisma.labourEntry.update({
+  // An entry in a closed pay period cannot be edited (its date cannot change).
+  const updated = await withPayPeriodOpen(actor.companyId, [before.date], (tx) => tx.labourEntry.update({
     where: { id: entryId },
     data: {
       ...(input.hoursWorked !== undefined && { hoursWorked: input.hoursWorked }),
@@ -285,7 +289,7 @@ export async function updateLabourEntry(
       ...(input.notes       !== undefined && { notes:       input.notes }),
     },
     select: ENTRY_SELECT,
-  });
+  }));
 
   await prisma.auditLog.create({
     data: {
@@ -318,7 +322,8 @@ export async function deleteLabourEntry(
   });
   if (!entry) throw new NotFoundError('Labour entry');
 
-  await prisma.labourEntry.delete({ where: { id: entryId } });
+  // An entry in a closed pay period cannot be deleted.
+  await withPayPeriodOpen(actor.companyId, [entry.date], (tx) => tx.labourEntry.delete({ where: { id: entryId } }));
 
   await prisma.auditLog.create({
     data: {

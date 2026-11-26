@@ -34,6 +34,7 @@ import { eventsRoutes } from './routes/events.routes';
 import { activityRoutes } from './routes/activity.routes';
 import { mobileRoutes } from './routes/mobile.routes';
 import { dailyReportRoutes } from './routes/daily-report.routes';
+import { payPeriodLockRoutes } from './routes/pay-period-lock.routes';
 import { fileRoutes } from './routes/files.routes';
 import { prisma } from './utils/prisma';
 import { canAccessUploadedFile } from './services/file-access.service';
@@ -248,6 +249,7 @@ export async function buildApp(options: BuildAppOptions = {}) {
   await app.register(activityRoutes,        { prefix: '/api/v1/activity' });
   await app.register(mobileRoutes,          { prefix: '/api/v1' });
   await app.register(dailyReportRoutes,     { prefix: '/api/v1/projects/:projectId/sites/:siteId/daily-reports' });
+  await app.register(payPeriodLockRoutes,   { prefix: '/api/v1/pay-period-lock' });
 
   // ── Serve uploaded files ──────────────────────────────────────────────────
   // Requires authentication plus the same company, role, project-membership,
