@@ -59,8 +59,8 @@ export function productionStartupWarnings(input: StartupWarningsInput): string[]
   const warnings: string[] = [];
   if (input.sseEnabled) {
     warnings.push(
-      'SSE_ENABLED is on in production. Keep live updates off (unset SSE_ENABLED) until event delivery ' +
-      'is scoped per audience; the web and mobile apps work without them.',
+      'SSE_ENABLED is on in production; confirm that live updates are intended for this deployment. ' +
+      'The web and mobile apps also work with them off.',
     );
   }
   if (input.publicRegistration) {
