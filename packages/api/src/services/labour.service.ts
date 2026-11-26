@@ -109,6 +109,24 @@ export class WorkerWageMissingError extends AppError {
   }
 }
 
+/**
+ * A labour entry that an invoice references cannot be deleted, whatever the
+ * invoice's status: invoices.labourEntryId is ON DELETE SET NULL, so the
+ * delete would silently clear the invoice's link. The entry can still be
+ * corrected with an edit (audited), or, while the invoice is a draft or
+ * submitted, removed from the invoice first by editing the invoice.
+ */
+export class LabourEntryInvoicedError extends AppError {
+  constructor() {
+    super(
+      409,
+      'This labour entry is referenced by an invoice and cannot be deleted. Correct the entry instead, ' +
+      'or ask a finance user to remove it from the invoice first.',
+      'LABOUR_ENTRY_INVOICED',
+    );
+  }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function checkSiteAccess(
@@ -330,7 +348,15 @@ export async function deleteLabourEntry(
   });
   if (!entry) throw new NotFoundError('Labour entry');
 
-  await prisma.labourEntry.delete({ where: { id: entryId } });
+  // The row lock conflicts with the key-share lock an invoice insert or update
+  // takes on a labour entry it links to, so an invoice cannot be linked
+  // between the check and the delete.
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT "id" FROM "labour_entries" WHERE "id" = ${entryId} FOR UPDATE`;
+    const invoiced = await tx.invoice.count({ where: { labourEntryId: entryId } });
+    if (invoiced > 0) throw new LabourEntryInvoicedError();
+    await tx.labourEntry.delete({ where: { id: entryId } });
+  });
 
   await prisma.auditLog.create({
     data: {
