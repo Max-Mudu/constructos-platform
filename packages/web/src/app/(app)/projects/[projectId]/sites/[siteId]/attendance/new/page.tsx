@@ -7,6 +7,7 @@ import { attendanceApi, workerApi, ApiError } from '@/lib/api';
 import { formErrorState } from '@/lib/workflows-form-errors';
 import { useRevealError } from '@/hooks/useRevealError';
 import { localToday } from '@/lib/workflows-dates';
+import { bookableWorkers } from '@/lib/worker-filters';
 import { Worker, AttendanceStatus } from '@/lib/types';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Alert, AlertDescription } from '@/components/ui/Alert';
@@ -37,12 +38,19 @@ export default function NewAttendancePage() {
   const [error,        setError]        = useState('');
   const [workersError, setWorkersError] = useState('');
   const [workersLoaded, setWorkersLoaded] = useState(false);
+  const [onlyInactive,  setOnlyInactive]  = useState(false);
   const errorRef = useRevealError(error);
 
   useEffect(() => {
     if (!projectId || !siteId) return;
+    // Attendance cannot be recorded for an inactive worker, so only active ones are offered.
     workerApi.listSiteWorkers(projectId, siteId)
-      .then((d) => { setWorkers(d.workers); setWorkersLoaded(true); })
+      .then((d) => {
+        const bookable = bookableWorkers(d.workers);
+        setWorkers(bookable);
+        setOnlyInactive(d.workers.length > 0 && bookable.length === 0);
+        setWorkersLoaded(true);
+      })
       .catch((err) => setWorkersError(
         `Could not load this site's workers: ${err instanceof ApiError ? err.message : 'request failed'}`,
       ));
@@ -115,7 +123,12 @@ export default function NewAttendancePage() {
                 ))}
               </select>
               {workersError && <p className="text-xs text-red-400">{workersError}</p>}
-              {workersLoaded && workers.length === 0 && (
+              {workersLoaded && onlyInactive && (
+                <p className="text-xs text-muted-foreground">
+                  No active workers are assigned to this site. Attendance cannot be recorded for an inactive worker.
+                </p>
+              )}
+              {workersLoaded && workers.length === 0 && !onlyInactive && (
                 <p className="text-xs text-muted-foreground">
                   No workers are assigned to this site yet.{' '}
                   <Link href={`/projects/${projectId}/sites/${siteId}`} className="text-primary hover:underline">

@@ -916,6 +916,22 @@ describe('conflicts and reasons', () => {
     assert.match(e.failure!.message, /^Not saved: A labour entry already exists for this worker on this date\. Someone else/);
   });
 
+  test('[server-reason] a replayed entry refused because the worker is now inactive (422) is failed with the server\'s message, not dropped', async () => {
+    const h = new Harness();
+    const q = makeQueue(h);
+    h.net = 'offline';
+    await q.enqueue('attendance_create', attendancePayload());
+    h.net = 'online';
+    h.server.failNextWrites(422, 1, 'This worker is inactive, so attendance cannot be recorded', 'WORKER_INACTIVE');
+    await q.flush();
+    const e = only(h);
+    assert.equal(e.state, 'failed');
+    assert.equal(e.failure?.kind, 'rejected');
+    assert.equal(e.failure?.status, 422);
+    assert.equal(e.failure?.message, 'This worker is inactive, so attendance cannot be recorded');
+    assert.equal(q.view('user-a').failed.length, 1);
+  });
+
   test('[enqueue-outcome] a refused (blocked) offline save is never reported as saved', async () => {
     const h = new Harness();
     const q = makeQueue(h);

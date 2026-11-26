@@ -46,6 +46,8 @@ export interface JobSite {
 
 // ─── Workers ──────────────────────────────────────────────────────────────────
 
+export type WorkerEmploymentStatus = 'active' | 'inactive' | 'suspended';
+
 export interface Worker {
   id:        string;
   companyId: string;
@@ -53,6 +55,7 @@ export interface Worker {
   lastName:  string;
   trade:     string | null;
   isActive:  boolean;
+  employmentStatus: WorkerEmploymentStatus;
 }
 
 // ─── Attendance ───────────────────────────────────────────────────────────────
