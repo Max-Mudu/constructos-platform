@@ -561,6 +561,11 @@ export async function createTestScheduleTask(
 export async function clearDatabase(): Promise<void> {
   // Leaf-level dependents first
   await prisma.auditLog.deleteMany();
+  // pay_period_locks references companies and users. Raw SQL (no generated
+  // model needed); skipped on a database the migration has not reached yet.
+  await prisma.$executeRawUnsafe(
+    `DO $$ BEGIN IF to_regclass('public.pay_period_locks') IS NOT NULL THEN DELETE FROM "pay_period_locks"; END IF; END $$;`,
+  );
   await prisma.notificationPreference.deleteMany();
   await prisma.notification.deleteMany();
   // Daily reports reference company, project, job site and users (RESTRICT);

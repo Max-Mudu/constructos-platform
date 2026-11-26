@@ -237,6 +237,7 @@ model Company {
   siteInventoryItems      SiteInventory[]
   inventoryTransactions   InventoryTransaction[]
   dailyReports            DailyReport[]
+  payPeriodLocks          PayPeriodLock[]
 
   @@map("companies")
 }
@@ -306,6 +307,7 @@ model User {
   dailyReportPhotos       DailyReportPhoto[]       @relation("DailyReportPhotoUploadedBy")
   dailyReportRevisions    DailyReportRevision[]    @relation("DailyReportRevisionFinalisedBy")
   dailyReportReopenings   DailyReportRevision[]    @relation("DailyReportRevisionReopenedBy")
+  payPeriodLocks          PayPeriodLock[]          @relation("PayPeriodLockCreatedBy")
 
   @@index([defaultProjectId])
   @@index([defaultSiteId])
@@ -511,6 +513,35 @@ model LabourEntry {
 
   @@unique([siteId, workerId, date])
   @@map("labour_entries")
+}
+
+// ─── Pay-period lock ─────────────────────────────────────────────────────────
+//
+// Append-only history of a company's "closed up to" date for labour and
+// attendance. The current date is the lockedThrough of the company's row with
+// the highest id (null = nothing closed). Labour entries and attendance
+// records dated on or before it cannot be created, edited or deleted.
+
+enum PayPeriodLockAction {
+  close
+  reopen
+}
+
+model PayPeriodLock {
+  id                    Int                 @id @default(autoincrement())
+  companyId             String
+  action                PayPeriodLockAction
+  lockedThrough         DateTime?           @db.Date
+  previousLockedThrough DateTime?           @db.Date
+  reason                String?
+  createdById           String
+  createdAt             DateTime            @default(now())
+
+  company   Company @relation(fields: [companyId], references: [id])
+  createdBy User    @relation("PayPeriodLockCreatedBy", fields: [createdById], references: [id])
+
+  @@index([companyId, id])
+  @@map("pay_period_locks")
 }
 
 model AttendanceRecord {

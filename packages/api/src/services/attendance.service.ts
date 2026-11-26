@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma';
 import { NotFoundError, ForbiddenError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
+import { assertPayPeriodOpen, withPayPeriodOpen } from './pay-period-lock.service';
 import { assertWorkerActive, lockBookableWorkerOnSite, lockWorkerForBooking } from './worker-booking';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -167,6 +168,8 @@ export async function createAttendanceRecord(
   // The worker's status is checked with the worker row locked, in the same
   // transaction as the new record and its audit row (see worker-booking.ts).
   return prisma.$transaction(async (tx) => {
+    // Refused when the record's date is in a closed pay period.
+    await assertPayPeriodOpen(tx, actor.companyId, [new Date(input.date)]);
     await lockBookableWorkerOnSite(tx, {
       workerId: input.workerId, siteId, projectId, companyId: actor.companyId,
     });
@@ -240,6 +243,9 @@ export async function updateAttendanceRecord(
       select: RECORD_SELECT,
     });
 
+    // A record in a closed pay period cannot be edited.
+    await assertPayPeriodOpen(tx, actor.companyId, [before.date]);
+
     // Only a request that changes a time is checked, so a status or notes
     // correction still works on an older record whose stored times are out
     // of order.
@@ -293,7 +299,8 @@ export async function deleteAttendanceRecord(
   });
   if (!record) throw new NotFoundError('Attendance record');
 
-  await prisma.attendanceRecord.delete({ where: { id: recordId } });
+  // A record in a closed pay period cannot be deleted.
+  await withPayPeriodOpen(actor.companyId, [record.date], (tx) => tx.attendanceRecord.delete({ where: { id: recordId } }));
 
   await prisma.auditLog.create({
     data: {
@@ -335,6 +342,10 @@ export async function selfAttendance(
   // The worker row is locked while its status is checked and today's record
   // is written; the write and its audit row commit together.
   return prisma.$transaction(async (tx) => {
+    // Checked against the calendar date the record is stored under (the
+    // UTC date of the server's midnight), like every other attendance write.
+    await assertPayPeriodOpen(tx, actor.companyId, [new Date(today.toISOString().slice(0, 10))]);
+
     // Find the worker record linked to this user account
     const worker = await lockWorkerForBooking(tx, { userId: actor.id, companyId: actor.companyId });
     if (!worker) {
