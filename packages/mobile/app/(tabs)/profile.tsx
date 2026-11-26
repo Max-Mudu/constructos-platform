@@ -172,6 +172,9 @@ export default function ProfileScreen() {
 
     async function logOut(deleteUnsynced: boolean) {
       setLoggingOut(true);
+      // No queued request may start or still be running when the session
+      // ends (or when the user's entries are deleted).
+      await offlineQueue.pause();
       try {
         try {
           // The lookup waits on APNs and an HTTPS call to Expo with no
@@ -187,6 +190,7 @@ export default function ProfileScreen() {
         // user chose to delete them.
         if (deleteUnsynced && userId) await offlineQueue.deleteForUser(userId).catch(() => {});
         await clearAuth();
+        offlineQueue.resume(); // the next user's entries may sync again
         router.replace('/login');
         setLoggingOut(false);
       }
@@ -200,7 +204,32 @@ export default function ProfileScreen() {
       return;
     }
 
-    const what = `${pending} unsynced ${pending === 1 ? 'entry' : 'entries'}`;
+    const describe = (n: number) => `${n} unsynced ${n === 1 ? 'entry' : 'entries'}`;
+    const what = describe(pending);
+
+    // Syncing is paused first, so nothing is sent while the user decides and
+    // the count shown is final (an entry already in flight is recorded first).
+    async function confirmDelete() {
+      await offlineQueue.pause();
+      const left = offlineQueue.unsyncedCount(userId);
+      if (left === 0) {
+        offlineQueue.resume();
+        Alert.alert('Log Out', 'Your offline entries have just been sent. Log out?', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Log Out', style: 'destructive', onPress: () => { void logOut(false); } },
+        ]);
+        return;
+      }
+      Alert.alert(
+        'Delete unsynced entries?',
+        `${describe(left)} will be removed from this phone and never sent.`,
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => offlineQueue.resume() },
+          { text: 'Delete and log out', style: 'destructive', onPress: () => { void logOut(true); } },
+        ],
+        { cancelable: false },
+      );
+    }
     Alert.alert(
       'Log Out',
       `You have ${what} saved offline. They stay on this phone and are sent the next time you sign in on it. Log out anyway?`,
@@ -209,14 +238,7 @@ export default function ProfileScreen() {
         {
           text: 'Delete them',
           style: 'destructive',
-          onPress: () => Alert.alert(
-            'Delete unsynced entries?',
-            `${what} will be removed from this phone and never sent.`,
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Delete and log out', style: 'destructive', onPress: () => { void logOut(true); } },
-            ],
-          ),
+          onPress: () => { void confirmDelete(); },
         },
         { text: 'Log Out', onPress: () => { void logOut(false); } },
       ],

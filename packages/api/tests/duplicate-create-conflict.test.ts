@@ -217,3 +217,55 @@ describe('POST /attendance — a record already exists for the worker and day', 
     });
   });
 });
+
+// ─── No answer about records the caller cannot see ───────────────────────────
+
+describe('a caller without access to the site gets 404, never 409', () => {
+  it('labour: a supervisor of another site posting for a worker who already has an entry', async () => {
+    const { company, admin, project, site, worker } = await siteWithSupervisor('dup-scope-1');
+    await createTestLabourEntry(company.id, project.id, site.id, worker.id, admin.id, { date: new Date('2026-11-20') });
+    const otherSite = await createTestSite(company.id, project.id, 'Other site');
+    const outsider = await createTestUser(app, company.id, 'site_supervisor', 'out-dup-scope-1');
+    await assignUserToProject(company.id, project.id, outsider.id, otherSite.id);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LABOUR(project.id, site.id),
+      headers: { authorization: `Bearer ${outsider.accessToken}` },
+      payload: { workerId: worker.id, date: '2026-11-20', hoursWorked: 8 },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).not.toBe('LABOUR_ENTRY_EXISTS');
+  });
+
+  it('attendance: a supervisor of another site posting for a worker who already has a record', async () => {
+    const { company, admin, project, site, worker } = await siteWithSupervisor('dup-scope-2');
+    await createTestAttendanceRecord(company.id, project.id, site.id, worker.id, admin.id, { date: new Date('2026-11-20') });
+    const otherSite = await createTestSite(company.id, project.id, 'Other site');
+    const outsider = await createTestUser(app, company.id, 'site_supervisor', 'out-dup-scope-2');
+    await assignUserToProject(company.id, project.id, outsider.id, otherSite.id);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: ATTENDANCE(project.id, site.id),
+      headers: { authorization: `Bearer ${outsider.accessToken}` },
+      payload: { workerId: worker.id, date: '2026-11-20', status: 'present' },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).not.toBe('ATTENDANCE_EXISTS');
+  });
+
+  it('another company: 404 or 403, never 409', async () => {
+    const { company, admin, project, site, worker } = await siteWithSupervisor('dup-scope-3');
+    await createTestLabourEntry(company.id, project.id, site.id, worker.id, admin.id, { date: new Date('2026-11-20') });
+    const other = await createTestCompany(app, 'dup-scope-3-other');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: LABOUR(project.id, site.id),
+      headers: { authorization: `Bearer ${other.admin.accessToken}` },
+      payload: { workerId: worker.id, date: '2026-11-20', hoursWorked: 8 },
+    });
+    expect([403, 404]).toContain(res.statusCode);
+  });
+});

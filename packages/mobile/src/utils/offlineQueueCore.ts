@@ -22,7 +22,18 @@
  *   user with the same details means this entry already reached the server
  *   (synced); anything else is failed as a conflict, never overwritten.
  * - Entries belong to the user who saved them and are only ever sent while
- *   that user is signed in.
+ *   that user is signed in: the owner is checked again right before each
+ *   request (and the app's HTTP client refuses a queued request whose token is
+ *   not the owner's). Another user's entries are never shown or sent; the
+ *   panel only says that entries from another account are kept.
+ * - Entries saved by the previous app version without a user are adopted by
+ *   the session restored at the first start after the update (that version
+ *   had one signed-in user at a time). Without such a session they are kept,
+ *   never sent and never shown in detail; the panel only counts them.
+ * - A queue file (or part of one) that cannot be read is copied aside and the
+ *   panel keeps saying so; it is never shown as "nothing waiting".
+ * - Log-out pauses syncing and waits for a request in flight before the
+ *   session ends or entries are deleted.
  * - The "sending" mark is saved before each request. If the app is killed
  *   mid-send the entry is sent again on the next run; the server's one record
  *   per worker and day plus the 409 comparison mean that resend neither
@@ -102,14 +113,16 @@ export interface QueueFile {
   log:     QueueLogEvent[];
   /** Items from the file that could not be understood; kept, never sent. */
   invalid: unknown[];
+  /** Queue files that could not be read, copied aside (name, time, reason). */
+  unreadable: Array<{ copy: string; at: string; reason: string }>;
 }
 
 /** Where the queue file lives. write() must replace the contents atomically. */
 export interface QueueStorage {
   read(): Promise<string | null>;
   write(contents: string): Promise<void>;
-  /** Keeps a copy of a file that could not be read, before the queue starts afresh. */
-  preserveUnreadable(contents: string): Promise<void>;
+  /** Keeps a copy of a file that could not be read, before the queue starts afresh; returns its name. */
+  preserveUnreadable(contents: string): Promise<string | void>;
 }
 
 /** The server's record for the worker and day of a queued entry (see findExisting). */
@@ -145,7 +158,7 @@ export type EnqueueResult =
   /** A different entry for the same worker and day is waiting; nothing new was saved. */
   | { status: 'blocked';        entry: QueueEntry; message: string };
 
-export type FlushStop = 'offline' | 'signed_out' | 'rate_limited' | 'timeout' | 'user_changed' | 'storage';
+export type FlushStop = 'offline' | 'signed_out' | 'rate_limited' | 'timeout' | 'user_changed' | 'storage' | 'paused';
 
 export interface FlushReport {
   ran:             boolean;
@@ -165,6 +178,12 @@ export interface QueueView {
   failed:         QueueEntry[];
   recentlySynced: QueueEntry[];
   lastSyncedAt:   string | null;
+  /** Entries of other accounts on this phone (count only; never shown or sent). */
+  otherAccounts:  number;
+  /** Entries from the previous app version with no recorded user (count only). */
+  previousVersion: number;
+  /** Queue files or items that could not be read; kept on the phone. */
+  unreadable:     number;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -185,9 +204,38 @@ export type ErrorClass =
   | { kind: 'offline';   reason: string }
   | { kind: 'timeout' }
   | { kind: 'auth' }
-  | { kind: 'conflict';  message: string }
+  | { kind: 'conflict';  message: string; code?: string }
   | { kind: 'transient'; status?: number; message: string }
   | { kind: 'rejected';  status: number; message: string };
+
+/** Error code of a queued request the HTTP client refused because its owner is not signed in. */
+export const QUEUE_OWNER_CHANGED = 'ERR_QUEUE_OWNER_CHANGED';
+
+/** 409 codes that mean "a record for this worker and day already exists". */
+const DUPLICATE_CODES = new Set(['LABOUR_ENTRY_EXISTS', 'ATTENDANCE_EXISTS']);
+
+/** The "sub" (user id) of a JWT access token, or null when it cannot be read. */
+export function tokenSubject(token: string | null | undefined, decodeBase64: (s: string) => string): string | null {
+  if (!token) return null;
+  const part = token.split('.')[1];
+  if (!part) return null;
+  try {
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '=');
+    const sub = (JSON.parse(decodeBase64(b64)) as { sub?: unknown }).sub;
+    return typeof sub === 'string' ? sub : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * May a queued request owned by ownerId leave now? Only when the signed-in
+ * user is the owner and the access token, when it can be read, is the owner's.
+ */
+export function queuedRequestAllowed(ownerId: string | null | undefined, signedInUserId: string | null, tokenUserId: string | null): boolean {
+  if (!ownerId || signedInUserId !== ownerId) return false;
+  return tokenUserId === null || tokenUserId === ownerId;
+}
 
 const NETWORK_CODES = new Set(['ERR_NETWORK', 'ENOTFOUND', 'ECONNREFUSED', 'ECONNRESET', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH']);
 const TIMEOUT_CODES = new Set(['ECONNABORTED', 'ETIMEDOUT']);
@@ -221,7 +269,10 @@ export function classifyError(err: unknown): ErrorClass {
 
   if (status !== undefined) {
     if (status === 401) return { kind: 'auth' };
-    if (status === 409) return { kind: 'conflict', message: serverMessage(response?.['data'], status) };
+    if (status === 409) {
+      const code = asRecord(response?.['data'])?.['code'];
+      return { kind: 'conflict', message: serverMessage(response?.['data'], status), code: typeof code === 'string' ? code : undefined };
+    }
     if (status === 408) return { kind: 'transient', status, message: 'The server timed out (HTTP 408)' };
     if (status === 429) return { kind: 'transient', status, message: 'The server is busy (HTTP 429)' };
     if (status >= 500)  return { kind: 'transient', status, message: `Server error (HTTP ${status})` };
@@ -231,6 +282,9 @@ export function classifyError(err: unknown): ErrorClass {
 
   const code = typeof e?.['code'] === 'string' ? (e['code'] as string) : '';
   const message = typeof e?.['message'] === 'string' ? (e['message'] as string) : '';
+  // The app refused to send a queued request because its owner is not the
+  // signed-in user: it waits for the owner, like a 401.
+  if (code === QUEUE_OWNER_CHANGED) return { kind: 'auth' };
   if (TIMEOUT_CODES.has(code) || /timeout|timed out/i.test(message)) return { kind: 'timeout' };
   if (NETWORK_CODES.has(code) || e?.['isAxiosError'] === true || /network/i.test(message)) {
     return { kind: 'offline', reason: 'No connection to the server' };
@@ -248,6 +302,15 @@ export function classifyError(err: unknown): ErrorClass {
 export function shouldQueueAfterError(err: unknown): boolean {
   const k = classifyError(err).kind;
   return k === 'offline' || k === 'timeout' || k === 'transient' || k === 'auth';
+}
+
+/** What a screen tells the user after trying to keep an entry offline. saved=false → keep the form open. */
+export function enqueueOutcome(result: EnqueueResult, what: string): { saved: boolean; title: string; message: string } {
+  if (result.status === 'blocked') return { saved: false, title: 'Not saved', message: result.message };
+  if (result.status === 'already_queued') {
+    return { saved: true, title: 'Saved Offline', message: `${what} queued already — this entry is waiting to sync.` };
+  }
+  return { saved: true, title: 'Saved Offline', message: `${what} queued — saved on this phone and sent automatically when the connection returns.` };
 }
 
 // ─── Payload helpers ──────────────────────────────────────────────────────────
@@ -356,7 +419,7 @@ export function describeEntry(entry: QueueEntry): string {
 // ─── File format ──────────────────────────────────────────────────────────────
 
 function emptyFile(): QueueFile {
-  return { version: 2, entries: [], log: [], invalid: [] };
+  return { version: 2, entries: [], log: [], invalid: [], unreadable: [] };
 }
 
 function num(v: unknown): number {
@@ -405,11 +468,12 @@ function toEntry(raw: unknown): QueueEntry | null {
  * Version 1 (app builds up to this change) stored a bare array of
  * { id, type, payload, createdAt, retryCount, userId? }. Every op becomes a
  * pending entry with no counted failures (version 1 also counted offline
- * attempts). An op with no userId cannot be bound to anyone, so it is never
- * sent automatically: it is shown as failed ("unknown_owner") until someone
- * deliberately sends or dismisses it.
+ * attempts). An op with no userId (builds before user tagging) is adopted by
+ * adoptUserId: the session restored at the first start after the update, as
+ * that version had one signed-in user at a time. Without one it is kept as
+ * failed ("unknown_owner"): never sent, never shown in detail, only counted.
  */
-export function migrateV1(ops: unknown[], nowIso: string): { file: QueueFile; migrated: number } {
+export function migrateV1(ops: unknown[], nowIso: string, adoptUserId: string | null = null): { file: QueueFile; migrated: number } {
   const file = emptyFile();
   for (const raw of ops) {
     const r = asRecord(raw);
@@ -419,7 +483,11 @@ export function migrateV1(ops: unknown[], nowIso: string): { file: QueueFile; mi
       file.invalid.push(raw);
       continue;
     }
-    const userId = typeof r['userId'] === 'string' && r['userId'] ? (r['userId'] as string) : null;
+    const tagged = typeof r['userId'] === 'string' && r['userId'] ? (r['userId'] as string) : null;
+    const userId = tagged ?? adoptUserId;
+    if (!tagged && adoptUserId) {
+      file.log.push({ at: nowIso, event: 'adopted_at_update', entryId: r['id'] as string, type, userId: adoptUserId });
+    }
     file.entries.push({
       id:                r['id'] as string,
       type,
@@ -431,7 +499,7 @@ export function migrateV1(ops: unknown[], nowIso: string): { file: QueueFile; mi
       transientFailures: 0,
       failure:           userId ? undefined : {
         kind: 'unknown_owner',
-        message: 'Saved by an older version of the app, which did not record who saved it. Send it only if it is yours.',
+        message: 'Saved by a previous version of the app, which did not record who saved it. Kept on this phone; it is not sent.',
         at: nowIso,
       },
       migratedFrom: 1,
@@ -448,7 +516,7 @@ type Parsed =
   | { ok: true; file: QueueFile; needsWrite: boolean }
   | { ok: false };
 
-export function parseQueueFile(raw: string | null, nowIso: string): Parsed {
+export function parseQueueFile(raw: string | null, nowIso: string, adoptUserId: string | null = null): Parsed {
   if (raw === null || raw.trim() === '') return { ok: true, file: emptyFile(), needsWrite: false };
   let data: unknown;
   try {
@@ -457,7 +525,7 @@ export function parseQueueFile(raw: string | null, nowIso: string): Parsed {
     return { ok: false };
   }
   if (Array.isArray(data)) {
-    return { ok: true, file: migrateV1(data, nowIso).file, needsWrite: true };
+    return { ok: true, file: migrateV1(data, nowIso, adoptUserId).file, needsWrite: true };
   }
   const r = asRecord(data);
   if (r && r['version'] === 2 && Array.isArray(r['entries'])) {
@@ -469,6 +537,7 @@ export function parseQueueFile(raw: string | null, nowIso: string): Parsed {
     }
     file.log = Array.isArray(r['log']) ? (r['log'] as QueueLogEvent[]) : [];
     if (Array.isArray(r['invalid'])) file.invalid.push(...(r['invalid'] as unknown[]));
+    if (Array.isArray(r['unreadable'])) file.unreadable = r['unreadable'] as QueueFile['unreadable'];
     return { ok: true, file, needsWrite: false };
   }
   return { ok: false };
@@ -488,15 +557,20 @@ export interface FileOps {
  * Writes go to "<path>.tmp" first and are then renamed over <path>, so a kill
  * at any moment leaves either the old or the new complete file. On Android the
  * rename replaces the file in one step. On iOS the old file is deleted before
- * the rename; a kill in between leaves only the temp file, which read() then
- * uses (it was completely written before the delete started).
+ * the rename; a kill in between leaves only the temp file (complete: it was
+ * written before the delete started). read() renames it into place first, so
+ * the next write cannot overwrite the only copy. Not covered: a power loss
+ * or OS crash (no fsync is available), only an app kill.
  */
 export function createFileStorage(ops: FileOps, path: string, now: () => number): QueueStorage {
   const tmp = `${path}.tmp`;
   return {
     async read() {
       if (await ops.exists(path)) return ops.read(path);
-      if (await ops.exists(tmp)) return ops.read(tmp);
+      if (await ops.exists(tmp)) {
+        await ops.move(tmp, path);
+        return ops.read(path);
+      }
       return null;
     },
     async write(contents) {
@@ -504,7 +578,9 @@ export function createFileStorage(ops: FileOps, path: string, now: () => number)
       await ops.move(tmp, path);
     },
     async preserveUnreadable(contents) {
-      await ops.write(`${path}.unreadable-${now()}`, contents);
+      const copy = `${path}.unreadable-${now()}`;
+      await ops.write(copy, contents);
+      return copy.slice(copy.lastIndexOf('/') + 1);
     },
   };
 }
@@ -522,9 +598,17 @@ type Outcome =
 type ExistingCheck = { kind: 'own'; serverId: string } | { kind: 'other'; record: ServerRecord } | { kind: 'none' } | { kind: 'unknown'; err: unknown };
 
 const CONFLICT_OTHER_USER =
-  'Not saved: someone else already recorded an entry for this worker on this date. Check the list, then dismiss this one.';
+  'Someone else already recorded this worker on this date. Check the list, then dismiss this one.';
 const CONFLICT_DIFFERENT =
-  'Not saved: an entry for this worker on this date already exists with different details. Check the list, then dismiss this one.';
+  'An entry for this worker on this date already exists with different details. Check the list, then dismiss this one.';
+const CONFLICT_SELF =
+  'A record for you on this day is already on the server (perhaps recorded by your supervisor); this check-in was not added to it.';
+
+/** "<server's reason>. <what to do>" */
+function withServerReason(serverMsg: string, advice: string): string {
+  const reason = serverMsg.replace(/[.\s]+$/, '');
+  return reason ? `Not saved: ${reason}. ${advice}` : `Not saved. ${advice}`;
+}
 
 export class OfflineQueue {
   private file: QueueFile | null = null;
@@ -532,6 +616,7 @@ export class OfflineQueue {
   private flushing: Promise<FlushReport> | null = null;
   private queuedFlush: Promise<FlushReport> | null = null;
   private queuedManual = false;
+  private paused = false;
   private listeners = new Set<() => void>();
   lastReport: FlushReport | null = null;
   private readonly deps: QueueDeps;
@@ -567,9 +652,12 @@ export class OfflineQueue {
     return {
       loaded:  this.file !== null,
       pending: own.filter((e) => e.state === 'pending' || e.state === 'sending').sort(byCreated),
-      failed:  entries.filter((e) => e.state === 'failed' && userId !== null && (e.userId === userId || e.userId === null)).sort(byCreated),
+      failed:  own.filter((e) => e.state === 'failed').sort(byCreated),
       recentlySynced: synced.filter((e) => e.syncedAt && now - Date.parse(e.syncedAt) <= RECENTLY_SYNCED_MS),
       lastSyncedAt,
+      otherAccounts:   entries.filter((e) => e.userId !== null && e.userId !== userId && e.state !== 'synced').length,
+      previousVersion: entries.filter((e) => e.userId === null).length,
+      unreadable:      (this.file?.unreadable.length ?? 0) + (this.file?.invalid.length ?? 0),
     };
   }
 
@@ -583,12 +671,16 @@ export class OfflineQueue {
 
   // ── Loading and saving ───────────────────────────────────────────────────
 
-  /** Reads (and if needed migrates) the queue file. Safe to call repeatedly. */
-  async load(): Promise<void> {
-    await this.serial(async () => { await this.ensureLoaded(); });
+  /**
+   * Reads (and if needed migrates) the queue file. Safe to call repeatedly.
+   * adoptLegacyFor: the session restored at app start; entries of the
+   * previous file format without a user become that user's.
+   */
+  async load(opts: { adoptLegacyFor?: string | null } = {}): Promise<void> {
+    await this.serial(async () => { await this.ensureLoaded(opts.adoptLegacyFor ?? null); });
   }
 
-  private async ensureLoaded(): Promise<QueueFile> {
+  private async ensureLoaded(adoptLegacyFor: string | null = null): Promise<QueueFile> {
     if (this.file) return this.file;
     const nowIso = new Date(this.deps.now()).toISOString();
     let raw: string | null;
@@ -598,17 +690,19 @@ export class OfflineQueue {
       // Could not read: do not start empty, which would overwrite the file.
       throw err;
     }
-    const parsed = parseQueueFile(raw, nowIso);
+    const parsed = parseQueueFile(raw, nowIso, adoptLegacyFor);
     let file: QueueFile;
     let needsWrite: boolean;
     if (parsed.ok) {
       file = parsed.file;
       needsWrite = parsed.needsWrite;
     } else {
-      // Unreadable: keep a copy first (throws → nothing is overwritten).
-      await this.deps.storage.preserveUnreadable(raw ?? '');
+      // Unreadable or a format this version does not know: keep a copy first
+      // (throws → nothing is overwritten), and keep saying so on screen.
+      const copy = (await this.deps.storage.preserveUnreadable(raw ?? '')) || 'copy';
       file = emptyFile();
-      file.log.push({ at: nowIso, event: 'unreadable_file_preserved' });
+      file.unreadable.push({ copy, at: nowIso, reason: 'could not be read by this version of the app' });
+      file.log.push({ at: nowIso, event: 'unreadable_file_preserved', detail: copy });
       this.warn('queue file could not be read; a copy was kept and a new queue started');
       needsWrite = true;
     }
@@ -750,6 +844,7 @@ export class OfflineQueue {
 
   private async runFlush(manual: boolean): Promise<FlushReport> {
     const report: FlushReport = { ran: true, synced: 0, alreadyOnServer: 0, failed: 0, stillPending: 0, at: this.nowIso() };
+    if (this.paused) return { ...report, ran: false, stoppedBy: 'paused' };
     const userId = this.deps.currentUserId();
     if (!userId) return { ...report, ran: false, stoppedBy: 'signed_out' };
 
@@ -767,6 +862,7 @@ export class OfflineQueue {
       .map((e) => e.id);
 
     for (const id of ids) {
+      if (this.paused) { report.stoppedBy = 'paused'; break; }
       if (this.deps.currentUserId() !== userId) { report.stoppedBy = 'user_changed'; break; }
       const stop = await this.sendOne(id, userId, report);
       if (stop) { report.stoppedBy = stop; break; }
@@ -807,6 +903,16 @@ export class OfflineQueue {
     }
     if (!entry) return undefined;
 
+    // The owner again, right before the request leaves (the mark above waited
+    // for the disk): another user's session never sends it, and a paused
+    // queue (log-out) sends nothing more.
+    if (this.paused || this.deps.currentUserId() !== userId) {
+      try {
+        await this.mutate((file) => { const e = this.find(file, id); if (e && e.state === 'sending') e.state = 'pending'; });
+      } catch { return 'storage'; }
+      return this.paused ? 'paused' : 'user_changed';
+    }
+
     let outcome: Outcome;
     try {
       const res = await this.deps.transport.send(entry);
@@ -838,13 +944,13 @@ export class OfflineQueue {
     }
   }
 
-  private conflictFailure(entry: QueueEntry, record: ServerRecord): Outcome {
+  private conflictFailure(entry: QueueEntry, record: ServerRecord, serverMsg: string): Outcome {
     return {
       kind: 'failed',
       failure: {
         kind: 'conflict',
         status: 409,
-        message: record.recordedById !== entry.userId ? CONFLICT_OTHER_USER : CONFLICT_DIFFERENT,
+        message: withServerReason(serverMsg, record.recordedById !== entry.userId ? CONFLICT_OTHER_USER : CONFLICT_DIFFERENT),
       },
     };
   }
@@ -859,14 +965,19 @@ export class OfflineQueue {
       case 'rejected':
         return { kind: 'failed', failure: { kind: 'rejected', status: c.status, message: c.message } };
       case 'conflict': {
+        if (c.code !== undefined && !DUPLICATE_CODES.has(c.code)) {
+          // Another kind of conflict (for example a closed period): the
+          // server's reason is what the user needs.
+          return { kind: 'failed', failure: { kind: 'rejected', status: 409, message: c.message } };
+        }
         if (entry.type === 'attendance_self') {
-          // One check-in per worker and day; a 409 means a simultaneous
-          // check-in by the same worker already recorded today.
-          return { kind: 'synced', already: true };
+          // A worker cannot read the site's records, so whose record it is
+          // cannot be checked: not treated as this check-in.
+          return { kind: 'failed', failure: { kind: 'conflict', status: 409, message: withServerReason(c.message, CONFLICT_SELF) } };
         }
         const check = await this.checkExisting(entry);
         if (check.kind === 'own') return { kind: 'synced', serverId: check.serverId, already: true };
-        if (check.kind === 'other') return this.conflictFailure(entry, check.record);
+        if (check.kind === 'other') return this.conflictFailure(entry, check.record, c.message);
         if (check.kind === 'none') {
           return { kind: 'failed', failure: { kind: 'conflict', status: 409, message: c.message } };
         }
@@ -892,7 +1003,7 @@ export class OfflineQueue {
           // server answers 500 for a duplicate): look before counting it.
           const check = await this.checkExisting(entry);
           if (check.kind === 'own') return { kind: 'synced', serverId: check.serverId, already: true };
-          if (check.kind === 'other') return this.conflictFailure(entry, check.record);
+          if (check.kind === 'other') return this.conflictFailure(entry, check.record, 'An entry already exists for this worker on this date');
         }
         return { kind: 'transient', message: c.message, status: c.status, stop: c.status === 429 ? 'rate_limited' : undefined };
       }
@@ -964,8 +1075,8 @@ export class OfflineQueue {
   // ── User actions ─────────────────────────────────────────────────────────
 
   /**
-   * Puts a failed entry back in the queue with a fresh failure count. An
-   * entry of unknown owner (older app version) becomes the current user's.
+   * Puts the user's own failed entry back in the queue with a fresh failure
+   * count. Entries of unknown owner are never sent this way.
    * The caller then runs flush({ manual: true }).
    */
   async retry(id: string): Promise<void> {
@@ -973,11 +1084,7 @@ export class OfflineQueue {
     if (!userId) throw new Error('Sign in to retry this entry');
     await this.mutate((file) => {
       const e = this.find(file, id);
-      if (!e || e.state !== 'failed' || (e.userId !== userId && e.userId !== null)) return;
-      if (e.userId === null) {
-        e.userId = userId;
-        this.record(file, 'claimed', e);
-      }
+      if (!e || e.state !== 'failed' || e.userId !== userId) return;
       e.state = 'pending';
       e.transientFailures = 0;
       e.failure = undefined;
@@ -993,12 +1100,33 @@ export class OfflineQueue {
     if (!userId) throw new Error('Sign in to dismiss this entry');
     return this.mutate((file) => {
       const e = this.find(file, id);
-      if (!e || e.state !== 'failed' || (e.userId !== userId && e.userId !== null)) return false;
+      if (!e || e.state !== 'failed' || e.userId !== userId) return false;
       file.entries = file.entries.filter((x) => x.id !== id);
       this.record(file, 'dismissed_by_user', e, `${e.failure?.kind ?? 'failed'} by ${userId}`);
       this.warn(`entry ${e.id} (${e.type}) dismissed by the user (${e.failure?.kind ?? 'failed'})`);
       return true;
     });
+  }
+
+  /**
+   * Stops syncing (log-out): no new request starts, and this resolves once a
+   * request already in flight has been answered and recorded.
+   */
+  async pause(): Promise<void> {
+    this.paused = true;
+    this.emit();
+    while (this.flushing || this.queuedFlush) {
+      await (this.queuedFlush ?? this.flushing)?.catch(() => undefined);
+    }
+  }
+
+  resume(): void {
+    this.paused = false;
+    this.emit();
+  }
+
+  isPaused(): boolean {
+    return this.paused;
   }
 
   /** Pending and failed entries of a user (what log-out asks about). */

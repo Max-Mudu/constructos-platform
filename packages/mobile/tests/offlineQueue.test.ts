@@ -12,6 +12,9 @@ import {
   OfflineQueue, MAX_TRANSIENT_FAILURES, SYNCED_RETENTION_MS,
   classifyError, createFileStorage, matchesQueuedEntry, shouldQueueAfterError, parseQueueFile,
 } from '../src/utils/offlineQueueCore.ts';
+// Namespace access for exports added in review round 2, so this file still
+// loads against older versions of the module (each such test fails there).
+import * as core from '../src/utils/offlineQueueCore.ts';
 import type { QueueEntry, QueueFile, QueueTransport, ServerRecord } from '../src/utils/offlineQueueCore.ts';
 import {
   Harness, QUEUE_PATH, attendancePayload, httpError, labourPayload, networkError, timeoutError,
@@ -538,25 +541,53 @@ describe('migration', () => {
     assert.equal(h.server.labour.length, 1, 'retryCount 5 from the old version did not cause a drop');
   });
 
-  test('[migration] a version-1 op without a user is failed "unknown owner", never sent automatically; Retry sends it as the current user', async () => {
+  test('[legacy] a version-1 op without a user, no session restored at the update: kept, counted, never sent, retried or dismissed', async () => {
     const h = new Harness();
     h.fs.files.set(QUEUE_PATH, v1([{ id: 'n1', type: 'labour_create', payload: labourPayload(), createdAt: '2026-11-23T08:00:00.000Z', retryCount: 0 }]));
     const q = makeQueue(h);
     await q.flush({ manual: true });
-    let e = only(h);
+    const e = only(h);
     assert.equal(e.state, 'failed');
     assert.equal(e.failure?.kind, 'unknown_owner');
-    assert.equal(h.server.writeRequests, 0);
-    assert.equal(q.view('user-a').failed.length, 1, 'shown to the signed-in user to decide');
+    assert.equal(e.userId, null);
+    const v = q.view('user-a');
+    assert.equal(v.failed.length, 0, 'not shown in detail to whoever is signed in');
+    assert.equal(v.previousVersion, 1, 'only counted');
     await q.retry(e.id);
     await q.flush({ manual: true });
-    e = only(h);
-    assert.equal(e.state, 'synced');
-    assert.equal(e.userId, 'user-a');
-    assert.equal(h.server.labour[0]!.registeredById, 'user-a');
-    assert.ok(onDisk(h).log.some((l) => l.event === 'claimed'));
+    assert.equal(await q.dismiss(e.id), false);
+    assert.equal(only(h).state, 'failed');
+    assert.equal(only(h).userId, null);
+    assert.equal(h.server.writeRequests, 0, 'never sent');
   });
 
+  test('[legacy] a version-1 op without a user is adopted by the session restored at the first start after the update, and sent', async () => {
+    const h = new Harness();
+    h.fs.files.set(QUEUE_PATH, v1([{ id: 'n1', type: 'labour_create', payload: labourPayload(), createdAt: '2026-11-23T08:00:00.000Z', retryCount: 0 }]));
+    const q = makeQueue(h);
+    await q.load({ adoptLegacyFor: 'user-a' });
+    let e = only(h);
+    assert.equal(e.userId, 'user-a');
+    assert.equal(e.state, 'pending');
+    assert.ok(onDisk(h).log.some((l) => l.event === 'adopted_at_update' && l.userId === 'user-a'));
+    await q.flush();
+    e = only(h);
+    assert.equal(e.state, 'synced');
+    assert.equal(h.server.labour[0]!.registeredById, 'user-a');
+  });
+
+  test('[legacy] adoption happens only at that first load: a later sign-in does not adopt', async () => {
+    const h = new Harness();
+    h.fs.files.set(QUEUE_PATH, v1([{ id: 'n1', type: 'labour_create', payload: labourPayload(), createdAt: '2026-11-23T08:00:00.000Z', retryCount: 0 }]));
+    h.signOut();
+    await makeQueue(h).load(); // first start after the update, nobody signed in
+    h.signIn('user-b');
+    const q = makeQueue(h);
+    await q.load({ adoptLegacyFor: 'user-b' });
+    await q.flush({ manual: true });
+    assert.equal(only(h).userId, null);
+    assert.equal(h.server.writeRequests, 0);
+  });
   test('[migration] unreadable items in a version-1 file are kept in the file, not dropped', async () => {
     const h = new Harness();
     h.fs.files.set(QUEUE_PATH, v1([{ nonsense: true }, { id: 'ok', type: 'labour_create', payload: labourPayload(), retryCount: 0, userId: 'user-a' }]));
@@ -628,6 +659,55 @@ describe('storage', () => {
     assert.equal(kept.length, 1);
     assert.equal(h.fs.files.get(kept[0]!), '{"version":2,"entries":[{"id":"x"');
     assert.ok(warnings.some((w) => /could not be read/.test(w)));
+  });
+
+  test('[unreadable] an unreadable file keeps being reported after restarts, never as "nothing saved"', async () => {
+    const h = new Harness();
+    h.fs.files.set(QUEUE_PATH, '{"version":2,"entries":[{"id":"x"');
+    const q = makeQueue(h);
+    await q.load();
+    assert.equal(q.view('user-a').unreadable, 1);
+    const q2 = makeQueue(h);
+    await q2.load();
+    assert.equal(q2.view('user-a').unreadable, 1, 'still reported after a restart');
+    assert.equal(q2.view('user-b').unreadable, 1, 'whoever is signed in sees the notice (no contents)');
+  });
+
+  test('[unreadable] a file in a newer format is copied aside unchanged and reported', async () => {
+    const h = new Harness();
+    const newer = JSON.stringify({ version: 3, entries: [{ id: 'z' }] });
+    h.fs.files.set(QUEUE_PATH, newer);
+    const q = makeQueue(h);
+    await q.load();
+    const kept = [...h.fs.files.keys()].filter((k) => k.startsWith(`${QUEUE_PATH}.unreadable-`));
+    assert.equal(kept.length, 1);
+    assert.equal(h.fs.files.get(kept[0]!), newer);
+    assert.equal(q.view('user-a').unreadable, 1);
+  });
+
+  test('[unreadable] entries of a version-2 file that cannot be understood are counted', async () => {
+    const h = new Harness();
+    h.fs.files.set(QUEUE_PATH, JSON.stringify({ version: 2, entries: [{ id: 'bad', type: 'teleport', payload: {}, state: 'pending' }], log: [] }));
+    const q = makeQueue(h);
+    await q.load();
+    assert.equal(q.view('user-a').unreadable, 1);
+  });
+
+  test('[atomic-storage] after the iOS kill window the temp file is put in place, so a torn next write loses nothing', async () => {
+    const h = new Harness();
+    const q = makeQueue(h);
+    await q.enqueue('labour_create', labourPayload({ workerId: 'w1' }));
+    const contents = h.fs.files.get(QUEUE_PATH)!;
+    h.fs.files.delete(QUEUE_PATH);
+    h.fs.files.set(`${QUEUE_PATH}.tmp`, contents);
+    const q2 = makeQueue(h); // restart in the window
+    await q2.load();
+    h.fs.killOnNextWrite({ torn: true }); // killed half-way through the next save
+    await assert.rejects(q2.enqueue('labour_create', labourPayload({ workerId: 'w2' })));
+    const q3 = makeQueue(h);
+    await q3.load();
+    assert.equal(q3.view('user-a').pending.length, 1, 'the w1 entry is still there');
+    assert.equal(q3.view('user-a').unreadable ?? 0, 0);
   });
 
   test('[atomic-storage] a read error leaves the file alone and saving offline reports failure', async () => {
@@ -719,6 +799,139 @@ describe('failed entries', () => {
 });
 
 const MIN_MS = 60_000;
+
+// ─── Review round 2: owner checks, log-out pause, conflicts, screens ─────────
+
+describe('owner and log-out', () => {
+  test('[user-binding] the owner is checked again right before the request: a user switch during the "sending" save sends nothing', async () => {
+    const h = new Harness();
+    const q = makeQueue(h);
+    await q.enqueue('labour_create', labourPayload());
+    h.fs.onWrite = () => { h.fs.onWrite = undefined; h.signIn('user-b'); };
+    const report = await q.flush();
+    assert.equal(h.server.writeRequests, 0);
+    assert.ok(h.sentBy.every((x) => x.userId !== 'user-b'));
+    assert.equal(report.stoppedBy, 'user_changed');
+    assert.equal(only(h).state, 'pending');
+  });
+
+  test('[pause] log-out pause waits for the request in flight and then nothing more is sent', async () => {
+    const h = new Harness();
+    const q = makeQueue(h);
+    assert.equal(typeof (q as unknown as { pause?: unknown }).pause, 'function', 'pause() exists');
+    h.net = 'offline';
+    await q.enqueue('labour_create', labourPayload({ workerId: 'w1' }));
+    await q.enqueue('labour_create', labourPayload({ workerId: 'w2' }));
+    h.net = 'online';
+    const original = h.callWrite.bind(h);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    h.callWrite = async (kind, payload) => { await gate; return original(kind, payload); };
+    const flushing = q.flush();
+    await new Promise<void>((r) => { setTimeout(r, 0); });
+    let paused = false;
+    const pausing = q.pause().then(() => { paused = true; });
+    await new Promise<void>((r) => { setTimeout(r, 0); });
+    assert.equal(paused, false, 'pause waits for the request in flight');
+    release();
+    await pausing;
+    await flushing;
+    assert.deepEqual(h.server.labour.map((r) => r.workerId), ['w1']);
+    const again = await q.flush({ manual: true });
+    assert.equal(again.stoppedBy, 'paused');
+    assert.equal(h.server.labour.length, 1);
+    assert.equal(await q.deleteForUser('user-a'), 1, 'only the unsent entry is deleted');
+    q.resume();
+    await q.flush({ manual: true });
+    assert.equal(h.server.labour.length, 1, 'the deleted entry was never sent');
+  });
+
+  test('[user-binding] another account\'s entries are only counted, never listed', async () => {
+    const h = new Harness();
+    const q = makeQueue(h);
+    await q.enqueue('labour_create', labourPayload());
+    h.server.failNextWrites(422, 1, 'Validation failed');
+    await q.flush();
+    await q.enqueue('labour_create', labourPayload({ workerId: 'w2' }));
+    const v = q.view('user-b');
+    assert.equal(v.pending.length + v.failed.length, 0);
+    assert.equal(v.otherAccounts, 2);
+  });
+
+  test('[classify] a queued request refused by the HTTP client because its owner is not signed in waits like a 401', () => {
+    assert.equal(typeof core.QUEUE_OWNER_CHANGED, 'string');
+    assert.equal(classifyError({ code: core.QUEUE_OWNER_CHANGED, message: 'owner' }).kind, 'auth');
+  });
+
+  test('[user-binding] queuedRequestAllowed and tokenSubject', () => {
+    const b64 = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const jwt = (sub: string) => `h.${b64({ sub })}.sig`;
+    const dec = (x: string) => Buffer.from(x, 'base64').toString('utf8');
+    assert.equal(core.tokenSubject(jwt('user-a'), dec), 'user-a');
+    assert.equal(core.tokenSubject('not-a-jwt', dec), null);
+    assert.equal(core.queuedRequestAllowed('user-a', 'user-a', 'user-a'), true);
+    assert.equal(core.queuedRequestAllowed('user-a', 'user-a', null), true, 'unreadable token: the signed-in user decides');
+    assert.equal(core.queuedRequestAllowed('user-a', 'user-b', 'user-b'), false);
+    assert.equal(core.queuedRequestAllowed('user-a', 'user-a', 'user-b'), false, 'token already the next user\'s');
+    assert.equal(core.queuedRequestAllowed('', 'user-a', 'user-a'), false, 'no owner: never sent');
+  });
+});
+
+describe('conflicts and reasons', () => {
+  test('[outcome:409-self] a 409 on a worker\'s own check-in is failed (whose record it is cannot be checked)', async () => {
+    const h = new Harness();
+    h.signIn('worker-user');
+    const q = makeQueue(h);
+    await q.enqueue('attendance_self', { projectId: 'proj-1', siteId: 'site-1', checkInTime: '07:30' });
+    h.server.failNextWrites(409, 1, 'Attendance record already exists for this worker on this date', 'ATTENDANCE_EXISTS');
+    await q.flush();
+    const e = only(h);
+    assert.equal(e.state, 'failed');
+    assert.equal(e.failure?.kind, 'conflict');
+    assert.match(e.failure!.message, /already exists/);
+  });
+
+  test('[server-reason] a 409 that is not a duplicate (e.g. a closed period) is failed with the server\'s reason, not resolved by look-up', async () => {
+    const h = new Harness();
+    const q = makeQueue(h);
+    h.server.labour.push({ id: 'srv-own', projectId: 'proj-1', siteId: 'site-1', workerId: 'worker-1', date: '2026-11-24',
+      hoursWorked: 8, notes: null, registeredById: 'user-a' });
+    await q.enqueue('labour_create', labourPayload());
+    h.server.failNextWrites(409, 1, 'The pay period for this date is closed', 'PAY_PERIOD_CLOSED');
+    await q.flush();
+    const e = only(h);
+    assert.equal(e.state, 'failed');
+    assert.equal(e.failure?.message, 'The pay period for this date is closed');
+  });
+
+  test('[server-reason] a duplicate conflict shows the server\'s reason with the advice', async () => {
+    const h = new Harness();
+    const q = makeQueue(h);
+    h.server.labour.push({ id: 'srv-b', projectId: 'proj-1', siteId: 'site-1', workerId: 'worker-1', date: '2026-11-24',
+      hoursWorked: 8, notes: null, registeredById: 'user-b' });
+    await q.enqueue('labour_create', labourPayload());
+    await q.flush();
+    const e = only(h);
+    assert.equal(e.failure?.kind, 'conflict');
+    assert.match(e.failure!.message, /^Not saved: A labour entry already exists for this worker on this date\. Someone else/);
+  });
+
+  test('[enqueue-outcome] a refused (blocked) offline save is never reported as saved', async () => {
+    const h = new Harness();
+    const q = makeQueue(h);
+    h.signIn('worker-user');
+    await q.enqueue('attendance_self', { projectId: 'proj-1', siteId: 'site-1', checkInTime: null });
+    const r = await q.enqueue('attendance_self', { projectId: 'proj-1', siteId: 'site-1', checkInTime: '07:30' });
+    assert.equal(r.status, 'blocked');
+    assert.equal(typeof core.enqueueOutcome, 'function', 'enqueueOutcome exists');
+    const out = core.enqueueOutcome(r, 'Check-in');
+    assert.equal(out.saved, false);
+    assert.equal(out.title, 'Not saved');
+    assert.equal(core.enqueueOutcome({ status: 'queued', entry: r.entry }, 'Labour entry').saved, true);
+    assert.match(core.enqueueOutcome({ status: 'queued', entry: r.entry }, 'Labour entry').message, /^Labour entry queued/);
+  });
+});
+
 
 // ─── Error classification (what the screens use to decide to keep an entry) ───
 

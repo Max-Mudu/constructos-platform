@@ -13,7 +13,7 @@ import { useAuthStore } from '../../src/store/auth.store';
 import { attendanceApi } from '../../src/api/attendance';
 import { projectsApi } from '../../src/api/projects';
 import { workersApi } from '../../src/api/workers';
-import { offlineQueue, shouldQueueAfterError } from '../../src/utils/offlineQueue';
+import { enqueueOutcome, offlineQueue, shouldQueueAfterError } from '../../src/utils/offlineQueue';
 import { useOfflineQueue } from '../../src/hooks/useOfflineQueue';
 import { OfflineSyncPanel } from '../../src/components/OfflineSyncPanel';
 import { AttendanceRecord, AttendanceStatus, Project, JobSite, Worker } from '../../src/types';
@@ -104,12 +104,14 @@ function WorkerAttendance({
     } catch (err: unknown) {
       if (shouldQueueAfterError(err)) {
         try {
-          await offlineQueue.enqueue('attendance_self', {
+          const outcome = enqueueOutcome(await offlineQueue.enqueue('attendance_self', {
             projectId:   selected.project.id,
             siteId:      selected.site.id,
             checkInTime: checkInTime || null,
-          }, { userId: savedBy, label: `Check-in · ${new Date().toLocaleDateString('en-GB')}${checkInTime ? ` · ${checkInTime}` : ''}` });
-          setDoneOffline(true);
+          }, { userId: savedBy, label: `Check-in · ${new Date().toLocaleDateString('en-GB')}${checkInTime ? ` · ${checkInTime}` : ''}` }), 'Check-in');
+          // A different check-in for today already waiting is not replaced: say so.
+          if (outcome.saved) setDoneOffline(true);
+          else Alert.alert(outcome.title, outcome.message);
         } catch {
           Alert.alert('Not saved', 'The server could not be reached and the check-in could not be saved on this phone. Try again.');
         }
@@ -361,17 +363,9 @@ function MarkAttendanceModal({
     const worker = workers.find((w) => w.id === data['workerId']);
     const label = `${worker ? `${worker.firstName} ${worker.lastName}` : 'Attendance'} · ${STATUS_LABELS[status]} · ${String(data['date'])}`;
     try {
-      const result = await offlineQueue.enqueue('attendance_create', { projectId, siteId, data }, { userId: savedBy, label });
-      if (result.status === 'blocked') {
-        Alert.alert('Not saved', result.message);
-        return; // the form stays open with what was entered
-      }
-      Alert.alert(
-        'Saved Offline',
-        result.status === 'already_queued'
-          ? 'Attendance queued already — this record is waiting to sync.'
-          : 'Attendance queued — saved on this phone and sent automatically when the connection returns.',
-      );
+      const outcome = enqueueOutcome(await offlineQueue.enqueue('attendance_create', { projectId, siteId, data }, { userId: savedBy, label }), 'Attendance');
+      Alert.alert(outcome.title, outcome.message);
+      if (!outcome.saved) return; // the form stays open with what was entered
       onSaved();
       onClose();
     } catch {

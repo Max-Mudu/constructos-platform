@@ -36,11 +36,15 @@ export class MemFs {
   writes = 0;
   /** When set, the next write throws as if the app were killed at that moment. */
   private killNextWrite = false;
+  /** The killed write leaves half of the new contents behind (a torn write). */
+  private tornWrite = false;
+  /** Called at the start of every write (to change the world at that moment). */
+  onWrite: ((path: string) => void) | undefined;
   /** Every write and move, in order, for the atomic-write tests. */
   ops: string[] = [];
   failReads = false;
 
-  killOnNextWrite(): void { this.killNextWrite = true; }
+  killOnNextWrite(opts: { torn?: boolean } = {}): void { this.killNextWrite = true; this.tornWrite = !!opts.torn; }
 
   async exists(p: string): Promise<boolean> { return this.files.has(p); }
   async read(p: string): Promise<string> {
@@ -50,7 +54,12 @@ export class MemFs {
     return v;
   }
   async write(p: string, contents: string): Promise<void> {
-    if (this.killNextWrite) { this.killNextWrite = false; throw new Error('process killed'); }
+    this.onWrite?.(p);
+    if (this.killNextWrite) {
+      this.killNextWrite = false;
+      if (this.tornWrite) { this.tornWrite = false; this.files.set(p, contents.slice(0, Math.floor(contents.length / 2))); }
+      throw new Error('process killed');
+    }
     this.writes++;
     this.ops.push(`write ${p}`);
     this.files.set(p, contents);
@@ -88,8 +97,8 @@ export class FakeServer {
   writeRequests = 0;
   private seq = 0;
 
-  failNextWrites(status: number, times = 1, error?: string): void {
-    for (let i = 0; i < times; i++) this.scripted.push(httpError(status, error ?? `HTTP ${status}`));
+  failNextWrites(status: number, times = 1, error?: string, code?: string): void {
+    for (let i = 0; i < times; i++) this.scripted.push(httpError(status, error ?? `HTTP ${status}`, code));
   }
 
   private duplicate(code: string, message: string): HttpError {

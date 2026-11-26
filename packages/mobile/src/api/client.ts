@@ -3,6 +3,21 @@ import { getAccessToken, getRefreshToken, saveTokens } from '../auth/secureStora
 import { useAuthStore } from '../store/auth.store';
 import { API_BASE_URL, API_CONFIG_ERROR } from '../constants/api';
 import { logoutWithRefreshRetry, LogoutOutcome } from './logoutFlow';
+import { QUEUE_OWNER_CHANGED, queuedRequestAllowed, tokenSubject } from '../utils/offlineQueueCore';
+
+/**
+ * Set on requests sent from the offline queue: the user who saved the entry.
+ * Such a request only ever leaves with that user's session.
+ */
+export type QueuedRequestConfig = { queuedForUserId?: string };
+
+function decodeBase64(b64: string): string {
+  return globalThis.atob(b64);
+}
+
+function queuedOwnerRefusal(): Error {
+  return Object.assign(new Error('The signed-in user is not the owner of this queued entry'), { code: QUEUE_OWNER_CHANGED });
+}
 
 const BASE_URL = API_BASE_URL;
 
@@ -21,6 +36,11 @@ apiClient.interceptors.request.use(async (config: InternalAxiosRequestConfig) =>
   // requests (and tokens) to a relative or developer address.
   if (API_CONFIG_ERROR) throw new Error(API_CONFIG_ERROR);
   const token = await getAccessToken();
+  const owner = (config as QueuedRequestConfig).queuedForUserId;
+  if (owner !== undefined
+      && !queuedRequestAllowed(owner, useAuthStore.getState().user?.id ?? null, tokenSubject(token, decodeBase64))) {
+    throw queuedOwnerRefusal();
+  }
   if (token) {
     config.headers['Authorization'] = `Bearer ${token}`;
   }
@@ -101,6 +121,13 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
     original._retry = true;
+
+    // A queued entry is never retried for anyone but its owner: if another
+    // user is signed in now, it waits (pending) for its owner instead.
+    const owner = (original as QueuedRequestConfig).queuedForUserId;
+    if (owner !== undefined && useAuthStore.getState().user?.id !== owner) {
+      return Promise.reject(error);
+    }
 
     // Another request may already have rotated the tokens since this one left.
     const current = await getAccessToken();

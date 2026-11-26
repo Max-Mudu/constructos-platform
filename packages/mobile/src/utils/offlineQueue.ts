@@ -9,11 +9,9 @@
  * tap (src/components/OfflineSyncRunner.tsx, OfflineSyncPanel.tsx).
  */
 import * as FileSystem from 'expo-file-system/legacy';
-import axios, { AxiosError } from 'axios';
+import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { useAuthStore } from '../store/auth.store';
-import { apiClient } from '../api/client';
-import { labourApi } from '../api/labour';
-import { attendanceApi } from '../api/attendance';
+import { apiClient, QueuedRequestConfig } from '../api/client';
 import { API_ORIGIN } from '../constants/api';
 import { AttendanceRecord, LabourEntry } from '../types';
 import {
@@ -21,7 +19,7 @@ import {
 } from './offlineQueueCore';
 
 export type { OfflineOpType, QueueEntry, EnqueueResult, FlushReport } from './offlineQueueCore';
-export { shouldQueueAfterError, describeEntry } from './offlineQueueCore';
+export { shouldQueueAfterError, describeEntry, enqueueOutcome } from './offlineQueueCore';
 
 /** Same file as earlier app versions, so their entries are migrated, not lost. */
 const QUEUE_FILE = (FileSystem.documentDirectory ?? '') + 'offline_queue.json';
@@ -35,27 +33,33 @@ function str(v: unknown): string {
   return typeof v === 'string' ? v : String(v ?? '');
 }
 
+// Every request carries the entry's owner; the HTTP client refuses to send it
+// with anyone else's session (src/api/client.ts). Same endpoints and bodies
+// as src/api/labour.ts and src/api/attendance.ts.
+function owned(entry: QueueEntry, extra: AxiosRequestConfig = {}): AxiosRequestConfig & QueuedRequestConfig {
+  return { ...extra, queuedForUserId: entry.userId ?? '' };
+}
+
 const transport: QueueTransport = {
   async send(entry: QueueEntry) {
     const p = entry.payload;
     switch (entry.type) {
       case 'labour_create': {
-        const created = await labourApi.create(p['data'] as Parameters<typeof labourApi.create>[0]);
-        return { serverId: created?.id };
+        const { projectId, siteId, ...body } = (p['data'] ?? {}) as Record<string, unknown>;
+        const res = await apiClient.post<{ entry: LabourEntry }>(
+          `/projects/${str(projectId)}/sites/${str(siteId)}/labour`, body, owned(entry));
+        return { serverId: res.data?.entry?.id };
       }
       case 'attendance_create': {
-        const created = await attendanceApi.create(
-          str(p['projectId']), str(p['siteId']),
-          p['data'] as Parameters<typeof attendanceApi.create>[2],
-        );
-        return { serverId: created?.id };
+        const res = await apiClient.post<{ record: AttendanceRecord }>(
+          `/projects/${str(p['projectId'])}/sites/${str(p['siteId'])}/attendance`, p['data'], owned(entry));
+        return { serverId: res.data?.record?.id };
       }
       case 'attendance_self': {
-        const created = await attendanceApi.selfAttendance(
-          str(p['projectId']), str(p['siteId']),
-          p['checkInTime'] ? { checkInTime: str(p['checkInTime']) } : undefined,
-        );
-        return { serverId: created?.id };
+        const res = await apiClient.post<{ record: AttendanceRecord }>(
+          `/projects/${str(p['projectId'])}/sites/${str(p['siteId'])}/attendance/self`,
+          p['checkInTime'] ? { checkInTime: str(p['checkInTime']) } : {}, owned(entry));
+        return { serverId: res.data?.record?.id };
       }
     }
   },
@@ -68,7 +72,7 @@ const transport: QueueTransport = {
     if (entry.type === 'labour_create') {
       const res = await apiClient.get<{ entries: LabourEntry[] }>(
         `/projects/${str(d['projectId'])}/sites/${str(d['siteId'])}/labour`,
-        { params: { date: d['date'], workerId: d['workerId'] } },
+        owned(entry, { params: { date: d['date'], workerId: d['workerId'] } }),
       );
       const e = res.data.entries.find((x) => x.workerId === d['workerId'] && str(x.date).slice(0, 10) === d['date']);
       return e
@@ -76,10 +80,11 @@ const transport: QueueTransport = {
         : null;
     }
     if (entry.type === 'attendance_create') {
-      const records: AttendanceRecord[] = await attendanceApi.list(str(p['projectId']), str(p['siteId']), {
-        date: str(d['date']), workerId: str(d['workerId']),
-      });
-      const r = records.find((x) => x.workerId === d['workerId'] && str(x.date).slice(0, 10) === d['date']);
+      const res = await apiClient.get<{ records: AttendanceRecord[] }>(
+        `/projects/${str(p['projectId'])}/sites/${str(p['siteId'])}/attendance`,
+        owned(entry, { params: { date: d['date'], workerId: d['workerId'] } }),
+      );
+      const r = res.data.records.find((x) => x.workerId === d['workerId'] && str(x.date).slice(0, 10) === d['date']);
       return r
         ? { id: r.id, recordedById: r.recordedById ?? null, fields: { ...r } as Record<string, unknown> }
         : null;

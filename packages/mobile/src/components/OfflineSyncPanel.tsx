@@ -3,7 +3,9 @@
  * how many are waiting, each failed one with its reason and Retry / Dismiss,
  * and a line when entries were synced in the last half hour. Renders nothing
  * when there is nothing to report. Shows all of the signed-in user's queued
- * entries (labour and attendance) wherever it is placed.
+ * entries (labour and attendance) wherever it is placed. Entries of other
+ * accounts, of the previous app version without a user, and files that could
+ * not be read are only counted, never shown.
  */
 import React, { useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
@@ -22,7 +24,10 @@ function waitingReason(pending: QueueEntry[]): string {
 }
 
 export function OfflineSyncPanel({ onSynced }: { onSynced?: () => void }) {
-  const { pending, failed, recentlySynced, lastSyncedAt, isFlushing, flush, retry, dismiss } = useOfflineQueue();
+  const {
+    pending, failed, recentlySynced, lastSyncedAt, otherAccounts, previousVersion, unreadable,
+    isFlushing, flush, retry, dismiss,
+  } = useOfflineQueue();
 
   // Reload the screen's list when entries reach the server.
   const seen = useRef<string | null | undefined>(undefined);
@@ -31,7 +36,18 @@ export function OfflineSyncPanel({ onSynced }: { onSynced?: () => void }) {
     seen.current = lastSyncedAt;
   }, [lastSyncedAt, onSynced]);
 
-  if (pending.length === 0 && failed.length === 0 && recentlySynced.length === 0) return null;
+  const notices: string[] = [];
+  if (unreadable > 0) {
+    notices.push('Some entries saved on this phone could not be read. They are kept on this phone; ask your administrator for help.');
+  }
+  if (previousVersion > 0) {
+    notices.push(`${previousVersion} ${previousVersion === 1 ? 'entry' : 'entries'} saved by a previous version of the app ${previousVersion === 1 ? 'is' : 'are'} kept on this phone and not sent.`);
+  }
+  if (otherAccounts > 0) {
+    notices.push(`${otherAccounts} ${otherAccounts === 1 ? 'entry' : 'entries'} from another account ${otherAccounts === 1 ? 'is' : 'are'} kept on this phone.`);
+  }
+
+  if (pending.length === 0 && failed.length === 0 && recentlySynced.length === 0 && notices.length === 0) return null;
 
   function confirmDismiss(entry: QueueEntry) {
     Alert.alert(
@@ -101,6 +117,12 @@ export function OfflineSyncPanel({ onSynced }: { onSynced?: () => void }) {
         </View>
       ))}
 
+      {notices.map((text) => (
+        <View key={text} style={[S.box, S.noticeBox]}>
+          <Text style={S.noticeText}>{text}</Text>
+        </View>
+      ))}
+
       {pending.length === 0 && failed.length === 0 && recentlySynced.length > 0 && (
         <View style={[S.box, S.syncedBox]}>
           <Text style={S.syncedText}>
@@ -130,5 +152,7 @@ const S = StyleSheet.create({
   retryText:   { color: '#60a5fa', fontSize: 12, fontWeight: '700' },
   dismissText: { color: '#94a3b8', fontSize: 12, fontWeight: '700' },
   syncedBox:   { backgroundColor: '#071a0e', borderColor: '#14532d' },
+  noticeBox:   { backgroundColor: '#0e1e36', borderColor: '#1e3a6e' },
+  noticeText:  { color: '#93c5fd', fontSize: 12 },
   syncedText:  { color: '#22c55e', fontSize: 12, fontWeight: '700' },
 });

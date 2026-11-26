@@ -29,7 +29,7 @@ import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { LoadingSpinner } from '../../src/components/LoadingSpinner';
 import { EmptyState } from '../../src/components/EmptyState';
-import { offlineQueue, shouldQueueAfterError } from '../../src/utils/offlineQueue';
+import { enqueueOutcome, offlineQueue, shouldQueueAfterError } from '../../src/utils/offlineQueue';
 import { OfflineSyncPanel } from '../../src/components/OfflineSyncPanel';
 import { formatLabourCost, labourCostTotals } from '../../src/utils/labourCost';
 import { useOfflineQueue } from '../../src/hooks/useOfflineQueue';
@@ -213,17 +213,9 @@ function CreateLabourModal({
     const worker = workers.find((w) => w.id === data['workerId']);
     const label = `${worker ? `${worker.firstName} ${worker.lastName}` : 'Labour entry'} · ${String(data['date'])} · ${String(data['hoursWorked'])}h`;
     try {
-      const result = await offlineQueue.enqueue('labour_create', { data }, { userId: savedBy, label });
-      if (result.status === 'blocked') {
-        Alert.alert('Not saved', result.message);
-        return; // the form stays open with what was entered
-      }
-      Alert.alert(
-        'Saved Offline',
-        result.status === 'already_queued'
-          ? 'Labour entry queued already — this entry is waiting to sync.'
-          : 'Labour entry queued — saved on this phone and sent automatically when the connection returns.',
-      );
+      const outcome = enqueueOutcome(await offlineQueue.enqueue('labour_create', { data }, { userId: savedBy, label }), 'Labour entry');
+      Alert.alert(outcome.title, outcome.message);
+      if (!outcome.saved) return; // the form stays open with what was entered
       onSaved();
       onClose();
     } catch {
