@@ -7,14 +7,15 @@ import {
 } from '../services/event-emitter.service';
 import { JwtPayload } from '../types';
 import { env } from '../utils/env';
-import { isSessionCurrent } from '../middleware/authenticate';
+import { isSessionCurrent, currentUserForSession } from '../middleware/authenticate';
 
 // Heartbeat interval — keeps the connection alive through proxies and load balancers
 const HEARTBEAT_MS = 25_000;
 
 /**
- * One heartbeat of an open stream. The session is checked again first: if it
- * has ended since the stream opened (all sessions ended after a refresh token
+ * One heartbeat of an open stream. The session is checked again first: if the
+ * access token the stream opened with has expired, or the session has ended
+ * since the stream opened (all sessions ended after a refresh token
  * was reused, a password reset, a deactivation), the stream is closed instead
  * of staying open on an access token that every other route now refuses. A
  * failed check also closes it; the client reconnects and is checked again.
@@ -26,7 +27,7 @@ export async function heartbeatOrClose(
 ): Promise<boolean> {
   let current = false;
   try {
-    current = await isSessionCurrent(payload);
+    current = (await currentUserForSession(payload)) !== null;
   } catch {
     current = false;
   }
@@ -49,11 +50,14 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
    *  connected            — immediately on open
    *  heartbeat            — every 25 s
    *  notification         — when a new in-app notification is created for the user
-   *  dashboard            — when any significant company-wide data changes
    *  invoice_updated      — when an invoice status changes
    *  delivery_created     — when a new delivery is recorded
    *  labour_created       — when a new labour entry is recorded
    *  instruction_updated  — when an instruction is created or updated
+   *
+   * A record event reaches only users who can read that record through the
+   * API at that moment (services/event-emitter.service.ts emitToReaders), and
+   * carries record ids only; the client fetches the record itself.
    */
   fastify.get<{ Querystring: { token?: string } }>(
     '/',
@@ -106,6 +110,7 @@ export async function eventsRoutes(fastify: FastifyInstance): Promise<void> {
         id:       clientId,
         userId,
         companyId,
+        session:  payload,
         write: (data: string) => {
           try { reply.raw.write(data); } catch { /* stream gone */ }
         },

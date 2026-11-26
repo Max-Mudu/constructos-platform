@@ -9,7 +9,8 @@ import {
 import {
   registerClient,
   unregisterClient,
-  emitToCompany,
+  emitToReaders,
+  liveUpdatesSettled,
   emitToUser,
   clientCount,
   formatSSE,
@@ -61,28 +62,16 @@ describe('EventEmitter service', () => {
     expect(clientCount('company-1')).toBe(before);
   });
 
-  it('emitToCompany broadcasts to all clients in the company', () => {
-    const writes1: string[] = [];
-    const writes2: string[] = [];
-    const writes3: string[] = []; // different company
-
-    const c1 = { id: 'c1', userId: 'u1', companyId: 'co-A', write: (d: string) => writes1.push(d) };
-    const c2 = { id: 'c2', userId: 'u2', companyId: 'co-A', write: (d: string) => writes2.push(d) };
-    const c3 = { id: 'c3', userId: 'u3', companyId: 'co-B', write: (d: string) => writes3.push(d) };
-
+  it('emitToReaders never writes to a client without a verified session', async () => {
+    const writes: string[] = [];
+    const c1 = { id: 'c1', userId: 'u1', companyId: 'co-A', write: (d: string) => writes.push(d) };
     registerClient(c1);
-    registerClient(c2);
-    registerClient(c3);
-
-    emitToCompany('co-A', { type: 'dashboard', payload: { test: true } });
-
-    expect(writes1).toHaveLength(1);
-    expect(writes2).toHaveLength(1);
-    expect(writes3).toHaveLength(0); // different company not notified
-
+    const canRead = jest.fn(async () => true);
+    emitToReaders('co-A', { type: 'delivery_created', payload: { deliveryId: 'd' } }, canRead);
+    await liveUpdatesSettled();
+    expect(writes).toHaveLength(0);
+    expect(canRead).not.toHaveBeenCalled();
     unregisterClient(c1);
-    unregisterClient(c2);
-    unregisterClient(c3);
   });
 
   it('emitToUser only sends to matching userId within company', () => {
@@ -104,11 +93,11 @@ describe('EventEmitter service', () => {
     unregisterClient(c2);
   });
 
-  it('emitToCompany is no-op when no clients registered', () => {
-    // Should not throw
-    expect(() =>
-      emitToCompany('no-clients-here', { type: 'dashboard' }),
-    ).not.toThrow();
+  it('emitToReaders is no-op when no clients registered', async () => {
+    const canRead = jest.fn(async () => true);
+    expect(() => emitToReaders('no-clients-here', { type: 'delivery_created' }, canRead)).not.toThrow();
+    await liveUpdatesSettled();
+    expect(canRead).not.toHaveBeenCalled();
   });
 });
 

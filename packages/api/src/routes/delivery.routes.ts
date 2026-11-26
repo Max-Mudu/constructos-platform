@@ -85,7 +85,7 @@ const updateDeliverySchema = z.object({
 });
 
 // Roles that can view deliveries (read-only: finance, viewer; write: supervisor/pm/admin)
-const VIEW_ROLES   = ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer', 'viewer'] as const;
+const VIEW_ROLES   = deliveryService.DELIVERY_VIEW_ROLES;
 const WRITE_ROLES  = ['company_admin', 'project_manager', 'site_supervisor'] as const;
 // Only admin/PM can delete deliveries AND their attached files
 const DELETE_ROLES = ['company_admin', 'project_manager'] as const;

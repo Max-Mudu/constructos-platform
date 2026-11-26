@@ -2,10 +2,15 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
 import { AppError, NotFoundError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
-import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
-import { emitToCompany } from './event-emitter.service';
+import { getAccessibleSiteIds, passesProjectRouteGuards } from '../middleware/requireProjectAccess';
+import { emitToReaders } from './event-emitter.service';
 import { canViewFinancialData } from './report.service';
 import { lockBookableWorkerOnSite } from './worker-booking';
+
+// ─── Read roles ───────────────────────────────────────────────────────────────
+
+/** Roles that can view labour entries. */
+export const LABOUR_VIEW_ROLES = ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer'] as const;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -195,6 +200,25 @@ export async function getLabourEntry(
   return presentEntry(entry, actor);
 }
 
+/**
+ * True when `reader` could GET this labour entry: the route guards
+ * (LABOUR_VIEW_ROLES, requireProjectAccess), then getLabourEntry's own rules.
+ */
+export async function canReadLabourEntry(
+  reader: RequestUser,
+  entryId: string,
+  projectId: string,
+  siteId: string,
+): Promise<boolean> {
+  if (!(await passesProjectRouteGuards(reader, LABOUR_VIEW_ROLES, projectId))) return false;
+  try {
+    await getLabourEntry(entryId, projectId, siteId, reader);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function createLabourEntry(
   projectId: string,
   siteId: string,
@@ -243,10 +267,10 @@ export async function createLabourEntry(
     return created;
   });
 
-  emitToCompany(actor.companyId, {
+  emitToReaders(actor.companyId, {
     type: 'labour_created',
-    payload: { entryId: entry.id, projectId, siteId, workerId: entry.workerId },
-  });
+    payload: { entryId: entry.id, projectId, siteId },
+  }, (reader) => canReadLabourEntry(reader, entry.id, projectId, siteId));
 
   return presentEntry(entry, actor);
 }

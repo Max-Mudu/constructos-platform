@@ -1,10 +1,15 @@
 import { prisma } from '../utils/prisma';
 import { NotFoundError, ForbiddenError, ValidationError, ConflictError } from '../utils/errors';
 import { RequestUser } from '../types';
-import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
+import { getAccessibleSiteIds, passesProjectRouteGuards } from '../middleware/requireProjectAccess';
 import { DeliveryCondition, InspectionStatus, AcceptanceStatus, Prisma } from '@prisma/client';
-import { emitToCompany } from './event-emitter.service';
+import { emitToReaders } from './event-emitter.service';
 import * as inventoryService from './inventory.service';
+
+// ─── Read roles ───────────────────────────────────────────────────────────────
+
+/** Roles that can view deliveries (read-only: finance, viewer; write: supervisor/pm/admin). */
+export const DELIVERY_VIEW_ROLES = ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer', 'viewer'] as const;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -383,6 +388,25 @@ export async function getDelivery(
   return record;
 }
 
+/**
+ * True when `reader` could GET this delivery: the route guards
+ * (DELIVERY_VIEW_ROLES, requireProjectAccess), then getDelivery's own rules.
+ */
+export async function canReadDelivery(
+  reader: RequestUser,
+  deliveryId: string,
+  projectId: string,
+  siteId: string,
+): Promise<boolean> {
+  if (!(await passesProjectRouteGuards(reader, DELIVERY_VIEW_ROLES, projectId))) return false;
+  try {
+    await getDelivery(deliveryId, projectId, siteId, reader);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function createDelivery(
   projectId: string,
   siteId: string,
@@ -466,11 +490,11 @@ export async function createDelivery(
   });
 
   // Sent only once the delivery is saved, so no client is told about a
-  // delivery that was rolled back.
-  emitToCompany(actor.companyId, {
+  // delivery that was rolled back; only to users who can read it.
+  emitToReaders(actor.companyId, {
     type: 'delivery_created',
-    payload: { deliveryId: record.id, projectId, siteId, supplierName: record.supplierName },
-  });
+    payload: { deliveryId: record.id, projectId, siteId },
+  }, (reader) => canReadDelivery(reader, record.id, projectId, siteId));
 
   return record;
 }

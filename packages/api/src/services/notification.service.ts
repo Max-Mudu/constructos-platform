@@ -1,7 +1,7 @@
 import { prisma } from '../utils/prisma';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import { RequestUser } from '../types';
-import { emitToUser, emitToCompany } from './event-emitter.service';
+import { emitToUser } from './event-emitter.service';
 import { sendPushToUser } from './push.service';
 
 // ─── Constants ────────────────────────────────────────────────────────────────

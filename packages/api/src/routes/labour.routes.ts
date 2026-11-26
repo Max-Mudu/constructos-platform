@@ -35,7 +35,7 @@ const updateEntrySchema = z.object({
 
 // ─── Role groups ──────────────────────────────────────────────────────────────
 
-const VIEW_ROLES   = ['company_admin', 'project_manager', 'site_supervisor', 'finance_officer'] as const;
+const VIEW_ROLES   = labourService.LABOUR_VIEW_ROLES;
 const WRITE_ROLES  = ['company_admin', 'project_manager', 'site_supervisor'] as const;
 const DELETE_ROLES = ['company_admin', 'project_manager'] as const;
 

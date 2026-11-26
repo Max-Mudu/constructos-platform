@@ -54,8 +54,7 @@ const updateInstructionSchema = z.object({
 
 // ─── Role groups ──────────────────────────────────────────────────────────────
 
-const VIEW_ROLES   = ['company_admin', 'project_manager', 'site_supervisor',
-                      'consultant', 'contractor', 'finance_officer', 'viewer'] as const;
+const VIEW_ROLES   = instructionService.INSTRUCTION_VIEW_ROLES;
 const ISSUE_ROLES  = ['company_admin', 'project_manager', 'consultant'] as const;
 const UPDATE_ROLES = ['company_admin', 'project_manager', 'site_supervisor',
                       'consultant', 'contractor'] as const;

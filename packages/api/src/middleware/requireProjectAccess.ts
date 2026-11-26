@@ -3,6 +3,7 @@ import { prisma } from '../utils/prisma';
 import { NotFoundError, ForbiddenError } from '../utils/errors';
 import { Project, UserRole } from '@prisma/client';
 import { env } from '../utils/env';
+import { RequestUser } from '../types';
 
 // Roles that see all projects in their company without needing a project_member row
 const COMPANY_WIDE_ROLES: UserRole[] = ['super_admin', 'company_admin', 'finance_officer'];
@@ -11,6 +12,44 @@ declare module 'fastify' {
   interface FastifyRequest {
     project: Project;
   }
+}
+
+/**
+ * The membership rule of requireProjectAccess: company-wide roles reach every
+ * project of their company; every other role needs an active project_members
+ * row. No response and no audit log, so it can also be asked on a user's
+ * behalf (live updates).
+ */
+export async function passesProjectMembershipRule(
+  user: Pick<RequestUser, 'id' | 'role'>,
+  projectId: string,
+): Promise<boolean> {
+  if (COMPANY_WIDE_ROLES.includes(user.role)) return true;
+  const membership = await prisma.projectMember.findFirst({
+    where:  { projectId, userId: user.id, removedAt: null },
+    select: { id: true },
+  });
+  return membership !== null;
+}
+
+/**
+ * The route guards in front of a project record's GET route, as a check:
+ * requireRole(...viewRoles) and requireProjectAccess (the project is in the
+ * user's company and passesProjectMembershipRule). The record's own service
+ * read applies the rest (site scope, contractor link, finance scope).
+ */
+export async function passesProjectRouteGuards(
+  user: RequestUser,
+  viewRoles: readonly UserRole[],
+  projectId: string,
+): Promise<boolean> {
+  if (!viewRoles.includes(user.role)) return false;
+  const project = await prisma.project.findFirst({
+    where:  { id: projectId, companyId: user.companyId },
+    select: { id: true },
+  });
+  if (!project) return false;
+  return passesProjectMembershipRule(user, projectId);
 }
 
 /**
@@ -47,15 +86,7 @@ export async function requireProjectAccess(
   }
 
   if (!COMPANY_WIDE_ROLES.includes(user.role)) {
-    const membership = await prisma.projectMember.findFirst({
-      where: {
-        projectId,
-        userId: user.id,
-        removedAt: null,
-      },
-    });
-
-    if (!membership) {
+    if (!(await passesProjectMembershipRule(user, projectId))) {
       await prisma.auditLog.create({
         data: {
           companyId: user.companyId,
