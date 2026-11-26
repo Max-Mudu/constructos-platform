@@ -7,14 +7,15 @@ import {
 } from '../services/event-emitter.service';
 import { JwtPayload } from '../types';
 import { env } from '../utils/env';
-import { isSessionCurrent } from '../middleware/authenticate';
+import { isSessionCurrent, currentUserForSession } from '../middleware/authenticate';
 
 // Heartbeat interval — keeps the connection alive through proxies and load balancers
 const HEARTBEAT_MS = 25_000;
 
 /**
- * One heartbeat of an open stream. The session is checked again first: if it
- * has ended since the stream opened (all sessions ended after a refresh token
+ * One heartbeat of an open stream. The session is checked again first: if the
+ * access token the stream opened with has expired, or the session has ended
+ * since the stream opened (all sessions ended after a refresh token
  * was reused, a password reset, a deactivation), the stream is closed instead
  * of staying open on an access token that every other route now refuses. A
  * failed check also closes it; the client reconnects and is checked again.
@@ -26,7 +27,7 @@ export async function heartbeatOrClose(
 ): Promise<boolean> {
   let current = false;
   try {
-    current = await isSessionCurrent(payload);
+    current = (await currentUserForSession(payload)) !== null;
   } catch {
     current = false;
   }

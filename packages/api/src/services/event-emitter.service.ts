@@ -4,9 +4,10 @@
  * Each connected browser tab or phone registers a writer function here, with
  * the verified access-token payload it connected with.
  *  - emitToReaders() sends an event about one record only to the connected
- *    users who could read that record through the API right now: the same
- *    session check as every request, then the record's own read rule
- *    (role, project membership, site scope, contractor link, finance scope).
+ *    users who could read that record through the API right now: an
+ *    unexpired token of a current session, the user's role and finance
+ *    permission as stored now, then the record's own read rule (role, project
+ *    membership, site scope, contractor link, finance scope).
  *  - emitToUser() sends to one user's own connections (their notifications).
  * There is no company-wide broadcast.
  *
@@ -15,7 +16,7 @@
  * pub/sub adapter later without changing the call sites.
  */
 import { JwtPayload, RequestUser } from '../types';
-import { isSessionCurrent, requestUserFromPayload } from '../middleware/authenticate';
+import { currentUserForSession } from '../middleware/authenticate';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,40 @@ export function unregisterClient(client: Client): void {
   if (clients.size === 0) registry.delete(client.companyId);
 }
 
+/**
+ * Per event: at most `concurrency` recipient checks run at once, so one event
+ * cannot take the whole database pool; a check that takes longer than
+ * `timeoutMs` counts as "not allowed" and is logged. Mutable for tests.
+ */
+export const liveUpdateLimits = { concurrency: 8, timeoutMs: 10_000 };
+
+const TIMED_OUT = Symbol('timed out');
+
+/** Whether `session` may receive the event: current user row, then canRead. */
+async function allowed(companyId: string, session: JwtPayload, canRead: ReaderCheck): Promise<boolean> {
+  // The registry groups by company; the token must agree.
+  if (session.companyId !== companyId) return false;
+  const reader = await currentUserForSession(session);
+  return reader !== null && (await canRead(reader));
+}
+
+async function decideWithTimeout(companyId: string, session: JwtPayload, canRead: ReaderCheck): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), liveUpdateLimits.timeoutMs);
+  });
+  try {
+    const result = await Promise.race([allowed(companyId, session, canRead).catch(() => false), timeout]);
+    if (result === TIMED_OUT) {
+      console.warn('[live-updates] a recipient check timed out; the event was not sent to that connection');
+      return false;
+    }
+    return result;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function deliverToReaders(
   companyId: string,
   snapshot: Client[],
@@ -77,31 +112,27 @@ async function deliverToReaders(
   canRead: ReaderCheck,
 ): Promise<void> {
   // One check per token: a user with several tabs is checked once.
-  const decisions = new Map<string, Promise<boolean>>();
-  const decide = (session: JwtPayload): Promise<boolean> => {
-    const key = JSON.stringify([session.sub, session.sv ?? 0, session.companyId, session.role, session.canViewFinance]);
-    let decision = decisions.get(key);
-    if (!decision) {
-      decision = (async () => {
-        try {
-          // The registry groups by company; the token must agree.
-          if (session.companyId !== companyId) return false;
-          return (await isSessionCurrent(session)) && (await canRead(requestUserFromPayload(session)));
-        } catch {
-          return false;
-        }
-      })();
-      decisions.set(key, decision);
-    }
-    return decision;
-  };
+  const groups = new Map<string, { session: JwtPayload; clients: Client[] }>();
+  for (const client of snapshot) {
+    if (!client.session) continue;
+    const s = client.session;
+    const key = JSON.stringify([s.sub, s.sv ?? 0, s.companyId, s.exp ?? null]);
+    const group = groups.get(key);
+    if (group) group.clients.push(client); else groups.set(key, { session: s, clients: [client] });
+  }
 
-  await Promise.all(snapshot.map(async (client) => {
-    if (!client.session) return;
-    if (!(await decide(client.session))) return;
-    if (!registry.get(companyId)?.has(client)) return; // disconnected meanwhile
-    try { client.write(line); } catch { /* client already disconnected */ }
-  }));
+  const queue = [...groups.values()];
+  const worker = async (): Promise<void> => {
+    for (let group = queue.shift(); group; group = queue.shift()) {
+      if (!(await decideWithTimeout(companyId, group.session, canRead))) continue;
+      for (const client of group.clients) {
+        if (!registry.get(companyId)?.has(client)) continue; // disconnected meanwhile
+        try { client.write(line); } catch { /* client already disconnected */ }
+      }
+    }
+  };
+  const workers = Math.max(1, Math.min(liveUpdateLimits.concurrency, queue.length));
+  await Promise.all(Array.from({ length: workers }, worker));
 }
 
 /**

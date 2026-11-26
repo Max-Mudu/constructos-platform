@@ -35,6 +35,28 @@ export async function isSessionCurrent(payload: JwtPayload): Promise<boolean> {
 }
 
 /**
+ * The user a long-lived connection (the live-updates stream) acts as right
+ * now, or null when the access token it opened with has expired or
+ * isSessionCurrent would refuse it. Role and finance permission are read from
+ * the user row, not from the token, so a change made while the stream is open
+ * applies to the next event.
+ */
+export async function currentUserForSession(
+  payload: JwtPayload,
+  now: number = Date.now(),
+): Promise<RequestUser | null> {
+  if (typeof payload.exp === 'number' && payload.exp * 1000 <= now) return null;
+  if (typeof payload.sub !== 'string' || typeof payload.companyId !== 'string') return null;
+  const tokenVersion = payload.sv === undefined ? 0 : payload.sv;
+  if (!Number.isSafeInteger(tokenVersion)) return null;
+  const row = await prisma.user.findFirst({
+    where:  { id: payload.sub, companyId: payload.companyId, isActive: true, sessionVersion: tokenVersion },
+    select: { id: true, email: true, role: true, companyId: true, canViewFinance: true },
+  });
+  return row === null ? null : { ...row, sessionVersion: tokenVersion };
+}
+
+/**
  * The request user for a verified access-token payload (sub → id). Shared by
  * this middleware and the live-updates stream, so both act as the same user.
  */

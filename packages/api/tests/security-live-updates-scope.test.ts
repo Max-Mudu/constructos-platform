@@ -15,10 +15,13 @@ import { buildApp } from '../src/server';
 import { prisma } from '../src/utils/prisma';
 import { env } from '../src/utils/env';
 import { JwtPayload } from '../src/types';
+import { heartbeatOrClose } from '../src/routes/events.routes';
 import {
   registerClient,
   unregisterClient,
   liveUpdatesSettled,
+  emitToReaders,
+  liveUpdateLimits,
   Client,
 } from '../src/services/event-emitter.service';
 import {
@@ -312,5 +315,101 @@ describe('never delivered', () => {
     await createDelivery(world.users.admin, world.p1, world.s1);
     await liveUpdatesSettled();
     expect(writes).toEqual([]);
+  });
+});
+
+// ─── Changes while a stream is open ──────────────────────────────────────────
+
+async function submitInvoice(projectId: string): Promise<void> {
+  const invoice = await createTestInvoice(world.companyId, projectId);
+  const res = await app.inject({ method: 'POST', url: `/api/v1/invoices/${invoice.id}/submit`, headers: auth(world.users.admin), payload: {} });
+  expect(res.statusCode).toBe(200);
+}
+
+describe('changes made while a stream is open', () => {
+  it('finance permission removed in the database: no more invoice events', async () => {
+    await submitInvoice(world.p1);
+    expect(await receiversOf('invoice_updated')).toContain('pmFin');
+    received.get('pmFin')!.length = 0;
+
+    await prisma.user.update({ where: { id: world.users.pmFin.id }, data: { canViewFinance: false } });
+    await submitInvoice(world.p1);
+    expect(await receiversOf('invoice_updated')).not.toContain('pmFin');
+  });
+
+  it('role changed in the database: the stored role decides, not the one in the token', async () => {
+    await prisma.user.update({ where: { id: world.users.fin.id }, data: { role: 'viewer' } });
+    await submitInvoice(world.p1);
+    const invoiceReaders = await receiversOf('invoice_updated');
+    expect(invoiceReaders).not.toContain('fin');
+    await createDelivery(world.users.admin, world.p1, world.s1);
+    // A viewer who is not a project member cannot read the delivery either.
+    expect(await receiversOf('delivery_created')).not.toContain('fin');
+  });
+
+  it('an expired access token receives nothing and its stream is closed at the next heartbeat', async () => {
+    const expiredSession = {
+      ...app.jwt.verify<JwtPayload>(world.users.admin.accessToken),
+      exp: Math.floor(Date.now() / 1000) - 1,
+    };
+    const writes: string[] = [];
+    const client: Client = {
+      id: randomUUID(), userId: world.users.admin.id, companyId: world.companyId, session: expiredSession,
+      write: (l) => writes.push(l),
+    };
+    registerClient(client);
+    clients.push(client);
+    await createDelivery(world.users.admin, world.p1, world.s1);
+    await liveUpdatesSettled();
+    expect(writes).toEqual([]);
+    let closed = false;
+    expect(await heartbeatOrClose(expiredSession, { write: () => undefined, close: () => { closed = true; } })).toBe(false);
+    expect(closed).toBe(true);
+  });
+});
+
+// ─── Recipient-check limits ──────────────────────────────────────────────────
+
+describe('recipient checks per event', () => {
+  const saved = { ...liveUpdateLimits };
+  afterEach(() => { Object.assign(liveUpdateLimits, saved); });
+
+  it('run at most `concurrency` at once and still reach everyone allowed', async () => {
+    for (let i = 0; i < 12; i++) {
+      connect(`extra${i}`, await createTestUser(app, world.companyId, 'company_admin', `extra${i}-${randomUUID().slice(0, 6)}`));
+    }
+    let inFlight = 0;
+    let peak = 0;
+    emitToReaders(world.companyId, { type: 'probe', payload: {} }, async () => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 20));
+      inFlight -= 1;
+      return true;
+    });
+    const got = await receiversOf('probe');
+    expect(peak).toBeLessThanOrEqual(8);
+    expect(peak).toBeGreaterThan(1);
+    // Every company-A connection with a current session; never company B.
+    expect(got).toContain('extra11');
+    expect(got).not.toContain('adminB');
+    expect(got).not.toContain('ended');
+  });
+
+  it('a check that takes too long is logged and that connection is skipped; the others still receive', async () => {
+    liveUpdateLimits.timeoutMs = 100;
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      emitToReaders(world.companyId, { type: 'probe', payload: {} }, async (reader) => {
+        if (reader.id === world.users.pm1.id) await new Promise(() => undefined); // never settles
+        return true;
+      });
+      const got = await receiversOf('probe');
+      expect(got).not.toContain('pm1');
+      expect(got).toContain('admin');
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('[live-updates] a recipient check timed out'));
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
