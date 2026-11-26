@@ -15,5 +15,16 @@
     ".expo/types/**/*.d.ts",
     "expo-env.d.ts",
     ".expo/types/**/*.ts"
+  ],
+  // The base config's list, plus tests/: Node's test runner runs those .ts
+  // files directly (npm test), and the app is not checked against Node globals.
+  "exclude": [
+    "node_modules",
+    "babel.config.js",
+    "metro.config.js",
+    "jest.config.js",
+    "android",
+    "ios",
+    "tests"
   ]
 }

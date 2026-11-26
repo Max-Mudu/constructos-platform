@@ -1,9 +1,35 @@
 import { AttendanceStatus, Prisma } from '@prisma/client';
 import { prisma } from '../utils/prisma';
-import { NotFoundError, ForbiddenError, ValidationError } from '../utils/errors';
+import { AppError, NotFoundError, ForbiddenError, ValidationError } from '../utils/errors';
 import { RequestUser } from '../types';
 import { getAccessibleSiteIds } from '../middleware/requireProjectAccess';
 import { assertWorkerActive, lockBookableWorkerOnSite, lockWorkerForBooking } from './worker-booking';
+
+/**
+ * One attendance record per worker, site and day (unique index). A second
+ * create for the same day, including a replay of a create whose answer was
+ * lost, is a conflict the caller can act on: not a permission error and not a
+ * server error.
+ */
+export class AttendanceExistsError extends AppError {
+  constructor() {
+    super(409, 'Attendance record already exists for this worker on this date', 'ATTENDANCE_EXISTS');
+  }
+}
+
+function isUniqueViolation(err: unknown): boolean {
+  return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
+}
+
+/**
+ * A create that commits in between the duplicate check and this insert is
+ * caught by the unique index. The transaction is already aborted then, so
+ * this only maps the error; nothing else runs on tx after it.
+ */
+function rethrowDuplicate(err: unknown): never {
+  if (isUniqueViolation(err)) throw new AttendanceExistsError();
+  throw err;
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -179,9 +205,7 @@ export async function createAttendanceRecord(
         date: new Date(input.date),
       },
     });
-    if (existing) {
-      throw new ForbiddenError('Attendance record already exists for this worker on this date');
-    }
+    if (existing) throw new AttendanceExistsError();
 
     const record = await tx.attendanceRecord.create({
       data: {
@@ -197,7 +221,7 @@ export async function createAttendanceRecord(
         notes:        input.notes        ?? null,
       },
       select: RECORD_SELECT,
-    });
+    }).catch(rethrowDuplicate);
 
     await tx.auditLog.create({
       data: {
@@ -409,7 +433,7 @@ export async function selfAttendance(
         notes:        input.notes       ?? null,
       },
       select: RECORD_SELECT,
-    });
+    }).catch(rethrowDuplicate);
 
     await tx.auditLog.create({
       data: {

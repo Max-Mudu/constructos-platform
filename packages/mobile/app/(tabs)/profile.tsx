@@ -7,7 +7,7 @@ import { useRouter } from 'expo-router';
 import { useAuthStore } from '../../src/store/auth.store';
 import { getExpoPushToken } from '../../src/utils/push';
 import { withTimeout } from '../../src/utils/withTimeout';
-import { clearQueue, getQueue } from '../../src/utils/offlineQueue';
+import { offlineQueue } from '../../src/utils/offlineQueue';
 import { authApi } from '../../src/api/auth';
 import { notificationsApi } from '../../src/api/notifications';
 import { Project, JobSite } from '../../src/types';
@@ -166,39 +166,81 @@ export default function ProfileScreen() {
 
   // ── Logout ──────────────────────────────────────────────────────────────
   async function handleLogout() {
-    const pending = (await getQueue().catch(() => [])).length;
+    const userId = user?.id ?? null;
+    await offlineQueue.load().catch(() => undefined);
+    const pending = offlineQueue.unsyncedCount(userId);
+
+    async function logOut(deleteUnsynced: boolean) {
+      setLoggingOut(true);
+      // No queued request may start or still be running when the session
+      // ends (or when the user's entries are deleted).
+      await offlineQueue.pause();
+      try {
+        try {
+          // The lookup waits on APNs and an HTTPS call to Expo with no
+          // time limit; on a poor connection it must not block logout.
+          const pushToken = await withTimeout(getExpoPushToken(), PUSH_TOKEN_LOOKUP_MS);
+          if (pushToken) await notificationsApi.unregisterPushToken(pushToken);
+        } catch { /* non-fatal */ }
+
+        // Never throws; refreshes once if the access token has expired.
+        await authApi.logout();
+      } finally {
+        // Unsynced entries stay on the phone, bound to this user, unless the
+        // user chose to delete them.
+        if (deleteUnsynced && userId) await offlineQueue.deleteForUser(userId).catch(() => {});
+        await clearAuth();
+        offlineQueue.resume(); // the next user's entries may sync again
+        router.replace('/login');
+        setLoggingOut(false);
+      }
+    }
+
+    if (pending === 0) {
+      Alert.alert('Log Out', 'Are you sure you want to log out?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Log Out', style: 'destructive', onPress: () => { void logOut(false); } },
+      ]);
+      return;
+    }
+
+    const describe = (n: number) => `${n} unsynced ${n === 1 ? 'entry' : 'entries'}`;
+    const what = describe(pending);
+
+    // Syncing is paused first, so nothing is sent while the user decides and
+    // the count shown is final (an entry already in flight is recorded first).
+    async function confirmDelete() {
+      await offlineQueue.pause();
+      const left = offlineQueue.unsyncedCount(userId);
+      if (left === 0) {
+        offlineQueue.resume();
+        Alert.alert('Log Out', 'Your offline entries have just been sent. Log out?', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Log Out', style: 'destructive', onPress: () => { void logOut(false); } },
+        ]);
+        return;
+      }
+      Alert.alert(
+        'Delete unsynced entries?',
+        `${describe(left)} will be removed from this phone and never sent.`,
+        [
+          { text: 'Cancel', style: 'cancel', onPress: () => offlineQueue.resume() },
+          { text: 'Delete and log out', style: 'destructive', onPress: () => { void logOut(true); } },
+        ],
+        { cancelable: false },
+      );
+    }
     Alert.alert(
       'Log Out',
-      pending > 0
-        ? `You have ${pending} unsynced ${pending === 1 ? 'entry' : 'entries'} saved offline. ` +
-          'Logging out deletes them from this device. Log out anyway?'
-        : 'Are you sure you want to log out?',
+      `You have ${what} saved offline. They stay on this phone and are sent the next time you sign in on it. Log out anyway?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Log Out',
+          text: 'Delete them',
           style: 'destructive',
-          onPress: async () => {
-            setLoggingOut(true);
-            try {
-              try {
-                // The lookup waits on APNs and an HTTPS call to Expo with no
-                // time limit; on a poor connection it must not block logout.
-                const pushToken = await withTimeout(getExpoPushToken(), PUSH_TOKEN_LOOKUP_MS);
-                if (pushToken) await notificationsApi.unregisterPushToken(pushToken);
-              } catch { /* non-fatal */ }
-
-              // Never throws; refreshes once if the access token has expired.
-              await authApi.logout();
-            } finally {
-              // Before clearAuth: clearQueue removes the current user's ops.
-              await clearQueue().catch(() => {});
-              await clearAuth();
-              router.replace('/login');
-              setLoggingOut(false);
-            }
-          },
+          onPress: () => { void confirmDelete(); },
         },
+        { text: 'Log Out', onPress: () => { void logOut(false); } },
       ],
     );
   }

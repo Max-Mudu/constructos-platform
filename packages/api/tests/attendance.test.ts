@@ -104,7 +104,7 @@ describe('POST /attendance', () => {
     }
   });
 
-  it('rejects duplicate attendance for same worker/site/date — 403', async () => {
+  it('rejects duplicate attendance for same worker/site/date — 409 conflict', async () => {
     const { company, admin } = await createTestCompany(app, 'att-create-4');
     const project = await createTestProject(company.id);
     const site    = await createTestSite(company.id, project.id);
@@ -119,7 +119,8 @@ describe('POST /attendance', () => {
       payload: { workerId: worker.id, date: '2026-04-07', status: 'absent' },
     });
 
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('ATTENDANCE_EXISTS');
   });
 
   it('site_supervisor on different site cannot create record — 404', async () => {

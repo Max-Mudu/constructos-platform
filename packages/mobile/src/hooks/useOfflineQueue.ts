@@ -1,124 +1,47 @@
 /**
- * useOfflineQueue
- * Exposes pending operation count and a flush function.
- * Automatically flushes when the app comes back to the foreground.
+ * useOfflineQueue — the signed-in user's offline entries for a screen:
+ * pending ones, failed ones (with the reason) and recently synced ones, plus
+ * Sync now / Retry / Dismiss. Automatic syncing lives in OfflineSyncRunner.
  */
-import { useCallback, useEffect, useState } from 'react';
-import { AppState, AppStateStatus } from 'react-native';
-import {
-  getQueue, dequeue, incrementRetry, clearQueue as clearAllQueue,
-  OfflineOp,
-} from '../utils/offlineQueue';
-import { attendanceApi } from '../api/attendance';
-import { labourApi } from '../api/labour';
-
-const MAX_RETRIES = 5;
-
-// Module-level lock — shared across all hook instances so concurrent tab
-// foreground events don't trigger duplicate flushes simultaneously.
-let isFlushingGlobal = false;
-
-// ─── Execute a single queued operation ───────────────────────────────────────
-
-async function executeOp(op: OfflineOp): Promise<void> {
-  const p = op.payload;
-
-  switch (op.type) {
-    case 'attendance_self':
-      await attendanceApi.selfAttendance(
-        p['projectId'] as string,
-        p['siteId'] as string,
-        p['checkInTime'] ? { checkInTime: p['checkInTime'] as string } : undefined,
-      );
-      break;
-
-    case 'attendance_create':
-      await attendanceApi.create(
-        p['projectId'] as string,
-        p['siteId'] as string,
-        p['data'] as Parameters<typeof attendanceApi.create>[2],
-      );
-      break;
-
-    case 'labour_create':
-      await labourApi.create(p['data'] as Parameters<typeof labourApi.create>[0]);
-      break;
-
-    default:
-      throw new Error(`Unknown op type: ${op.type}`);
-  }
-}
-
-// ─── Hook ─────────────────────────────────────────────────────────────────────
+import { useCallback, useEffect, useReducer } from 'react';
+import { useAuthStore } from '../store/auth.store';
+import { offlineQueue } from '../utils/offlineQueue';
 
 export function useOfflineQueue() {
-  const [pendingCount, setPendingCount] = useState(0);
-  const [isFlushing,   setIsFlushing]   = useState(false);
+  const userId = useAuthStore((s) => s.user?.id ?? null);
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
 
-  async function refresh() {
-    const q = await getQueue();
-    setPendingCount(q.length);
-  }
-
-  const flush = useCallback(async () => {
-    if (isFlushingGlobal) return; // another tab/screen is already flushing
-    isFlushingGlobal = true;
-    setIsFlushing(true);
-
-    try {
-      const queue = await getQueue();
-      for (const op of queue) {
-        if (op.retryCount >= MAX_RETRIES) {
-          console.warn('[offline-queue] dropping op after max retries — type:', op.type, 'id:', op.id, 'created:', op.createdAt);
-          await dequeue(op.id);
-          continue;
-        }
-        try {
-          await executeOp(op);
-          await dequeue(op.id);
-        } catch (err) {
-          const status = (err as { response?: { status?: number } })?.response?.status;
-          if (status === 401) {
-            // Session ended (refresh failed). Keep the op and stop; it is
-            // retried after the user signs in again.
-            break;
-          }
-          if (status !== undefined && status >= 400 && status < 500 && status !== 408 && status !== 429) {
-            // Rejected by the server (validation, duplicate, no access) —
-            // replaying the same request cannot succeed.
-            console.warn('[offline-queue] dropping op rejected by server — type:', op.type, 'status:', status);
-            await dequeue(op.id);
-          } else {
-            // Network failure, timeout, rate limit or 5xx — retry next flush.
-            await incrementRetry(op.id);
-          }
-        }
-      }
-    } finally {
-      isFlushingGlobal = false;
-      setIsFlushing(false);
-      await refresh();
-    }
+  useEffect(() => {
+    const unsubscribe = offlineQueue.subscribe(rerender);
+    offlineQueue.load().catch(() => { /* shown as not loaded; retried on the next change */ });
+    return unsubscribe;
   }, []);
 
-  async function clearQueue() {
-    await clearAllQueue();
-    setPendingCount(0);
-  }
+  const view = offlineQueue.view(userId);
 
-  // Flush on app foreground
-  useEffect(() => {
-    void refresh();
+  const flush = useCallback(() => offlineQueue.flush({ manual: true }), []);
 
-    function handleAppState(nextState: AppStateStatus) {
-      if (nextState === 'active') {
-        void flush();
-      }
-    }
+  const retry = useCallback(async (id: string) => {
+    await offlineQueue.retry(id);
+    await offlineQueue.flush({ manual: true });
+  }, []);
 
-    const sub = AppState.addEventListener('change', handleAppState);
-    return () => sub.remove();
-  }, [flush]);
+  const dismiss = useCallback((id: string) => offlineQueue.dismiss(id), []);
 
-  return { pendingCount, isFlushing, flush, refresh, clearQueue };
+  return {
+    loaded:         view.loaded,
+    pendingCount:   view.pending.length,
+    pending:        view.pending,
+    failed:         view.failed,
+    recentlySynced: view.recentlySynced,
+    lastSyncedAt:   view.lastSyncedAt,
+    otherAccounts:  view.otherAccounts,
+    previousVersion: view.previousVersion,
+    unreadable:     view.unreadable,
+    lastReport:     offlineQueue.lastReport,
+    isFlushing:     offlineQueue.isFlushing(),
+    flush,
+    retry,
+    dismiss,
+  };
 }

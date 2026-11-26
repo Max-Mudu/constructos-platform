@@ -12,6 +12,18 @@ import { notificationsApi } from '../src/api/notifications';
 import { registerForPushNotifications } from '../src/utils/push';
 import { isFirstLaunchOfInstall } from '../src/utils/localData';
 import { SSEProvider } from '../src/providers/SSEProvider';
+import { OfflineSyncRunner } from '../src/components/OfflineSyncRunner';
+import { offlineQueue } from '../src/utils/offlineQueue';
+
+/**
+ * Offline entries saved by the previous app version without a user belong to
+ * the session restored at this start (that version had one signed-in user at
+ * a time). Only the first load after the update migrates; later sign-ins
+ * never adopt them.
+ */
+async function loadOfflineQueueFor(userId: string) {
+  await offlineQueue.load({ adoptLegacyFor: userId }).catch(() => { /* retried when a screen loads it */ });
+}
 
 // Display notifications while the app is in the foreground.
 // Must be called before any navigator renders; module-level placement guarantees that.
@@ -57,6 +69,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         try {
           const me = await authApi.me();
           await restoreSession(me);
+          await loadOfflineQueueFor(me.id);
           // Expo push tokens can change (reinstall, OS restore); the API
           // upserts, so re-registering on every restored session is safe.
           void registerForPushNotifications()
@@ -68,7 +81,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
             // Offline or API down: keep the tokens. Open with the last known
             // profile if there is one; the server re-checks on the next call.
             const cached = await getCachedUser<AuthUser>();
-            if (cached) await restoreSession(cached, { offline: true });
+            if (cached) {
+              await restoreSession(cached, { offline: true });
+              await loadOfflineQueueFor(cached.id);
+            }
           } else {
             // 401 (refresh rejected — interceptor already signed out), 403, …
             await clearAuth();
@@ -143,6 +159,7 @@ export default function RootLayout() {
         <SSEProvider>
           <AuthGuard>
             <NotificationDeepLink />
+            <OfflineSyncRunner />
             <StatusBar style="light" />
             <Stack screenOptions={{ headerShown: false }} />
           </AuthGuard>

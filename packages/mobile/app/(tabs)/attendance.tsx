@@ -13,9 +13,10 @@ import { useAuthStore } from '../../src/store/auth.store';
 import { attendanceApi } from '../../src/api/attendance';
 import { projectsApi } from '../../src/api/projects';
 import { workersApi } from '../../src/api/workers';
-import { enqueue, isNetworkError } from '../../src/utils/offlineQueue';
+import { enqueueOutcome, offlineQueue, shouldQueueAfterError } from '../../src/utils/offlineQueue';
 import { bookableWorkers } from '../../src/utils/workers';
 import { useOfflineQueue } from '../../src/hooks/useOfflineQueue';
+import { OfflineSyncPanel } from '../../src/components/OfflineSyncPanel';
 import { AttendanceRecord, AttendanceStatus, Project, JobSite, Worker } from '../../src/types';
 import { useAppBarInset, useModalTopInset } from '../../src/hooks/useAppBarInset';
 
@@ -50,6 +51,7 @@ function WorkerAttendance({
 }) {
   const appBarInset = useAppBarInset();
   const { pendingCount, isFlushing, flush } = useOfflineQueue();
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   const hasDefaults = !!(defProjId && defSiteId);
 
   const [projects,    setProjects]    = useState<Project[]>([]);
@@ -92,6 +94,7 @@ function WorkerAttendance({
   async function handleCheckIn() {
     if (!selected) return;
     setSubmitting(true);
+    const savedBy = userId; // owner of a queued check-in, even if the session ends meanwhile
     try {
       await attendanceApi.selfAttendance(
         selected.project.id,
@@ -100,13 +103,19 @@ function WorkerAttendance({
       );
       setDone(true);
     } catch (err: unknown) {
-      if (isNetworkError(err)) {
-        await enqueue('attendance_self', {
-          projectId:   selected.project.id,
-          siteId:      selected.site.id,
-          checkInTime: checkInTime || null,
-        });
-        setDoneOffline(true);
+      if (shouldQueueAfterError(err)) {
+        try {
+          const outcome = enqueueOutcome(await offlineQueue.enqueue('attendance_self', {
+            projectId:   selected.project.id,
+            siteId:      selected.site.id,
+            checkInTime: checkInTime || null,
+          }, { userId: savedBy, label: `Check-in · ${new Date().toLocaleDateString('en-GB')}${checkInTime ? ` · ${checkInTime}` : ''}` }), 'Check-in');
+          // A different check-in for today already waiting is not replaced: say so.
+          if (outcome.saved) setDoneOffline(true);
+          else Alert.alert(outcome.title, outcome.message);
+        } catch {
+          Alert.alert('Not saved', 'The server could not be reached and the check-in could not be saved on this phone. Try again.');
+        }
       } else {
         const msg =
           (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
@@ -168,7 +177,7 @@ function WorkerAttendance({
             <Text style={W.doneTitle}>Attendance Recorded</Text>
             <Text style={W.doneSub}>You have been marked as present today.</Text>
             {pendingCount > 0 && (
-              <TouchableOpacity style={W.syncBtn} onPress={flush} disabled={isFlushing} activeOpacity={0.8}>
+              <TouchableOpacity style={W.syncBtn} onPress={() => { void flush(); }} disabled={isFlushing} activeOpacity={0.8}>
                 <Text style={W.syncBtnText}>
                   {isFlushing ? 'Syncing…' : `Sync ${pendingCount} pending`}
                 </Text>
@@ -199,6 +208,10 @@ function WorkerAttendance({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        <View style={{ marginHorizontal: -16, marginTop: 12 }}>
+          <OfflineSyncPanel />
+        </View>
+
         {/* Steps 1 & 2: project/site selection — hidden for users with defaults */}
         {!hasDefaults && (
           <>
@@ -319,24 +332,46 @@ function MarkAttendanceModal({
       return;
     }
     setSaving(true);
+    const today = new Date().toISOString().split('T')[0]!;
+    const data = {
+      workerId,
+      date:       today,
+      status,
+      checkInTime:  checkInTime || undefined,
+      notes:        notes       || undefined,
+    };
+    // Captured before the request: a queued record belongs to the person who
+    // saved it, even if the session ends while the request runs.
+    const savedBy = useAuthStore.getState().user?.id ?? null;
     try {
-      const today = new Date().toISOString().split('T')[0]!;
-      await attendanceApi.create(projectId, siteId, {
-        workerId,
-        date:       today,
-        status,
-        checkInTime:  checkInTime || undefined,
-        notes:        notes       || undefined,
-      });
+      await attendanceApi.create(projectId, siteId, data);
       onSaved();
       onClose();
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
-        'Failed to save attendance';
-      Alert.alert('Error', msg);
+      if (shouldQueueAfterError(err)) {
+        await keepOffline(data, savedBy);
+      } else {
+        const msg =
+          (err as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+          'Failed to save attendance';
+        Alert.alert('Error', msg);
+      }
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function keepOffline(data: Record<string, unknown>, savedBy: string | null) {
+    const worker = workers.find((w) => w.id === data['workerId']);
+    const label = `${worker ? `${worker.firstName} ${worker.lastName}` : 'Attendance'} · ${STATUS_LABELS[status]} · ${String(data['date'])}`;
+    try {
+      const outcome = enqueueOutcome(await offlineQueue.enqueue('attendance_create', { projectId, siteId, data }, { userId: savedBy, label }), 'Attendance');
+      Alert.alert(outcome.title, outcome.message);
+      if (!outcome.saved) return; // the form stays open with what was entered
+      onSaved();
+      onClose();
+    } catch {
+      Alert.alert('Not saved', 'The server could not be reached and the record could not be saved on this phone. Try again.');
     }
   }
 
@@ -677,6 +712,11 @@ function SupervisorAttendance({
                 {selSite  ? <View style={S.contextPill}><Text style={S.contextPillText}>{selSite.name}</Text></View>  : null}
               </View>
             )}
+
+            {/* Records saved on this phone while offline */}
+            <View style={{ marginHorizontal: -16 }}>
+              <OfflineSyncPanel onSynced={() => { if (selProj && selSite) void loadRecords(selProj.id, selSite.id); }} />
+            </View>
 
             {/* Mark Attendance button */}
             {selProj && selSite ? (

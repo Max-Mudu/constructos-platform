@@ -196,3 +196,6 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Type-check
         run: npx tsc --noEmit -p .
+      # Offline queue rules: Node's own test runner runs the .ts tests directly (no React Native, no extra package).
+      - name: Test
+        run: npm test
