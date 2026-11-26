@@ -15,7 +15,7 @@ Work through this in order on the day of the first real-user deploy. Check off e
 ### T-minus: Before You Start
 
 - [ ] You have Railway CLI installed and are logged in (`railway login` — confirm no error)
-- [ ] You can reach Prisma Studio against the production database (`cd packages/api && npx prisma studio` — confirm tables load)
+- [ ] You can run a read-only SQL query against the production database (see DEPLOYMENT.md, "Support procedure"); do not edit production rows by hand
 - [ ] You have the pilot user names, emails, and roles written down
 - [ ] You have a feedback capture spreadsheet/doc open and ready
 - [ ] You have read SUPPORT.md and DEPLOYMENT.md once through this week
@@ -58,9 +58,10 @@ In Railway → Web service → Variables, confirm:
 
 ### Step 3 — Verify Admin Account
 
-- [ ] You can log in to the web app with the admin account you registered
+- [ ] The company and its first administrator were created with the operator command (DEPLOYMENT.md, "First company and administrator"); public registration stays off
+- [ ] The administrator completed the setup link and can log in to the web app
 - [ ] Dashboard loads (may show zeros — that is expected for a new account)
-- [ ] At least one Project and one Site exist (auto-created on registration, or create manually)
+- [ ] The administrator created the pilot project and site
 - [ ] Admin `defaultProjectId` and `defaultSiteId` are set — run:
 
   ```bash
@@ -68,18 +69,16 @@ In Railway → Web service → Variables, confirm:
   # Response should include defaultProjectId and defaultSiteId (not null)
   ```
 
-  If null: open Prisma Studio → `users` → find admin → set `defaultProjectId` and `defaultSiteId` from the `projects` and `jobsites` tables.
+  If null: the administrator chooses a default project and site in the web app.
 
 ---
 
 ### Step 4 — Take a Pre-Pilot Database Backup
 
-```bash
-# From your local terminal with Railway CLI
-railway run pg_dump $DATABASE_URL > backup-pilot-start-$(date +%Y%m%d-%H%M%S).sql
-```
+Follow DEPLOYMENT.md, "Backups and restore": take a custom-format `pg_dump -Fc` copy over the database's public connection string, encrypt it, and store it outside Railway.
 
-- [ ] Backup file created and stored somewhere safe (not on Railway)
+- [ ] Railway database backups are on
+- [ ] An encrypted off-platform backup exists and a restore test into a new database passed
 
 ---
 
@@ -120,19 +119,17 @@ eas build --profile preview --platform ios       # IPA for iOS pilot users (requ
 
 For each pilot user:
 
-1. **Register their account** — either let them self-register via the web app `/register`, or register on their behalf if they're not technical.
+1. **Create their account** — the company administrator adds them in the web app under **Settings → Team**, with their project and site. Each user receives a setup email and chooses their own password. Public self-registration is off in production.
 
-   > If self-registering: each user creates their own company. You'll want them all in the **same company** for a realistic multi-user test. Use the Members/invite flow after the first admin registers.
-
-2. **Assign the correct role** — via Prisma Studio → `users` → set `role`:
+2. **Choose the correct role** when creating the account:
    - Site supervisor: `site_supervisor`
    - Finance officer: `finance_officer`
    - Project manager: `project_manager`
-   - Worker: `worker`
+   (Workers are site records, not sign-in accounts, in the pilot.)
 
 3. **Confirm their `defaultProjectId` / `defaultSiteId`** are set — same check as Step 3.
 
-- [ ] All pilot users registered and roles assigned
+- [ ] All pilot user accounts created with the right roles, and every user completed the setup email
 - [ ] All pilot users have non-null `defaultProjectId` and `defaultSiteId`
 - [ ] Each user can log in to web or mobile and reach the dashboard
 
@@ -151,9 +148,9 @@ For each pilot user:
 
 - [ ] SUPPORT.md is open in a tab or printed
 - [ ] Railway logs are accessible (`railway logs --tail` or Railway dashboard Logs tab)
-- [ ] Prisma Studio is accessible against production
+- [ ] A read-only SQL session against production is available for support queries
 - [ ] Feedback capture spreadsheet is open
-- [ ] You know the rollback steps (DEPLOYMENT.md §Rollback Procedure) by heart or have them open
+- [ ] You know the rollback steps (DEPLOYMENT.md, "Rollback") by heart or have them open
 
 ---
 
